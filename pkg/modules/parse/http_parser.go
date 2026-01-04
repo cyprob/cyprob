@@ -36,13 +36,45 @@ type HTTPParsedInfo struct {
 	StatusMessage string            `json:"status_message,omitempty"`
 	Headers       map[string]string `json:"headers,omitempty"` // Stores first value for each header
 	// More specific fields can be extracted from headers if needed:
-	ServerProduct string `json:"server_product,omitempty"`
-	ServerVersion string `json:"server_version,omitempty"`
-	ContentType   string `json:"content_type,omitempty"`
-	ContentLength int64  `json:"content_length,omitempty"`
-	HTMLTitle     string `json:"html_title,omitempty"`
-	RawBanner     string `json:"-"` // Store raw banner for reference, not for marshaling
-	ParseError    string `json:"parse_error,omitempty"`
+	ServerProduct   string               `json:"server_product,omitempty"`
+	ServerVersion   string               `json:"server_version,omitempty"`
+	ContentType     string               `json:"content_type,omitempty"`
+	ContentLength   int64                `json:"content_length,omitempty"`
+	HTMLTitle       string               `json:"html_title,omitempty"`
+	SecurityHeaders *SecurityHeadersInfo `json:"security_headers,omitempty"` // Security header analysis
+	RawBanner       string               `json:"-"`                          // Store raw banner for reference, not for marshaling
+	ParseError      string               `json:"parse_error,omitempty"`
+}
+
+// SecurityHeadersInfo holds security-related HTTP header analysis.
+type SecurityHeadersInfo struct {
+	HSTS                *HSTSInfo `json:"hsts,omitempty"`
+	CSP                 *CSPInfo  `json:"csp,omitempty"`
+	XFrameOptions       string    `json:"x_frame_options,omitempty"`
+	XContentTypeOptions string    `json:"x_content_type_options,omitempty"`
+	XXSSProtection      string    `json:"x_xss_protection,omitempty"`
+	ReferrerPolicy      string    `json:"referrer_policy,omitempty"`
+	PermissionsPolicy   string    `json:"permissions_policy,omitempty"`
+
+	MissingHeaders  []string `json:"missing_headers"`
+	SecurityScore   int      `json:"security_score"` // 0-100
+	Recommendations []string `json:"recommendations"`
+}
+
+// HSTSInfo holds parsed Strict-Transport-Security header information.
+type HSTSInfo struct {
+	Present           bool `json:"present"`
+	MaxAge            int  `json:"max_age"`
+	IncludeSubDomains bool `json:"include_subdomains"`
+	Preload           bool `json:"preload"`
+}
+
+// CSPInfo holds parsed Content-Security-Policy header information.
+type CSPInfo struct {
+	Present      bool              `json:"present"`
+	Directives   map[string]string `json:"directives"`
+	UnsafeInline bool              `json:"unsafe_inline"` // Security risk
+	UnsafeEval   bool              `json:"unsafe_eval"`   // Security risk
 }
 
 // HTTPParserConfig holds configuration for this module (currently none).
@@ -259,7 +291,10 @@ func (m *HTTPParserModule) Execute(ctx context.Context, inputs map[string]interf
 			parsedInfo.ContentLength = cl
 		}
 
-		// 3. Optionally, try to parse HTML title from the beginning of the body
+		// 3. Parse security headers
+		parsedInfo.SecurityHeaders = parseSecurityHeaders(parsedInfo.Headers)
+
+		// 4. Optionally, try to parse HTML title from the beginning of the body
 		if strings.HasPrefix(strings.ToLower(parsedInfo.ContentType), "text/html") {
 			// The rest of the reader 'tp.R' contains the body.
 			// We need to find where headers ended in the original banner.
@@ -276,7 +311,13 @@ func (m *HTTPParserModule) Execute(ctx context.Context, inputs map[string]interf
 			}
 		}
 
-		logger.Debug().Str("target", bannerResult.IP).Int("port", bannerResult.Port).Int("status", parsedInfo.StatusCode).Str("server", parsedInfo.ServerProduct).Msg("HTTP banner parsed")
+		logger.Debug().
+			Str("target", bannerResult.IP).
+			Int("port", bannerResult.Port).
+			Int("status", parsedInfo.StatusCode).
+			Str("server", parsedInfo.ServerProduct).
+			Int("security_score", parsedInfo.SecurityHeaders.SecurityScore).
+			Msg("HTTP banner parsed")
 
 		// Real-time output: Emit HTTP service detection to user
 		if out != nil {
@@ -286,6 +327,10 @@ func (m *HTTPParserModule) Execute(ctx context.Context, inputs map[string]interf
 			}
 			if parsedInfo.HTMLTitle != "" {
 				message += fmt.Sprintf(" - %s", parsedInfo.HTMLTitle)
+			}
+			// Add security score to output
+			if parsedInfo.SecurityHeaders != nil {
+				message += fmt.Sprintf(" [Security: %d/100]", parsedInfo.SecurityHeaders.SecurityScore)
 			}
 			out.Diag(output.LevelNormal, message, nil)
 		}
@@ -320,4 +365,198 @@ func HTTPParserModuleFactory() engine.Module {
 
 func init() {
 	engine.RegisterModuleFactory(httpParserModuleTypeName, HTTPParserModuleFactory)
+}
+
+// parseSecurityHeaders analyzes HTTP security headers and provides recommendations.
+func parseSecurityHeaders(headers map[string]string) *SecurityHeadersInfo {
+	info := &SecurityHeadersInfo{
+		MissingHeaders:  []string{},
+		Recommendations: []string{},
+		SecurityScore:   100, // Start perfect, deduct points for issues
+	}
+
+	// Check critical headers (HSTS, CSP)
+	checkCriticalSecurityHeaders(headers, info)
+
+	// Check protection headers (X-Frame-Options, X-Content-Type-Options, X-XSS-Protection)
+	checkProtectionHeaders(headers, info)
+
+	// Check policy headers (Referrer-Policy, Permissions-Policy)
+	checkPolicyHeaders(headers, info)
+
+	// Ensure score doesn't go negative
+	if info.SecurityScore < 0 {
+		info.SecurityScore = 0
+	}
+
+	return info
+}
+
+// checkCriticalSecurityHeaders checks HSTS and CSP headers.
+func checkCriticalSecurityHeaders(headers map[string]string, info *SecurityHeadersInfo) {
+	// Check HSTS
+	if hstsVal, ok := headers["Strict-Transport-Security"]; ok {
+		info.HSTS = parseHSTS(hstsVal)
+		if info.HSTS.MaxAge < 31536000 {
+			info.SecurityScore -= 5
+			info.Recommendations = append(info.Recommendations,
+				"HSTS max-age should be at least 31536000 (1 year)")
+		}
+		if !info.HSTS.IncludeSubDomains {
+			info.SecurityScore -= 5
+			info.Recommendations = append(info.Recommendations,
+				"HSTS should include 'includeSubDomains' directive")
+		}
+	} else {
+		info.MissingHeaders = append(info.MissingHeaders, "Strict-Transport-Security")
+		info.SecurityScore -= 20
+		info.Recommendations = append(info.Recommendations,
+			"Add Strict-Transport-Security: max-age=31536000; includeSubDomains; preload")
+	}
+
+	// Check CSP
+	if cspVal, ok := headers["Content-Security-Policy"]; ok {
+		info.CSP = parseCSP(cspVal)
+		if info.CSP.UnsafeInline {
+			info.SecurityScore -= 10
+			info.Recommendations = append(info.Recommendations,
+				"CSP contains 'unsafe-inline', consider using nonces or hashes")
+		}
+		if info.CSP.UnsafeEval {
+			info.SecurityScore -= 10
+			info.Recommendations = append(info.Recommendations,
+				"CSP contains 'unsafe-eval', remove if possible for better security")
+		}
+	} else {
+		info.MissingHeaders = append(info.MissingHeaders, "Content-Security-Policy")
+		info.SecurityScore -= 15
+		info.Recommendations = append(info.Recommendations,
+			"Add Content-Security-Policy header to prevent XSS attacks")
+	}
+}
+
+// checkProtectionHeaders checks X-Frame-Options, X-Content-Type-Options, and X-XSS-Protection.
+func checkProtectionHeaders(headers map[string]string, info *SecurityHeadersInfo) {
+	// Check X-Frame-Options
+	if xfo, ok := headers["X-Frame-Options"]; ok {
+		info.XFrameOptions = xfo
+		if xfo != "DENY" && xfo != "SAMEORIGIN" {
+			info.SecurityScore -= 5
+			info.Recommendations = append(info.Recommendations,
+				"X-Frame-Options should be DENY or SAMEORIGIN")
+		}
+	} else {
+		info.MissingHeaders = append(info.MissingHeaders, "X-Frame-Options")
+		info.SecurityScore -= 15
+		info.Recommendations = append(info.Recommendations,
+			"Add X-Frame-Options: DENY or SAMEORIGIN to prevent clickjacking")
+	}
+
+	// Check X-Content-Type-Options
+	if xcto, ok := headers["X-Content-Type-Options"]; ok {
+		info.XContentTypeOptions = xcto
+		if xcto != "nosniff" {
+			info.SecurityScore -= 5
+			info.Recommendations = append(info.Recommendations,
+				"X-Content-Type-Options should be 'nosniff'")
+		}
+	} else {
+		info.MissingHeaders = append(info.MissingHeaders, "X-Content-Type-Options")
+		info.SecurityScore -= 10
+		info.Recommendations = append(info.Recommendations,
+			"Add X-Content-Type-Options: nosniff to prevent MIME sniffing")
+	}
+
+	// Check X-XSS-Protection
+	if xxss, ok := headers["X-Xss-Protection"]; ok {
+		info.XXSSProtection = xxss
+	} else {
+		info.MissingHeaders = append(info.MissingHeaders, "X-XSS-Protection")
+		info.SecurityScore -= 5
+		info.Recommendations = append(info.Recommendations,
+			"Add X-XSS-Protection: 1; mode=block (legacy browsers)")
+	}
+}
+
+// checkPolicyHeaders checks Referrer-Policy and Permissions-Policy.
+func checkPolicyHeaders(headers map[string]string, info *SecurityHeadersInfo) {
+	// Check Referrer-Policy
+	if rp, ok := headers["Referrer-Policy"]; ok {
+		info.ReferrerPolicy = rp
+	} else {
+		info.MissingHeaders = append(info.MissingHeaders, "Referrer-Policy")
+		info.SecurityScore -= 5
+		info.Recommendations = append(info.Recommendations,
+			"Add Referrer-Policy: strict-origin-when-cross-origin")
+	}
+
+	// Check Permissions-Policy
+	if pp, ok := headers["Permissions-Policy"]; ok {
+		info.PermissionsPolicy = pp
+	} else {
+		info.MissingHeaders = append(info.MissingHeaders, "Permissions-Policy")
+		info.SecurityScore -= 5
+		info.Recommendations = append(info.Recommendations,
+			"Add Permissions-Policy to control browser features")
+	}
+}
+
+// parseHSTS parses the Strict-Transport-Security header.
+func parseHSTS(value string) *HSTSInfo {
+	hsts := &HSTSInfo{Present: true}
+
+	// Parse directives: max-age=31536000; includeSubDomains; preload
+	parts := strings.Split(value, ";")
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if strings.HasPrefix(part, "max-age=") {
+			maxAgeStr := strings.TrimPrefix(part, "max-age=")
+			if maxAge, err := strconv.Atoi(maxAgeStr); err == nil {
+				hsts.MaxAge = maxAge
+			}
+		} else if part == "includeSubDomains" {
+			hsts.IncludeSubDomains = true
+		} else if part == "preload" {
+			hsts.Preload = true
+		}
+	}
+
+	return hsts
+}
+
+// parseCSP parses the Content-Security-Policy header.
+func parseCSP(value string) *CSPInfo {
+	csp := &CSPInfo{
+		Present:    true,
+		Directives: make(map[string]string),
+	}
+
+	// Parse directives: default-src 'self'; script-src 'unsafe-inline'; ...
+	directives := strings.Split(value, ";")
+	for _, directive := range directives {
+		directive = strings.TrimSpace(directive)
+		if directive == "" {
+			continue
+		}
+
+		parts := strings.SplitN(directive, " ", 2)
+		if len(parts) == 2 {
+			directiveName := strings.TrimSpace(parts[0])
+			directiveValue := strings.TrimSpace(parts[1])
+			csp.Directives[directiveName] = directiveValue
+
+			// Check for unsafe keywords
+			if strings.Contains(directiveValue, "'unsafe-inline'") {
+				csp.UnsafeInline = true
+			}
+			if strings.Contains(directiveValue, "'unsafe-eval'") {
+				csp.UnsafeEval = true
+			}
+		} else if len(parts) == 1 {
+			// Directive without value
+			csp.Directives[parts[0]] = ""
+		}
+	}
+
+	return csp
 }
