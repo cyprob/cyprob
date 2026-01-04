@@ -39,20 +39,26 @@ func runScanCommand(cmd *cobra.Command, args []string) error {
 	formatter := format.FromCommand(cmd)
 	out := setupOutputPipeline(cmd)
 
-	if len(args) == 0 {
+	// Collect targets from both --targets flag and positional arguments
+	targetFlags, _ := cmd.Flags().GetStringSlice("targets")
+	allTargets := make([]string, 0, len(targetFlags)+len(args))
+	allTargets = append(allTargets, targetFlags...)
+	allTargets = append(allTargets, args...)
+
+	if len(allTargets) == 0 {
 		return formatter.PrintTotalFailureSummary("scan", scanexec.ErrNoTargets, scanexec.ErrorCode(scanexec.ErrNoTargets))
 	}
 
 	logger := log.With().Str("command", "scan").Logger()
-	logger.Info().Strs("targets", args).Msg("Initializing scan command")
+	logger.Info().Strs("targets", allTargets).Msg("Initializing scan command")
 
 	// Output pipeline: Emit initialization event
 	out.Diag(output.LevelVerbose, "Initializing scan command", map[string]interface{}{
-		"targets": args,
+		"targets": allTargets,
 	})
 
 	// Bind flags to options using centralized binder
-	params, err := bind.BindScanOptions(cmd, args)
+	params, err := bind.BindScanOptions(cmd, allTargets)
 	if err != nil {
 		logger.Error().Err(err).Msg("Failed to bind scan options")
 		return formatter.PrintTotalFailureSummary("scan", err, scanexec.ErrorCode(err))
@@ -453,6 +459,7 @@ func getStatusIcon(status string) string {
 
 func init() {
 	// Flags for ScanCmd (ensure these are descriptive for the planner)
+	ScanCmd.Flags().StringSliceP("targets", "t", []string{}, "Target hosts/networks (can be used multiple times or comma-separated, e.g., -t 192.168.1.1,example.com or -t 192.168.1.1 -t example.com)")
 	ScanCmd.Flags().StringP("ports", "p", "", "Ports/port ranges for TCP scan (e.g., 'top-1000', '22,80,443', '1-65535')")
 	ScanCmd.Flags().String("profile", "", "Predefined scan profile (e.g., 'quick_discovery', 'full_vuln_scan')")
 	ScanCmd.Flags().String("level", "default", "Scan intensity level (e.g., 'light', 'default', 'comprehensive', 'intrusive')")
