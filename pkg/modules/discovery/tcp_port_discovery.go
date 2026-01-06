@@ -248,27 +248,42 @@ func (m *TCPPortDiscoveryModule) Execute(ctx context.Context, inputs map[string]
 	openPortsByTarget := make(map[string][]int)
 	var mapMutex sync.Mutex // To protect openPortsByTarget map
 
-	batchSize := 10 // Gruplama büyüklüğü
-	for i := 0; i < len(targetsToScan); i += batchSize {
-		end := min(i+batchSize, len(targetsToScan))
-		ipBatch := targetsToScan[i:end]
+	// Per-target streaming: Launch goroutine for each IP (no batch waiting)
+	for _, targetIP := range targetsToScan {
+		// Check for context cancellation before starting new target
+		select {
+		case <-ctx.Done():
+			fmt.Printf("[INFO] Module '%s' (instance: %s): Context canceled. Aborting further port scans.\n", m.meta.Name, m.meta.ID)
+			goto endLoops
+		default:
+		}
 
-		logger.Debug().Msgf("Scanning IP batch: %v", ipBatch)
+		wg.Add(1)
+		go func(ip string) {
+			defer wg.Done()
 
-		for _, targetIP := range ipBatch {
-			logger.Debug().Msgf("Scanning target: %s", targetIP)
+			startTime := time.Now()
+			logger.Debug().Msgf("Scanning target: %s", ip)
+
+			// Streaming event: Target started
+			engine.PublishEvent(ctx, engine.NewTargetStartedEvent(ip, "port_scan"))
+
+			var portWg sync.WaitGroup
+			ipPorts := make([]int, 0)
+			var ipMutex sync.Mutex
+
+			// Scan all ports for this IP
 			for _, port := range parsedPorts {
-				// Check for context cancellation before starting new goroutines
+				// Check context cancellation
 				select {
 				case <-ctx.Done():
-					fmt.Printf("[INFO] Module '%s' (instance: %s): Context canceled. Aborting further port scans.\n", m.meta.Name, m.meta.ID)
-					goto endLoops // Break out of both loops
+					return
 				default:
 				}
 
-				wg.Add(1)
-				go func(ip string, p int) {
-					defer wg.Done()
+				portWg.Add(1)
+				go func(p int) {
+					defer portWg.Done()
 					sem <- struct{}{}        // Acquire semaphore
 					defer func() { <-sem }() // Release semaphore
 
@@ -283,6 +298,12 @@ func (m *TCPPortDiscoveryModule) Execute(ctx context.Context, inputs map[string]
 					conn, err := net.DialTimeout("tcp", address, m.config.Timeout)
 					if err == nil {
 						_ = conn.Close()
+
+						// Store open port for this IP
+						ipMutex.Lock()
+						ipPorts = append(ipPorts, p)
+						ipMutex.Unlock()
+
 						mapMutex.Lock()
 						openPortsByTarget[ip] = append(openPortsByTarget[ip], p)
 						mapMutex.Unlock()
@@ -291,19 +312,26 @@ func (m *TCPPortDiscoveryModule) Execute(ctx context.Context, inputs map[string]
 						if out, ok := ctx.Value(output.OutputKey).(output.Output); ok {
 							out.Diag(output.LevelNormal, fmt.Sprintf("Open port: %s:%d/tcp", ip, p), nil)
 						}
+
+						// Streaming event: Port open (real-time)
+						engine.PublishEvent(ctx, engine.NewPortOpenEvent(ip, p, "tcp"))
 					}
-				}(targetIP, port)
+				}(port)
 			}
-		}
 
-		wg.Wait()
+			// Wait for all ports of THIS IP to complete
+			portWg.Wait()
 
-		logger.Debug().Msgf("Completed batch: %v", ipBatch)
+			duration := time.Since(startTime)
+			logger.Debug().Msgf("Completed target: %s (duration: %v, open ports: %d)", ip, duration, len(ipPorts))
 
+			// Streaming event: Target completed (IP-level!)
+			engine.PublishEvent(ctx, engine.NewTargetCompletedEvent(ip, "port_scan", ipPorts, duration))
+		}(targetIP)
 	}
 
 endLoops:
-	wg.Wait() // Wait for all goroutines to complete or be canceled
+	wg.Wait() // Wait for all targets to complete or be canceled
 	// Send aggregated results per target
 	for target, openPorts := range openPortsByTarget {
 		if len(openPorts) > 0 {
