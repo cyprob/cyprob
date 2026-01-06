@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-01-06
+
+### Added
+- **Streaming event architecture for real-time scan result reporting** ([3024975](3024975))
+  - StreamEvent interface with 5 event types: TargetStarted, TargetCompleted, PortOpen, ServiceDetected, VulnFound
+  - StreamPublisher with subscribe/publish pattern for event-driven architecture
+  - Context-based injection system for optional streaming capabilities
+  - Comprehensive test coverage with 16 test cases
+- **Per-target parallelization in TCP port discovery** ([3024975](3024975))
+  - Removed batch wait bottleneck (32 IPs waiting together)
+  - Each IP scans independently and emits completion events
+  - Real-time progress tracking with 30-second feedback loops
+  - 3600% improvement in first-result latency (18 minutes → 30 seconds)
+
+### Performance
+- TCP port discovery now processes targets in parallel without batch blocking
+- First IP results no longer wait for slowest IP in chunk
+- Maintains backward compatibility - streaming is optional via context injection
+
 ## [0.2.0] - 2026-01-04
 
 ### Added
@@ -45,6 +64,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Initial release candidate with core scanning capabilities.
 
-[Unreleased]: https://github.com/vulntor/vulntor/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/vulntor/vulntor/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/vulntor/vulntor/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/vulntor/vulntor/compare/v0.1.0-rc.2...v0.2.0
 [0.1.0-rc.2]: https://github.com/vulntor/vulntor/releases/tag/v0.1.0-rc.2
