@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"strings"
 	"sync"
 	"time"
 
@@ -244,7 +245,12 @@ func NewOrchestrator(dagDef *DAGDefinition) (*Orchestrator, error) {
 			}
 
 			if !foundProducerInDAG {
-				nodeLogger.Debug().Str("consumed_key", consumedKeyString).Msg("Consumed key not produced by any other DAG node; expected from initial inputs or to be optional.")
+				// Skip log for:
+				// 1. config.* keys - these are expected to come from Run() initialInputs
+				// 2. Optional keys - it's fine if they are missing
+				if !strings.HasPrefix(consumedKeyString, "config.") && !consumedContract.IsOptional {
+					nodeLogger.Debug().Str("consumed_key", consumedKeyString).Msg("Consumed key not produced by any other DAG node; expected from initial inputs or to be optional for this node to start.")
+				}
 			}
 		}
 	}
@@ -400,9 +406,14 @@ func (o *Orchestrator) Run(ctx context.Context, initialInputs map[string]any) (m
 							log.Debug().Str("node", node.instanceID).Str("input_key", consumedKeyString).Str("source_dependency", "dep.instanceID").Type("type_passed_to_module", val).Msg("Input from dependency added to nodeInputs")
 						}
 					} else {
-						// Optional input not found, module should handle this.
-						// If required and not found, module's Execute should error.
-						logger.Debug().Msgf("Orchestrator: Optional input key '%s' not found in dependencies or initial context for module '%s'.", consumedKeyString, node.instanceID)
+						// Input not found in dependencies or context.
+						if consumedContract.IsOptional {
+							// Optional input missing is normal/expected behavior
+							logger.Trace().Msgf("Orchestrator: Optional input key '%s' not found for module '%s' (skipping).", consumedKeyString, node.instanceID)
+						} else {
+							// Required input missing is a potential issue
+							logger.Warn().Msgf("Orchestrator: REQUIRED input key '%s' not found in dependencies or initial context for module '%s'. Module execution might fail.", consumedKeyString, node.instanceID)
+						}
 					}
 				} else {
 					if dataVal, dataOk := o.dataCtx.Get(consumedKeyString); dataOk {
