@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-02-10
+
+### Added
+- **New Module: Tech-Tagger** ([e01d620](e01d620))
+  - Implemented regex-based technology detection engine with custom rule support.
+  - Added automatic mapping of high-confidence fingerprints to technology tags (e.g., Apache -> apache, http_server).
+  - Integrated `tech_tags` field into JSON reports for richer service context.
+  - Supports dynamic rule loading via embedded YAML configuration.
+- **Service Enrichment**
+  - Updated `ServiceDetails` struct to include `TechTags` field.
+  - Enhanced `AssetProfileBuilder` to consume and aggregate tech tags from the new module.
+
+
 ## [0.3.0] - 2026-01-06
 
 ### Added
