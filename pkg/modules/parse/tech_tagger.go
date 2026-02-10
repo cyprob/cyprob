@@ -150,48 +150,9 @@ func (m *TechTaggerModule) Execute(ctx context.Context, inputs map[string]any, o
 		return targets[target][port]
 	}
 
-	// 1. Ingest Fingerprint Details (High Confidence Product/Version)
-	if raw, ok := inputs["service.fingerprint.details"]; ok {
-		if list, ok := raw.([]any); ok {
-			for _, item := range list {
-				if fp, ok := item.(FingerprintParsedInfo); ok {
-					d := getData(fp.Target, fp.Port)
-					d.Product = fp.Product
-					d.Version = fp.Version
-				}
-			}
-		}
-	}
-
-	// 2. Ingest HTTP Details (Headers & Banner)
-	if raw, ok := inputs["service.http.details"]; ok {
-		if list, ok := raw.([]any); ok {
-			for _, item := range list {
-				if httpInfo, ok := item.(HTTPParsedInfo); ok {
-					d := getData(httpInfo.Target, httpInfo.Port)
-					d.HTTPHeaders = httpInfo.Headers
-					// If banner is empty from fingerprint/scan, usage this raw banner
-					if d.Banner == "" {
-						d.Banner = httpInfo.RawBanner
-					}
-				}
-			}
-		}
-	}
-
-	// 3. Ingest Raw Banner (Fallback)
-	if raw, ok := inputs["service.banner.tcp"]; ok {
-		if list, ok := raw.([]any); ok {
-			for _, item := range list {
-				if b, ok := item.(scan.BannerGrabResult); ok {
-					d := getData(b.IP, b.Port)
-					if d.Banner == "" {
-						d.Banner = b.Banner
-					}
-				}
-			}
-		}
-	}
+	m.ingestFingerprints(inputs, getData)
+	m.ingestHTTP(inputs, getData)
+	m.ingestBanners(inputs, getData)
 
 	// Process all gathered data
 	count := 0
@@ -223,6 +184,55 @@ func (m *TechTaggerModule) Execute(ctx context.Context, inputs map[string]any, o
 		logger.Debug().Msg("Tech tagging completed (no tags generated)")
 	}
 	return nil
+}
+
+// ingestFingerprints processes FingerprintParsedInfo from inputs
+func (m *TechTaggerModule) ingestFingerprints(inputs map[string]any, getData func(string, int) *targetData) {
+	if raw, ok := inputs["service.fingerprint.details"]; ok {
+		if list, ok := raw.([]any); ok {
+			for _, item := range list {
+				if fp, ok := item.(FingerprintParsedInfo); ok {
+					d := getData(fp.Target, fp.Port)
+					d.Product = fp.Product
+					d.Version = fp.Version
+				}
+			}
+		}
+	}
+}
+
+// ingestHTTP processes HTTPParsedInfo from inputs
+func (m *TechTaggerModule) ingestHTTP(inputs map[string]any, getData func(string, int) *targetData) {
+	if raw, ok := inputs["service.http.details"]; ok {
+		if list, ok := raw.([]any); ok {
+			for _, item := range list {
+				if httpInfo, ok := item.(HTTPParsedInfo); ok {
+					d := getData(httpInfo.Target, httpInfo.Port)
+					d.HTTPHeaders = httpInfo.Headers
+					// If banner is empty from fingerprint/scan, usage this raw banner
+					if d.Banner == "" {
+						d.Banner = httpInfo.RawBanner
+					}
+				}
+			}
+		}
+	}
+}
+
+// ingestBanners processes BannerGrabResult from inputs
+func (m *TechTaggerModule) ingestBanners(inputs map[string]any, getData func(string, int) *targetData) {
+	if raw, ok := inputs["service.banner.tcp"]; ok {
+		if list, ok := raw.([]any); ok {
+			for _, item := range list {
+				if b, ok := item.(scan.BannerGrabResult); ok {
+					d := getData(b.IP, b.Port)
+					if d.Banner == "" {
+						d.Banner = b.Banner
+					}
+				}
+			}
+		}
+	}
 }
 
 type targetData struct {
