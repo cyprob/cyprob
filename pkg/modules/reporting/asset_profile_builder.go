@@ -50,6 +50,7 @@ func newAssetProfileBuilderModule() *AssetProfileBuilderModule {
 				{Key: "service.http.details", DataTypeName: "parse.HTTPParsedInfo", Cardinality: engine.CardinalityList, IsOptional: true},                 // []interface{}{HTTPParsedInfo1, ...}
 				{Key: "service.ssh.details", DataTypeName: "parse.SSHParsedInfo", Cardinality: engine.CardinalityList, IsOptional: true},                   // []interface{}{SSHParsedInfo1, ...}
 				{Key: "service.fingerprint.details", DataTypeName: "parse.FingerprintParsedInfo", Cardinality: engine.CardinalityList, IsOptional: true},   // []interface{}{FingerprintParsedInfo1, ...}
+				{Key: "service.tech.tags", DataTypeName: "parse.TechTagResult", Cardinality: engine.CardinalityList, IsOptional: true},                     // []interface{}{TechTagResult1, ...}
 				{Key: "evaluation.vulnerabilities", DataTypeName: "evaluation.VulnerabilityResult", Cardinality: engine.CardinalityList, IsOptional: true}, // []interface{}{VulnerabilityResult1, ...}
 			},
 			Produces: []engine.DataContractEntry{
@@ -154,6 +155,17 @@ func (m *AssetProfileBuilderModule) Execute(ctx context.Context, inputs map[stri
 			for _, item := range list {
 				if casted, castOk := item.(parse.FingerprintParsedInfo); castOk {
 					fingerprintDetails = append(fingerprintDetails, casted)
+				}
+			}
+		}
+	}
+
+	techTagResults := []parse.TechTagResult{}
+	if rawTags, ok := inputs["service.tech.tags"]; ok {
+		if list, listOk := rawTags.([]any); listOk {
+			for _, item := range list {
+				if casted, castOk := item.(parse.TechTagResult); castOk {
+					techTagResults = append(techTagResults, casted)
 				}
 			}
 		}
@@ -300,6 +312,14 @@ func (m *AssetProfileBuilderModule) Execute(ctx context.Context, inputs map[stri
 							}
 							portProfile.Service.ParsedAttributes["ssh_protocol_version"] = sshDetail.SSHVersion
 							portProfile.Service.ParsedAttributes["ssh_full_version_info"] = sshDetail.VersionInfo
+							break
+						}
+					}
+
+					// Bu porta ait tech tagleri bul
+					for _, tags := range techTagResults {
+						if tags.Target == targetIP && tags.Port == portNum {
+							portProfile.Service.TechTags = tags.Tags
 							break
 						}
 					}

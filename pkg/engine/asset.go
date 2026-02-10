@@ -63,6 +63,7 @@ type ServiceDetails struct {
 	Name             string             `json:"name,omitempty" yaml:"name,omitempty"`             // e.g., SSH, HTTP
 	Product          string             `json:"product,omitempty" yaml:"product,omitempty"`       // e.g., OpenSSH, Nginx (parser'dan gelen daha spesifik ürün adı)
 	Version          string             `json:"version,omitempty" yaml:"version,omitempty"`       // e.g., 8.2p1, 1.22.1
+	TechTags         []string           `json:"tech_tags,omitempty" yaml:"tech_tags,omitempty"`   // e.g., [apache, httpd, mod_ssl]
 	RawBanner        string             `json:"raw_banner,omitempty" yaml:"raw_banner,omitempty"` // Raw banner captured
 	IsTLS            bool               `json:"is_tls,omitempty" yaml:"is_tls,omitempty"`
 	ParsedAttributes map[string]any     `json:"parsed_attributes,omitempty" yaml:"parsed_attributes,omitempty"` // HTTP headers, SSH specific details, etc.
