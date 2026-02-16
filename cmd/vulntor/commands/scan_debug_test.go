@@ -22,10 +22,13 @@ type scanDebugTestOutput struct {
 		OpenPorts []int  `json:"open_ports"`
 	} `json:"open_ports"`
 	Banners []struct {
-		IP     string `json:"ip"`
-		Port   int    `json:"port"`
-		Banner string `json:"banner"`
-		Error  string `json:"error"`
+		IP            string `json:"ip"`
+		ResolvedIP    string `json:"resolved_ip"`
+		ProbeHost     string `json:"probe_host"`
+		SNIServerName string `json:"sni_server_name"`
+		Port          int    `json:"port"`
+		Banner        string `json:"banner"`
+		Error         string `json:"error"`
 	} `json:"banners"`
 	Fingerprints []struct {
 		Target  string `json:"target"`
@@ -70,6 +73,8 @@ func TestScanDebugTargetJSONSmoke(t *testing.T) {
 	require.NotEmpty(t, payload.ResolvedTargets)
 	require.True(t, containsPort(payload.OpenPorts, port), "expected open port %d in output", port)
 	require.NotEmpty(t, payload.Banners)
+	require.Equal(t, payload.Banners[0].IP, payload.Banners[0].ResolvedIP)
+	require.Equal(t, "127.0.0.1", payload.Banners[0].ProbeHost)
 	require.NotEmpty(t, payload.Fingerprints)
 	require.NotEmpty(t, payload.TechTags)
 	require.True(t, hasTag(payload.TechTags, "ssh"), "expected ssh tag in tech_tags")

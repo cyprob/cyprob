@@ -44,13 +44,16 @@ type BannerGrabConfig struct {
 // BannerGrabResult holds the banner information for a specific port.
 // This will be the 'Data' in ModuleOutput with DataKey "service.banner.raw".
 type BannerGrabResult struct {
-	IP       string                    `json:"ip"`
-	Port     int                       `json:"port"`
-	Protocol string                    `json:"protocol"`
-	Banner   string                    `json:"banner"`
-	IsTLS    bool                      `json:"is_tls"`
-	Error    string                    `json:"error,omitempty"`
-	Evidence []engine.ProbeObservation `json:"evidence,omitempty"`
+	IP            string                    `json:"ip"`
+	ResolvedIP    string                    `json:"resolved_ip,omitempty"`
+	ProbeHost     string                    `json:"probe_host,omitempty"`
+	SNIServerName string                    `json:"sni_server_name,omitempty"`
+	Port          int                       `json:"port"`
+	Protocol      string                    `json:"protocol"`
+	Banner        string                    `json:"banner"`
+	IsTLS         bool                      `json:"is_tls"`
+	Error         string                    `json:"error,omitempty"`
+	Evidence      []engine.ProbeObservation `json:"evidence,omitempty"`
 }
 
 type commandProbeSpec struct {
@@ -397,12 +400,17 @@ func (m *BannerGrabModule) runProbes(ctx context.Context, target string, probeHo
 	}
 
 	result := BannerGrabResult{
-		IP:       target,
-		Port:     port,
-		Protocol: "tcp",
-		Banner:   strings.TrimSpace(bestBanner),
-		IsTLS:    bestIsTLS,
-		Evidence: observations,
+		IP:         target,
+		ResolvedIP: target,
+		ProbeHost:  probeHost,
+		Port:       port,
+		Protocol:   "tcp",
+		Banner:     strings.TrimSpace(bestBanner),
+		IsTLS:      bestIsTLS,
+		Evidence:   observations,
+	}
+	if shouldExposeSNI(observations) {
+		result.SNIServerName = chooseTLSServerName(probeHost, target)
 	}
 
 	if result.Banner == "" && lastError != "" {
@@ -465,10 +473,10 @@ func (m *BannerGrabModule) executeProbeSpec(ctx context.Context, dialHost string
 		UseTLS:          spec.UseTLS,
 		SkipInitialRead: spec.SkipInitialRead,
 	}
-	return m.runCommandProbe(ctx, dialHost, port, cmdSpec)
+	return m.runCommandProbe(ctx, dialHost, probeHost, port, cmdSpec)
 }
 
-func (m *BannerGrabModule) runCommandProbe(ctx context.Context, dialHost string, port int, spec commandProbeSpec) engine.ProbeObservation {
+func (m *BannerGrabModule) runCommandProbe(ctx context.Context, dialHost string, probeHost string, port int, spec commandProbeSpec) engine.ProbeObservation {
 	obs := engine.ProbeObservation{
 		ProbeID:     spec.ProbeID,
 		Description: spec.Description,
@@ -487,10 +495,11 @@ func (m *BannerGrabModule) runCommandProbe(ctx context.Context, dialHost string,
 	)
 
 	if spec.UseTLS {
+		serverName := chooseTLSServerName(probeHost, dialHost)
 		var tlsConn *tls.Conn
 		tlsConn, err = tls.DialWithDialer(dialer, "tcp", address, &tls.Config{
 			InsecureSkipVerify: m.config.TLSInsecureSkipVerify,
-			ServerName:         dialHost,
+			ServerName:         serverName,
 		})
 		if err == nil {
 			tlsInfo = extractTLSObservation(tlsConn.ConnectionState())
@@ -678,6 +687,23 @@ func resolveProbeHostOverride(originalTargets []string) string {
 		return ""
 	}
 	return target
+}
+
+func chooseTLSServerName(probeHost, dialHost string) string {
+	host := strings.TrimSpace(probeHost)
+	if host != "" && net.ParseIP(host) == nil {
+		return host
+	}
+	return dialHost
+}
+
+func shouldExposeSNI(observations []engine.ProbeObservation) bool {
+	for _, obs := range observations {
+		if obs.IsTLS {
+			return true
+		}
+	}
+	return false
 }
 
 func portHintsFromCatalog(catalog *fingerprint.ProbeCatalog, port int) []string {

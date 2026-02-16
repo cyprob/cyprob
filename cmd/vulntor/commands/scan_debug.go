@@ -153,7 +153,8 @@ func runScanDebugTarget(cmd *cobra.Command, target string, opts scanDebugTargetO
 	}
 
 	bannerInputs := map[string]any{
-		"discovery.open_tcp_ports": toAnySlice(openPorts),
+		"discovery.open_tcp_ports":    toAnySlice(openPorts),
+		"config.original_cli_targets": []string{target},
 	}
 	bannerOutputs, bannerExecErr := executeDebugModule(ctx, bannerModule, bannerInputs)
 	if bannerExecErr != nil {

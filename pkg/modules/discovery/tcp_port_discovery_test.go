@@ -349,3 +349,38 @@ func TestTCPPortDiscoveryModule_Execute_ContextCancelled(t *testing.T) {
 	}
 	// No outputs expected, but should not panic or deadlock
 }
+
+func TestBuildHostnameByIPMap(t *testing.T) {
+	originalLookup := lookupHost
+	t.Cleanup(func() { lookupHost = originalLookup })
+
+	lookupHost = func(host string) ([]string, error) {
+		switch host {
+		case "app.example":
+			return []string{"10.0.0.10", "10.0.0.11"}, nil
+		case "db.example":
+			return []string{"10.0.0.10"}, nil
+		default:
+			return nil, context.DeadlineExceeded
+		}
+	}
+
+	m := buildHostnameByIPMap([]string{
+		"app.example",
+		"db.example",
+		"10.0.0.20",
+		"10.0.0.0/24",
+		"10.0.1.1-10.0.1.5",
+	})
+
+	// First hostname wins for same IP to keep deterministic behavior.
+	if got := m["10.0.0.10"]; got != "app.example" {
+		t.Fatalf("ip 10.0.0.10 hostname = %q, want app.example", got)
+	}
+	if got := m["10.0.0.11"]; got != "app.example" {
+		t.Fatalf("ip 10.0.0.11 hostname = %q, want app.example", got)
+	}
+	if _, ok := m["10.0.0.20"]; ok {
+		t.Fatalf("expected raw IP target not to be treated as hostname source")
+	}
+}

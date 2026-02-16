@@ -47,6 +47,8 @@ const (
 	defaultTCPPorts                = "1-1024" // Default common ports or a well-known range
 )
 
+var lookupHost = net.LookupHost
+
 // newTCPPortDiscoveryModule is the internal constructor for the module.
 // It sets up metadata and initializes the config with default values.
 func newTCPPortDiscoveryModule() *TCPPortDiscoveryModule {
@@ -189,6 +191,7 @@ func (m *TCPPortDiscoveryModule) Init(instanceID string, moduleConfig map[string
 //nolint:gocyclo // Complexity inherited from existing implementation
 func (m *TCPPortDiscoveryModule) Execute(ctx context.Context, inputs map[string]any, outputChan chan<- engine.ModuleOutput) error {
 	var targetsToScan []string
+	hostnameByIP := make(map[string]string)
 
 	logger := log.With().Str("module", m.meta.Name).Str("instance_id", m.meta.ID).Logger()
 
@@ -198,9 +201,11 @@ func (m *TCPPortDiscoveryModule) Execute(ctx context.Context, inputs map[string]
 		logger.Debug().Msgf("Using %d live hosts from input 'discovery.live_hosts'.", len(targetsToScan))
 	} else if configTargets, ok := inputs["config.targets"].([]string); ok && len(configTargets) > 0 {
 		targetsToScan = netutil.ParseAndExpandTargets(configTargets)
+		hostnameByIP = buildHostnameByIPMap(configTargets)
 		logger.Debug().Msgf("Using %d targets from input 'config.targets', expanded to %d IPs.", len(configTargets), len(targetsToScan))
 	} else if len(m.config.Targets) > 0 {
 		targetsToScan = netutil.ParseAndExpandTargets(m.config.Targets)
+		hostnameByIP = buildHostnameByIPMap(m.config.Targets)
 		fmt.Printf("[DEBUG] Module '%s': Using %d targets from module config, expanded to %d IPs.\n", m.meta.Name, len(m.config.Targets), len(targetsToScan))
 	} else {
 		err := fmt.Errorf("module '%s': no targets specified through inputs or module configuration", m.meta.Name)
@@ -337,7 +342,11 @@ endLoops:
 		if len(openPorts) > 0 {
 			// Sort openPorts for consistent output if necessary
 			// sort.Ints(openPorts)
-			result := TCPPortDiscoveryResult{Target: target, OpenPorts: openPorts}
+			result := TCPPortDiscoveryResult{
+				Target:    target,
+				Hostname:  hostnameByIP[target],
+				OpenPorts: openPorts,
+			}
 			outputChan <- engine.ModuleOutput{
 				FromModuleName: m.meta.ID,
 				DataKey:        m.meta.Produces[0].Key, // "discovery.open_tcp_ports"
@@ -367,4 +376,38 @@ func init() {
 	// Register the module factory with Vulntor's core module registry.
 	// The name "tcp-port-discovery" will be used in DAG definitions to instantiate this module.
 	engine.RegisterModuleFactory(tcpPortDiscoveryModuleTypeName, TCPPortDiscoveryModuleFactory)
+}
+
+func buildHostnameByIPMap(targets []string) map[string]string {
+	out := make(map[string]string)
+	for _, raw := range targets {
+		target := strings.TrimSpace(raw)
+		if target == "" {
+			continue
+		}
+		// Keep existing behavior for CIDR/range/IP targets.
+		if strings.Contains(target, "/") || strings.Contains(target, "-") {
+			continue
+		}
+		if net.ParseIP(target) != nil {
+			continue
+		}
+
+		ips, err := lookupHost(target)
+		if err != nil {
+			continue
+		}
+
+		for _, ipRaw := range ips {
+			parsed := net.ParseIP(ipRaw)
+			if parsed == nil {
+				continue
+			}
+			ip := parsed.String()
+			if _, exists := out[ip]; !exists {
+				out[ip] = target
+			}
+		}
+	}
+	return out
 }

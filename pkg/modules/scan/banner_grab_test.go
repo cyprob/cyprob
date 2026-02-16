@@ -288,6 +288,20 @@ func TestResolveProbeHostOverride(t *testing.T) {
 	}
 }
 
+func TestChooseTLSServerName(t *testing.T) {
+	t.Parallel()
+
+	if got := chooseTLSServerName("mail.example.com", "203.0.113.10"); got != "mail.example.com" {
+		t.Fatalf("expected hostname for SNI, got %q", got)
+	}
+	if got := chooseTLSServerName("203.0.113.10", "203.0.113.10"); got != "203.0.113.10" {
+		t.Fatalf("expected dial host fallback for IP probe host, got %q", got)
+	}
+	if got := chooseTLSServerName("", "203.0.113.10"); got != "203.0.113.10" {
+		t.Fatalf("expected dial host fallback for empty probe host, got %q", got)
+	}
+}
+
 func listenOnPreferredPort(t *testing.T, ports []int) net.Listener {
 	t.Helper()
 	var lastErr error
