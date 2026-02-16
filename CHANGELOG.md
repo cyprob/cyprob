@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-02-16
+
+### Added
+- Internal debug CLI command: `scan-debug target <host-or-ip>`
+  - Step-by-step visibility for resolve -> port discovery -> banner -> fingerprint -> tech tags.
+  - JSON/pretty output with step-level errors and warnings.
+- Domain-to-IP context propagation for probes
+  - Preserves original hostname after DNS resolution.
+  - Applies `Host` and TLS SNI correctly for domain targets.
+- Canonical mail-focused tech tagging baseline
+  - Added canonical tag source-of-truth and normalization/alias handling.
+  - Added Phase-1 mail stack rules (`mail_service`, `smtp`, `imap`, `pop3`, `webmail`, vendor/product mail tags).
+  - Added guard tests to fail on non-canonical tag emission.
+
+### Fixed
+- Reduced WinRM false positives in fingerprint attribution for HTTP 400-style responses.
+- Normalized `https-get` request crafting to canonical HTTP/1.1 request format, reducing false `400 Bad Request` responses.
+- Corrected `source_probe` attribution visibility in scan-debug evidence flow.
+
+### Changed
+- Go module path migrated to `github.com/cyprob/cyprob`.
+- Added roadmap document for tech-tagger Phase 2/3 planning: `_docs/tech-tagger-roadmap.md`.
+
 ## [0.4.0] - 2026-02-10
 
 ### Added
@@ -77,7 +100,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Initial release candidate with core scanning capabilities.
 
-[Unreleased]: https://github.com/vulntor/vulntor/compare/v0.3.0...HEAD
-[0.3.0]: https://github.com/vulntor/vulntor/compare/v0.2.0...v0.3.0
-[0.2.0]: https://github.com/vulntor/vulntor/compare/v0.1.0-rc.2...v0.2.0
-[0.1.0-rc.2]: https://github.com/vulntor/vulntor/releases/tag/v0.1.0-rc.2
+[Unreleased]: https://github.com/cyprob/cyprob/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/cyprob/cyprob/compare/v0.4.0...v0.5.0
+[0.4.0]: https://github.com/cyprob/cyprob/compare/v0.3.0...v0.4.0
+[0.3.0]: https://github.com/cyprob/cyprob/compare/v0.2.0...v0.3.0
+[0.2.0]: https://github.com/cyprob/cyprob/compare/v0.1.0-rc.2...v0.2.0
+[0.1.0-rc.2]: https://github.com/cyprob/cyprob/releases/tag/v0.1.0-rc.2
