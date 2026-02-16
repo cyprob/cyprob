@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/vulntor/vulntor/pkg/engine"
+	"github.com/vulntor/vulntor/pkg/fingerprint"
 )
 
 func mustListenTCP(t *testing.T, addr string) net.Listener {
@@ -227,7 +228,7 @@ func TestRunProbesCollectsHTTPEvidence(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	result := module.runProbes(ctx, host, port)
+	result := module.runProbes(ctx, host, host, port)
 	if result.Banner == "" || !strings.Contains(result.Banner, "HTTP/1.1") {
 		t.Fatalf("expected HTTP banner in result, got %q", result.Banner)
 	}
@@ -248,6 +249,42 @@ func TestRunProbesCollectsHTTPEvidence(t *testing.T) {
 
 	if !foundHTTPProbe {
 		t.Fatalf("expected http-get probe in evidence")
+	}
+}
+
+func TestPrepareProbeCommands_DecodesEscapedCRLF(t *testing.T) {
+	t.Parallel()
+
+	spec := fingerprint.ProbeSpec{
+		ID:      "http-get",
+		Payload: `GET / HTTP/1.1\\r\\nHost: {HOST}\\r\\nConnection: close\\r\\n\\r\\n`,
+	}
+
+	cmds := prepareProbeCommands(spec, "example.com", 80)
+	if len(cmds) != 1 {
+		t.Fatalf("expected 1 probe command, got %d", len(cmds))
+	}
+
+	cmd := cmds[0]
+	if strings.Contains(cmd, `\r\n`) {
+		t.Fatalf("expected escaped CRLF to be decoded, got %q", cmd)
+	}
+	if !strings.Contains(cmd, "\r\nHost: example.com\r\n") {
+		t.Fatalf("expected canonical CRLF and host replacement, got %q", cmd)
+	}
+}
+
+func TestResolveProbeHostOverride(t *testing.T) {
+	t.Parallel()
+
+	if got := resolveProbeHostOverride([]string{"mail.netkedi.com"}); got != "mail.netkedi.com" {
+		t.Fatalf("expected hostname override, got %q", got)
+	}
+	if got := resolveProbeHostOverride([]string{"127.0.0.1"}); got != "" {
+		t.Fatalf("expected empty override for IP target, got %q", got)
+	}
+	if got := resolveProbeHostOverride([]string{"a.example", "b.example"}); got != "" {
+		t.Fatalf("expected empty override for multi-target input, got %q", got)
 	}
 }
 

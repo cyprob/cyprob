@@ -643,7 +643,7 @@ rules:
     product: 'WinRM'
     vendor: 'Microsoft'
     cpe: 'cpe:2.3:a:microsoft:winrm:*:*:*:*:*:*:*:*'
-    match: 'microsoft-httpapi/2\.0'
+    match: '(?s)(?:microsoft-httpapi/2\.0.*(?:wsman|application/soap\+xml|www-authenticate:\s*negotiate)|(?:wsman|application/soap\+xml|www-authenticate:\s*negotiate).*microsoft-httpapi/2\.0)'
 
     exclude_patterns:
       - "apache"

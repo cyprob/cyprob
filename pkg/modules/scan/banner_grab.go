@@ -101,6 +101,13 @@ func newBannerGrabModule() *BannerGrabModule {
 					IsOptional:   false,
 					Description:  "List of results, where each item details open TCP ports for a specific target.",
 				},
+				{
+					Key:          "config.original_cli_targets",
+					DataTypeName: "[]string",
+					Cardinality:  engine.CardinalitySingle,
+					IsOptional:   true,
+					Description:  "Original CLI targets used to preserve hostname for HTTP Host header during probes.",
+				},
 			},
 			Produces: []engine.DataContractEntry{
 				{
@@ -181,8 +188,9 @@ func (m *BannerGrabModule) Init(instanceID string, configMap map[string]any) err
 
 // TargetPortData represents a target IP and a port to scan.
 type TargetPortData struct {
-	Target string
-	Port   int
+	Target    string
+	ProbeHost string
+	Port      int
 }
 
 // Execute attempts to grab banners from open ports.
@@ -199,8 +207,16 @@ func (m *BannerGrabModule) Execute(ctx context.Context, inputs map[string]any, o
 		if openTCPPortsList, listOk := rawOpenTCPPorts.([]any); listOk {
 			for _, item := range openTCPPortsList {
 				if portResult, castOk := item.(discovery.TCPPortDiscoveryResult); castOk {
+					probeHost := strings.TrimSpace(portResult.Hostname)
+					if probeHost == "" {
+						probeHost = portResult.Target
+					}
 					for _, port := range portResult.OpenPorts {
-						scanTasks = append(scanTasks, TargetPortData{Target: portResult.Target, Port: port})
+						scanTasks = append(scanTasks, TargetPortData{
+							Target:    portResult.Target,
+							ProbeHost: probeHost,
+							Port:      port,
+						})
 					}
 				} else {
 					m.logger.Warn().Type("item_type", item).Msg("Item in 'discovery.open_tcp_ports' list is not of expected type discovery.TCPPortDiscoveryResult")
@@ -232,6 +248,13 @@ func (m *BannerGrabModule) Execute(ctx context.Context, inputs map[string]any, o
 
 	m.logger.Info().Int("tasks", len(scanTasks)).Int("concurrency", m.config.Concurrency).Msg("Starting banner grabbing")
 
+	originalTargets := readOriginalTargets(inputs)
+	if overrideHost := resolveProbeHostOverride(originalTargets); overrideHost != "" {
+		for i := range scanTasks {
+			scanTasks[i].ProbeHost = overrideHost
+		}
+	}
+
 	for _, task := range scanTasks {
 		select {
 		case <-ctx.Done():
@@ -243,11 +266,11 @@ func (m *BannerGrabModule) Execute(ctx context.Context, inputs map[string]any, o
 		wg.Add(1)
 		sem <- struct{}{}
 
-		go func(currentTarget string, currentPort int) {
+		go func(currentTarget string, currentProbeHost string, currentPort int) {
 			defer wg.Done()
 			defer func() { <-sem }()
 
-			result := m.runProbes(ctx, currentTarget, currentPort)
+			result := m.runProbes(ctx, currentTarget, currentProbeHost, currentPort)
 
 			// Real-time output: Emit banner grab result to user
 			if out, ok := ctx.Value(output.OutputKey).(output.Output); ok && result.Banner != "" {
@@ -279,7 +302,7 @@ func (m *BannerGrabModule) Execute(ctx context.Context, inputs map[string]any, o
 			case <-ctx.Done():
 				return
 			}
-		}(task.Target, task.Port)
+		}(task.Target, task.ProbeHost, task.Port)
 	}
 
 endLoop:
@@ -294,6 +317,7 @@ endLoop:
 func (m *BannerGrabModule) runActiveProbes(
 	ctx context.Context,
 	target string,
+	probeHost string,
 	port int,
 	catalog *fingerprint.ProbeCatalog,
 	observations *[]engine.ProbeObservation,
@@ -327,7 +351,7 @@ func (m *BannerGrabModule) runActiveProbes(
 		}
 		seen[spec.ID] = struct{}{}
 
-		obs := m.executeProbeSpec(ctx, target, port, spec)
+		obs := m.executeProbeSpec(ctx, target, probeHost, port, spec)
 		if respHint := protocolHintFromBanner(obs.Response); respHint != "" {
 			hintAcc.add(respHint)
 		}
@@ -346,7 +370,7 @@ func (m *BannerGrabModule) runActiveProbes(
 	}
 }
 
-func (m *BannerGrabModule) runProbes(ctx context.Context, target string, port int) BannerGrabResult {
+func (m *BannerGrabModule) runProbes(ctx context.Context, target string, probeHost string, port int) BannerGrabResult {
 	observations := make([]engine.ProbeObservation, 0, 8)
 	bestBanner := ""
 	bestIsTLS := false
@@ -369,7 +393,7 @@ func (m *BannerGrabModule) runProbes(ctx context.Context, target string, port in
 	m.collectObservation(&observations, passive, &bestBanner, &bestIsTLS, &lastError)
 
 	if m.config.SendProbes && ctx.Err() == nil && catalogErr == nil {
-		m.runActiveProbes(ctx, target, port, catalog, &observations, &bestBanner, &bestIsTLS, &lastError, &hintAcc)
+		m.runActiveProbes(ctx, target, probeHost, port, catalog, &observations, &bestBanner, &bestIsTLS, &lastError, &hintAcc)
 	}
 
 	result := BannerGrabResult{
@@ -431,8 +455,8 @@ func (m *BannerGrabModule) runPassiveProbe(ctx context.Context, target string, p
 	return obs
 }
 
-func (m *BannerGrabModule) executeProbeSpec(ctx context.Context, host string, port int, spec fingerprint.ProbeSpec) engine.ProbeObservation {
-	commands := prepareProbeCommands(spec, host, port)
+func (m *BannerGrabModule) executeProbeSpec(ctx context.Context, dialHost string, probeHost string, port int, spec fingerprint.ProbeSpec) engine.ProbeObservation {
+	commands := prepareProbeCommands(spec, probeHost, port)
 	cmdSpec := commandProbeSpec{
 		ProbeID:         spec.ID,
 		Description:     spec.Description,
@@ -441,10 +465,10 @@ func (m *BannerGrabModule) executeProbeSpec(ctx context.Context, host string, po
 		UseTLS:          spec.UseTLS,
 		SkipInitialRead: spec.SkipInitialRead,
 	}
-	return m.runCommandProbe(ctx, host, port, cmdSpec)
+	return m.runCommandProbe(ctx, dialHost, port, cmdSpec)
 }
 
-func (m *BannerGrabModule) runCommandProbe(ctx context.Context, host string, port int, spec commandProbeSpec) engine.ProbeObservation {
+func (m *BannerGrabModule) runCommandProbe(ctx context.Context, dialHost string, port int, spec commandProbeSpec) engine.ProbeObservation {
 	obs := engine.ProbeObservation{
 		ProbeID:     spec.ProbeID,
 		Description: spec.Description,
@@ -452,7 +476,7 @@ func (m *BannerGrabModule) runCommandProbe(ctx context.Context, host string, por
 		IsTLS:       spec.UseTLS,
 	}
 
-	address := net.JoinHostPort(host, strconv.Itoa(port))
+	address := net.JoinHostPort(dialHost, strconv.Itoa(port))
 	dialer := &net.Dialer{Timeout: m.config.ConnectTimeout}
 	start := time.Now()
 
@@ -466,7 +490,7 @@ func (m *BannerGrabModule) runCommandProbe(ctx context.Context, host string, por
 		var tlsConn *tls.Conn
 		tlsConn, err = tls.DialWithDialer(dialer, "tcp", address, &tls.Config{
 			InsecureSkipVerify: m.config.TLSInsecureSkipVerify,
-			ServerName:         host,
+			ServerName:         dialHost,
 		})
 		if err == nil {
 			tlsInfo = extractTLSObservation(tlsConn.ConnectionState())
@@ -611,12 +635,49 @@ func prepareProbeCommands(spec fingerprint.ProbeSpec, host string, port int) []s
 		return nil
 	}
 
-	payload := strings.ReplaceAll(spec.Payload, "{HOST}", host)
+	payload := decodeProbePayload(spec.Payload)
+	payload = strings.ReplaceAll(payload, "{HOST}", host)
 	if port > 0 {
 		payload = strings.ReplaceAll(payload, "{PORT}", strconv.Itoa(port))
 	}
 
 	return []string{payload}
+}
+
+func decodeProbePayload(payload string) string {
+	replacer := strings.NewReplacer(
+		`\\r\\n`, "\r\n",
+		`\\n`, "\n",
+		`\\r`, "\r",
+		`\\t`, "\t",
+	)
+	return replacer.Replace(payload)
+}
+
+func readOriginalTargets(inputs map[string]any) []string {
+	raw, ok := inputs["config.original_cli_targets"]
+	if !ok {
+		return nil
+	}
+	targets, ok := raw.([]string)
+	if !ok {
+		return nil
+	}
+	return targets
+}
+
+func resolveProbeHostOverride(originalTargets []string) string {
+	if len(originalTargets) != 1 {
+		return ""
+	}
+	target := strings.TrimSpace(originalTargets[0])
+	if target == "" {
+		return ""
+	}
+	if net.ParseIP(target) != nil {
+		return ""
+	}
+	return target
 }
 
 func portHintsFromCatalog(catalog *fingerprint.ProbeCatalog, port int) []string {

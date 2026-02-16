@@ -62,6 +62,39 @@ func TestResolve_BackwardCompatibility(t *testing.T) {
 	}
 }
 
+func TestResolve_WinRMRequiresAdditionalEvidence(t *testing.T) {
+	rules := []StaticRule{{
+		ID:       "http.winrm",
+		Protocol: "http",
+		Product:  "WinRM",
+		Vendor:   "Microsoft",
+		CPE:      "cpe:2.3:a:microsoft:winrm:*:*:*:*:*:*:*:*",
+		Match:    `(?s)(?:microsoft-httpapi/2\.0.*(?:wsman|application/soap\+xml|www-authenticate:\s*negotiate)|(?:wsman|application/soap\+xml|www-authenticate:\s*negotiate).*microsoft-httpapi/2\.0)`,
+	}}
+	rb := NewRuleBasedResolver(rules)
+
+	_, err := rb.Resolve(context.TODO(), Input{
+		Protocol: "http",
+		Banner:   "HTTP/1.1 400 Bad Request\r\nServer: Microsoft-HTTPAPI/2.0\r\n\r\n",
+		Port:     80,
+	})
+	if err == nil {
+		t.Fatalf("expected no match without wsman/soap/auth evidence")
+	}
+
+	res, err := rb.Resolve(context.TODO(), Input{
+		Protocol: "http",
+		Banner:   "HTTP/1.1 401 Unauthorized\r\nServer: Microsoft-HTTPAPI/2.0\r\nWWW-Authenticate: Negotiate\r\n\r\n",
+		Port:     5985,
+	})
+	if err != nil {
+		t.Fatalf("expected match with auth evidence, got %v", err)
+	}
+	if res.Product != "WinRM" {
+		t.Fatalf("expected WinRM, got %s", res.Product)
+	}
+}
+
 func TestResolve_MultiPhaseSelectionAndPenalties(t *testing.T) {
 	rules := []StaticRule{
 		{

@@ -401,30 +401,45 @@ type bannerCandidate struct {
 func gatherBannerCandidates(banner scan.BannerGrabResult) []bannerCandidate {
 	candidates := make([]bannerCandidate, 0, len(banner.Evidence)+1)
 
-	if trimmed := strings.TrimSpace(banner.Banner); trimmed != "" {
-		candidates = append(candidates, bannerCandidate{
-			Response: trimmed,
-			Protocol: banner.Protocol,
-			ProbeID:  "tcp-passive",
-			TLS:      nil, // Passive banner doesn't have TLS metadata
-		})
+	// Prioritize active probe evidence over synthetic tcp-passive fallback
+	// so source_probe attribution reflects the real producing probe.
+	appendEvidence := func(passiveOnly bool) {
+		for _, obs := range banner.Evidence {
+			if passiveOnly && obs.ProbeID != "tcp-passive" {
+				continue
+			}
+			if !passiveOnly && obs.ProbeID == "tcp-passive" {
+				continue
+			}
+			resp := strings.TrimSpace(obs.Response)
+			if resp == "" {
+				continue
+			}
+			protocol := obs.Protocol
+			if protocol == "" {
+				protocol = banner.Protocol
+			}
+			candidates = append(candidates, bannerCandidate{
+				Response: resp,
+				Protocol: protocol,
+				ProbeID:  obs.ProbeID,
+				TLS:      obs.TLS, // Phase 1.7: Include TLS metadata from probe
+			})
+		}
 	}
 
-	for _, obs := range banner.Evidence {
-		resp := strings.TrimSpace(obs.Response)
-		if resp == "" {
-			continue
+	appendEvidence(false)
+	appendEvidence(true)
+
+	if len(candidates) == 0 {
+		if trimmed := strings.TrimSpace(banner.Banner); trimmed != "" {
+			candidates = append(candidates, bannerCandidate{
+				Response: trimmed,
+				Protocol: banner.Protocol,
+				ProbeID:  "tcp-passive",
+				TLS:      nil, // Passive banner doesn't have TLS metadata
+			})
 		}
-		protocol := obs.Protocol
-		if protocol == "" {
-			protocol = banner.Protocol
-		}
-		candidates = append(candidates, bannerCandidate{
-			Response: resp,
-			Protocol: protocol,
-			ProbeID:  obs.ProbeID,
-			TLS:      obs.TLS, // Phase 1.7: Include TLS metadata from probe
-		})
 	}
 
 	return candidates

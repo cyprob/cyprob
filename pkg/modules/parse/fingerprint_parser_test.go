@@ -172,6 +172,7 @@ func TestFingerprintParserModule_gatherBannerCandidates(t *testing.T) {
 		Protocol: "tcp",
 		Evidence: []engine.ProbeObservation{
 			{Response: "SSH-2.0-OpenSSH_8.9", Protocol: "", ProbeID: "probe1"},
+			{Response: "HTTP/1.1 200 OK", Protocol: "http", ProbeID: "tcp-passive"},
 			{Response: "   ", Protocol: "http", ProbeID: "probe2"}, // boş response skip
 		},
 	}
@@ -181,11 +182,80 @@ func TestFingerprintParserModule_gatherBannerCandidates(t *testing.T) {
 		t.Fatalf("expected 2 candidates, got %d", len(candidates))
 	}
 
-	if candidates[0].ProbeID != "tcp-passive" {
-		t.Errorf("expected first ProbeID 'tcp-passive', got %s", candidates[0].ProbeID)
+	if candidates[0].ProbeID != "probe1" {
+		t.Errorf("expected first ProbeID 'probe1', got %s", candidates[0].ProbeID)
 	}
-	if candidates[1].Protocol != "tcp" {
-		t.Errorf("expected inherited protocol 'tcp', got %s", candidates[1].Protocol)
+	if candidates[1].ProbeID != "tcp-passive" {
+		t.Errorf("expected passive probe candidate to be last, got %s", candidates[1].ProbeID)
+	}
+	if candidates[0].Protocol != "tcp" {
+		t.Errorf("expected inherited protocol 'tcp', got %s", candidates[0].Protocol)
+	}
+}
+
+func TestFingerprintParserModule_AttributionPrefersActiveProbe(t *testing.T) {
+	originalGetResolver := getResolver
+	defer func() { getResolver = originalGetResolver }()
+
+	getResolver = func() fingerprint.Resolver {
+		return mockResolver{
+			resolveFn: func(ctx context.Context, input fingerprint.Input) (fingerprint.Result, error) {
+				if strings.Contains(strings.ToLower(input.Banner), "microsoft-httpapi/2.0") {
+					return fingerprint.Result{
+						Product:    "WinRM",
+						Vendor:     "Microsoft",
+						Confidence: 0.9,
+					}, nil
+				}
+				return fingerprint.Result{}, errors.New("no match")
+			},
+		}
+	}
+
+	m := newFingerprintParserModule()
+	_ = m.Init("attr-test", nil)
+
+	banner := scan.BannerGrabResult{
+		IP:       "10.0.0.10",
+		Port:     80,
+		Protocol: "tcp",
+		Banner:   "HTTP/1.1 400 Bad Request\r\nServer: Microsoft-HTTPAPI/2.0\r\n\r\n",
+		Evidence: []engine.ProbeObservation{
+			{
+				ProbeID:  "tcp-passive",
+				Protocol: "tcp",
+				Response: "HTTP/1.1 400 Bad Request\r\nServer: Microsoft-HTTPAPI/2.0\r\n\r\n",
+			},
+			{
+				ProbeID:  "http-get",
+				Protocol: "http",
+				Response: "HTTP/1.1 400 Bad Request\r\nServer: Microsoft-HTTPAPI/2.0\r\n\r\n",
+			},
+		},
+	}
+
+	outputChan := make(chan engine.ModuleOutput, 8)
+	err := m.Execute(context.Background(), map[string]any{
+		"service.banner.tcp": []any{banner},
+	}, outputChan)
+	if err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	close(outputChan)
+
+	found := false
+	for out := range outputChan {
+		fp, ok := out.Data.(FingerprintParsedInfo)
+		if !ok {
+			continue
+		}
+		found = true
+		if fp.SourceProbe != "http-get" {
+			t.Fatalf("expected source_probe http-get, got %q", fp.SourceProbe)
+		}
+	}
+	if !found {
+		t.Fatal("expected at least one fingerprint output")
 	}
 }
 
