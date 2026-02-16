@@ -272,6 +272,40 @@ func TestPrepareProbeCommands_DecodesEscapedCRLF(t *testing.T) {
 	if !strings.Contains(cmd, "\r\nHost: example.com\r\n") {
 		t.Fatalf("expected canonical CRLF and host replacement, got %q", cmd)
 	}
+
+	specSingle := fingerprint.ProbeSpec{
+		ID:      "http-get",
+		Payload: "GET / HTTP/1.1\\r\\nHost: {HOST}\\r\\n\\r\\n",
+	}
+	cmdSingle := prepareProbeCommands(specSingle, "example.com", 80)[0]
+	if strings.Contains(cmdSingle, `\r\n`) {
+		t.Fatalf("expected single escaped CRLF to be decoded, got %q", cmdSingle)
+	}
+}
+
+func TestPrepareProbeCommands_HTTPSGetCanonicalRequest(t *testing.T) {
+	t.Parallel()
+
+	spec := fingerprint.ProbeSpec{
+		ID:      "https-get",
+		Payload: "ignored",
+	}
+	cmds := prepareProbeCommands(spec, "mail.example.com", 443)
+	if len(cmds) != 1 {
+		t.Fatalf("expected 1 command, got %d", len(cmds))
+	}
+
+	expected := "GET / HTTP/1.1\r\n" +
+		"Host: mail.example.com\r\n" +
+		"User-Agent: vulntor-probe/1.0\r\n" +
+		"Accept: */*\r\n" +
+		"Connection: close\r\n\r\n"
+	if cmds[0] != expected {
+		t.Fatalf("unexpected canonical https-get request:\n%s", cmds[0])
+	}
+	if strings.Contains(cmds[0], `\r\n`) {
+		t.Fatalf("expected raw CRLF bytes, got escaped sequence: %q", cmds[0])
+	}
 }
 
 func TestResolveProbeHostOverride(t *testing.T) {
@@ -299,6 +333,61 @@ func TestChooseTLSServerName(t *testing.T) {
 	}
 	if got := chooseTLSServerName("", "203.0.113.10"); got != "203.0.113.10" {
 		t.Fatalf("expected dial host fallback for empty probe host, got %q", got)
+	}
+}
+
+func TestHTTPSGetCanonicalRequest_AcceptedByTLSServer(t *testing.T) {
+	t.Parallel()
+
+	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Host != "mail.test.local" {
+			http.Error(w, "bad host", http.StatusBadRequest)
+			return
+		}
+		http.Redirect(w, r, "/interface/root", http.StatusFound)
+	}))
+	defer ts.Close()
+
+	urlParts := strings.TrimPrefix(ts.URL, "https://")
+	host, portStr, err := net.SplitHostPort(urlParts)
+	if err != nil {
+		t.Fatalf("split host/port: %v", err)
+	}
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		t.Fatalf("atoi: %v", err)
+	}
+
+	// Malformed baseline: literal escaped CRLF should be rejected by HTTP parser.
+	conn, err := tls.Dial("tcp", net.JoinHostPort(host, portStr), &tls.Config{
+		InsecureSkipVerify: true,
+		ServerName:         host,
+	})
+	if err != nil {
+		t.Fatalf("dial tls: %v", err)
+	}
+	_, _ = conn.Write([]byte("GET / HTTP/1.1\\r\\nHost: mail.test.local\\r\\nConnection: close\\r\\n\\r\\n"))
+	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	buf := make([]byte, 2048)
+	n, _ := conn.Read(buf)
+	rawResp := buf[:n]
+	_ = conn.Close()
+	if strings.Contains(string(rawResp), "302 Found") || strings.Contains(string(rawResp), "200 OK") {
+		t.Fatalf("expected malformed request to be rejected, got: %s", string(rawResp))
+	}
+
+	module := newBannerGrabModule()
+	module.config.TLSInsecureSkipVerify = true
+	module.config.ConnectTimeout = 2 * time.Second
+	module.config.ReadTimeout = 2 * time.Second
+
+	spec := fingerprint.ProbeSpec{ID: "https-get", Protocol: "https", UseTLS: true}
+	obs := module.executeProbeSpec(context.Background(), host, "mail.test.local", port, spec)
+	if obs.Error != "" {
+		t.Fatalf("expected no error for canonical https-get request, got: %s", obs.Error)
+	}
+	if !strings.Contains(obs.Response, "302 Found") {
+		t.Fatalf("expected redirect response for canonical request, got: %s", obs.Response)
 	}
 }
 

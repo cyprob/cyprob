@@ -640,6 +640,10 @@ func (m *BannerGrabModule) readProbeResponse(ctx context.Context, conn net.Conn)
 }
 
 func prepareProbeCommands(spec fingerprint.ProbeSpec, host string, port int) []string {
+	if spec.ID == "https-get" {
+		return []string{buildCanonicalGETRequest(host)}
+	}
+
 	if spec.Payload == "" {
 		return nil
 	}
@@ -656,11 +660,27 @@ func prepareProbeCommands(spec fingerprint.ProbeSpec, host string, port int) []s
 func decodeProbePayload(payload string) string {
 	replacer := strings.NewReplacer(
 		`\\r\\n`, "\r\n",
+		`\r\n`, "\r\n",
 		`\\n`, "\n",
+		`\n`, "\n",
 		`\\r`, "\r",
+		`\r`, "\r",
 		`\\t`, "\t",
+		`\t`, "\t",
 	)
 	return replacer.Replace(payload)
+}
+
+func buildCanonicalGETRequest(host string) string {
+	return strings.Join([]string{
+		"GET / HTTP/1.1",
+		fmt.Sprintf("Host: %s", host),
+		"User-Agent: vulntor-probe/1.0",
+		"Accept: */*",
+		"Connection: close",
+		"",
+		"",
+	}, "\r\n")
 }
 
 func readOriginalTargets(inputs map[string]any) []string {

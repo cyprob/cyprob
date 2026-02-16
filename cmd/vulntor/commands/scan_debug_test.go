@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -29,6 +32,11 @@ type scanDebugTestOutput struct {
 		Port          int    `json:"port"`
 		Banner        string `json:"banner"`
 		Error         string `json:"error"`
+		Evidence      []struct {
+			ProbeID  string `json:"probe_id"`
+			Response string `json:"response"`
+			Error    string `json:"error"`
+		} `json:"evidence"`
 	} `json:"banners"`
 	Fingerprints []struct {
 		Target  string `json:"target"`
@@ -81,6 +89,48 @@ func TestScanDebugTargetJSONSmoke(t *testing.T) {
 
 	for _, step := range payload.Steps {
 		require.Empty(t, step.Errors, "step %s has errors: %v", step.Step, step.Errors)
+	}
+}
+
+func TestScanDebugTargetHTTPSGetEvidenceSmoke(t *testing.T) {
+	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/interface/root", http.StatusFound)
+	}))
+	defer ts.Close()
+
+	addr := strings.TrimPrefix(ts.URL, "https://")
+	host, portStr, err := net.SplitHostPort(addr)
+	require.NoError(t, err)
+
+	cmd := NewCommand()
+	out := &bytes.Buffer{}
+	errOut := &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs([]string{
+		"scan-debug", "target", host,
+		"--ports", portStr,
+		"--timeout", "4s",
+		"--format", "json",
+	})
+
+	err = cmd.Execute()
+	require.NoError(t, err, "stderr: %s", errOut.String())
+
+	var payload scanDebugTestOutput
+	require.NoError(t, json.Unmarshal(out.Bytes(), &payload))
+	require.NotEmpty(t, payload.Banners)
+
+	foundHTTPSGet := false
+	for _, ev := range payload.Banners[0].Evidence {
+		if ev.ProbeID == "https-get" {
+			foundHTTPSGet = true
+			require.NotContains(t, ev.Response, "400 Bad Request")
+			require.True(t, strings.Contains(ev.Response, "302 Found") || strings.Contains(ev.Response, "200 OK"))
+		}
+	}
+	if !foundHTTPSGet {
+		require.NotEmpty(t, payload.Banners[0].Banner)
 	}
 }
 
