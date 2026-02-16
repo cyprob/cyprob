@@ -35,6 +35,10 @@ The command automatically plans the execution DAG using available modules.`,
 	RunE:    runScanCommand,
 }
 
+const (
+	scanOutputFormatJSON = "json"
+)
+
 func runScanCommand(cmd *cobra.Command, args []string) error {
 	formatter := format.FromCommand(cmd)
 	out := setupOutputPipeline(cmd)
@@ -158,7 +162,7 @@ func renderScanOutput(out output.Output, formatter format.Formatter, params scan
 	}
 
 	switch strings.ToLower(params.OutputFormat) {
-	case "json":
+	case scanOutputFormatJSON:
 		if profiles == nil {
 			profiles = []engine.AssetProfile{}
 		}

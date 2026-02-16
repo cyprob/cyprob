@@ -46,6 +46,11 @@ type scanDebugPayload struct {
 	Steps           []scanDebugStep                    `json:"steps"`
 }
 
+const (
+	scanDebugOutputFormatJSON   = "json"
+	scanDebugOutputFormatPretty = "pretty"
+)
+
 func NewScanDebugCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "scan-debug",
@@ -72,21 +77,15 @@ func newScanDebugTargetCommand() *cobra.Command {
 
 	cmd.Flags().StringVar(&opts.Ports, "ports", "", "Ports to scan (e.g. 80,443,993)")
 	cmd.Flags().StringVar(&opts.Timeout, "timeout", "", "Step timeout override (e.g. 5s)")
-	cmd.Flags().StringVar(&opts.Format, "format", "json", "Output format: json|pretty")
+	cmd.Flags().StringVar(&opts.Format, "format", scanDebugOutputFormatJSON, "Output format: json|pretty")
 
 	return cmd
 }
 
 func runScanDebugTarget(cmd *cobra.Command, target string, opts scanDebugTargetOptions) error {
-	if opts.Timeout != "" {
-		if _, err := time.ParseDuration(opts.Timeout); err != nil {
-			return fmt.Errorf("invalid --timeout value %q: %w", opts.Timeout, err)
-		}
-	}
-
-	format := strings.ToLower(strings.TrimSpace(opts.Format))
-	if format != "json" && format != "pretty" {
-		return fmt.Errorf("unsupported --format %q (use json or pretty)", opts.Format)
+	format, err := validateScanDebugOptions(opts)
+	if err != nil {
+		return err
 	}
 
 	steps := newScanDebugSteps(
@@ -116,6 +115,56 @@ func runScanDebugTarget(cmd *cobra.Command, target string, opts scanDebugTargetO
 		ctx = context.Background()
 	}
 
+	openPorts, err := runDebugTCPPortDiscoveryStage(ctx, target, opts, steps)
+	if err != nil {
+		return err
+	}
+	banners, err := runDebugBannerGrabStage(ctx, target, opts, steps, openPorts)
+	if err != nil {
+		return err
+	}
+	fingerprints, err := runDebugFingerprintStage(ctx, steps, banners)
+	if err != nil {
+		return err
+	}
+	techTags, err := runDebugTechTagStage(ctx, steps, banners, fingerprints)
+	if err != nil {
+		return err
+	}
+
+	payload := scanDebugPayload{
+		Target:          target,
+		ResolvedTargets: resolved,
+		OpenPorts:       openPorts,
+		Banners:         banners,
+		Fingerprints:    fingerprints,
+		TechTags:        techTags,
+		Steps:           steps.values(),
+	}
+
+	return writeScanDebugOutput(cmd.OutOrStdout(), format, payload)
+}
+
+func validateScanDebugOptions(opts scanDebugTargetOptions) (string, error) {
+	if opts.Timeout != "" {
+		if _, err := time.ParseDuration(opts.Timeout); err != nil {
+			return "", fmt.Errorf("invalid --timeout value %q: %w", opts.Timeout, err)
+		}
+	}
+
+	format := strings.ToLower(strings.TrimSpace(opts.Format))
+	if format != scanDebugOutputFormatJSON && format != scanDebugOutputFormatPretty {
+		return "", fmt.Errorf("unsupported --format %q (use json or pretty)", opts.Format)
+	}
+	return format, nil
+}
+
+func runDebugTCPPortDiscoveryStage(
+	ctx context.Context,
+	target string,
+	opts scanDebugTargetOptions,
+	steps *scanDebugStepCollection,
+) ([]discovery.TCPPortDiscoveryResult, error) {
 	tcpCfg := map[string]any{}
 	if strings.TrimSpace(opts.Ports) != "" {
 		tcpCfg["ports"] = splitAndTrim(opts.Ports)
@@ -126,7 +175,7 @@ func runScanDebugTarget(cmd *cobra.Command, target string, opts scanDebugTargetO
 
 	tcpModule, err := engine.GetModuleInstance("scan_debug_tcp_port_discovery", "tcp-port-discovery", tcpCfg)
 	if err != nil {
-		return fmt.Errorf("create tcp-port-discovery module: %w", err)
+		return nil, fmt.Errorf("create tcp-port-discovery module: %w", err)
 	}
 
 	tcpOutputs, tcpExecErr := executeDebugModule(ctx, tcpModule, map[string]any{
@@ -140,7 +189,16 @@ func runScanDebugTarget(cmd *cobra.Command, target string, opts scanDebugTargetO
 	if len(openPorts) == 0 {
 		steps.addWarning("tcp-port-discovery", "no open ports found")
 	}
+	return openPorts, nil
+}
 
+func runDebugBannerGrabStage(
+	ctx context.Context,
+	target string,
+	opts scanDebugTargetOptions,
+	steps *scanDebugStepCollection,
+	openPorts []discovery.TCPPortDiscoveryResult,
+) ([]scanpkg.BannerGrabResult, error) {
 	bannerCfg := map[string]any{}
 	if opts.Timeout != "" {
 		bannerCfg["read_timeout"] = opts.Timeout
@@ -149,7 +207,7 @@ func runScanDebugTarget(cmd *cobra.Command, target string, opts scanDebugTargetO
 
 	bannerModule, err := engine.GetModuleInstance("scan_debug_banner_grabber", "banner-grabber", bannerCfg)
 	if err != nil {
-		return fmt.Errorf("create banner-grabber module: %w", err)
+		return nil, fmt.Errorf("create banner-grabber module: %w", err)
 	}
 
 	bannerInputs := map[string]any{
@@ -166,10 +224,17 @@ func runScanDebugTarget(cmd *cobra.Command, target string, opts scanDebugTargetO
 		steps.addWarning("banner-grabber", "no banners captured")
 	}
 	steps.addWarnings("banner-grabber", bannerWarnings(banners))
+	return banners, nil
+}
 
+func runDebugFingerprintStage(
+	ctx context.Context,
+	steps *scanDebugStepCollection,
+	banners []scanpkg.BannerGrabResult,
+) ([]parsepkg.FingerprintParsedInfo, error) {
 	fingerprintModule, err := engine.GetModuleInstance("scan_debug_fingerprint_parser", "fingerprint-parser", map[string]any{})
 	if err != nil {
-		return fmt.Errorf("create fingerprint-parser module: %w", err)
+		return nil, fmt.Errorf("create fingerprint-parser module: %w", err)
 	}
 
 	fingerprintOutputs, fingerprintExecErr := executeDebugModule(ctx, fingerprintModule, map[string]any{
@@ -183,10 +248,18 @@ func runScanDebugTarget(cmd *cobra.Command, target string, opts scanDebugTargetO
 	if len(fingerprints) == 0 {
 		steps.addWarning("fingerprint-parser", "no fingerprint matches")
 	}
+	return fingerprints, nil
+}
 
+func runDebugTechTagStage(
+	ctx context.Context,
+	steps *scanDebugStepCollection,
+	banners []scanpkg.BannerGrabResult,
+	fingerprints []parsepkg.FingerprintParsedInfo,
+) ([]parsepkg.TechTagResult, error) {
 	techModule, err := engine.GetModuleInstance("scan_debug_tech_tagger", "tech-tagger", map[string]any{})
 	if err != nil {
-		return fmt.Errorf("create tech-tagger module: %w", err)
+		return nil, fmt.Errorf("create tech-tagger module: %w", err)
 	}
 
 	techOutputs, techExecErr := executeDebugModule(ctx, techModule, map[string]any{
@@ -201,18 +274,7 @@ func runScanDebugTarget(cmd *cobra.Command, target string, opts scanDebugTargetO
 	if len(techTags) == 0 {
 		steps.addWarning("tech-tagger", "no tech tags generated")
 	}
-
-	payload := scanDebugPayload{
-		Target:          target,
-		ResolvedTargets: resolved,
-		OpenPorts:       openPorts,
-		Banners:         banners,
-		Fingerprints:    fingerprints,
-		TechTags:        techTags,
-		Steps:           steps.values(),
-	}
-
-	return writeScanDebugOutput(cmd.OutOrStdout(), format, payload)
+	return techTags, nil
 }
 
 func executeDebugModule(ctx context.Context, module engine.Module, inputs map[string]any) ([]engine.ModuleOutput, error) {

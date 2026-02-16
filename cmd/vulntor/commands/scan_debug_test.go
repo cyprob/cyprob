@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -169,12 +170,11 @@ func startBannerTestServer(t *testing.T) (string, int, func()) {
 func containsPort(results []struct {
 	Target    string `json:"target"`
 	OpenPorts []int  `json:"open_ports"`
-}, port int) bool {
+}, port int,
+) bool {
 	for _, result := range results {
-		for _, p := range result.OpenPorts {
-			if p == port {
-				return true
-			}
+		if slices.Contains(result.OpenPorts, port) {
+			return true
 		}
 	}
 	return false
@@ -184,12 +184,11 @@ func hasTag(results []struct {
 	Target string   `json:"target"`
 	Port   int      `json:"port"`
 	Tags   []string `json:"tags"`
-}, tag string) bool {
+}, tag string,
+) bool {
 	for _, result := range results {
-		for _, t := range result.Tags {
-			if t == tag {
-				return true
-			}
+		if slices.Contains(result.Tags, tag) {
+			return true
 		}
 	}
 	return false
