@@ -319,7 +319,7 @@ func (m *AssetProfileBuilderModule) Execute(ctx context.Context, inputs map[stri
 					// Bu porta ait tech tagleri bul
 					for _, tags := range techTagResults {
 						if tags.Target == targetIP && tags.Port == portNum {
-							portProfile.Service.TechTags = tags.Tags
+							portProfile.Service.TechTags = parse.NormalizeTechTags(tags.Tags)
 							break
 						}
 					}

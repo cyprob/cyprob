@@ -5,6 +5,7 @@ import (
 	_ "embed"
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -60,16 +61,27 @@ var (
 
 // Hardcoded mapping for Product -> Tags (Code-level mapping for high-confidence fingerprint results)
 var productToTags = map[string][]string{
-	"OpenSSH":       {"ssh", "secure_shell", "protocol"},
-	"Apache":        {"http_server", "web_server", "apache"},
-	"nginx":         {"http_server", "web_server", "nginx", "reverse_proxy"},
-	"MySQL":         {"database", "sql", "mysql", "rdbms"},
-	"PostgreSQL":    {"database", "sql", "postgresql", "rdbms"},
-	"Redis":         {"database", "nosql", "redis", "cache"},
-	"MongoDB":       {"database", "nosql", "mongodb", "document_store"},
-	"Elasticsearch": {"database", "nosql", "elasticsearch", "search_engine"},
-	"RabbitMQ":      {"message_broker", "rabbitmq", "amqp"},
-	"Kafka":         {"message_broker", "kafka", "streaming"},
+	"OpenSSH":                   {"ssh", "secure_shell", "protocol"},
+	"Apache":                    {"http_server", "web_server", "apache"},
+	"nginx":                     {"http_server", "web_server", "nginx", "reverse_proxy"},
+	"MySQL":                     {"database", "sql", "mysql", "rdbms"},
+	"PostgreSQL":                {"database", "sql", "postgresql", "rdbms"},
+	"Redis":                     {"database", "nosql", "redis", "cache"},
+	"MongoDB":                   {"database", "nosql", "mongodb", "document_store"},
+	"Elasticsearch":             {"database", "nosql", "elasticsearch", "search_engine"},
+	"RabbitMQ":                  {"message_broker", "rabbitmq", "amqp"},
+	"Kafka":                     {"message_broker", "kafka", "streaming"},
+	"Microsoft Exchange":        {TagExchange, TagMailService},
+	"Microsoft Exchange Server": {TagExchange, TagMailService},
+	"OWA":                       {TagOWA, TagWebmail, TagExchange, TagMailService},
+	"SmarterMail":               {TagSmarterMail, TagWebmail, TagMailService},
+	"Roundcube":                 {TagRoundcube, TagWebmail, TagMailService},
+	"Zimbra":                    {TagZimbra, TagWebmail, TagMailService},
+	"SOGo":                      {TagSOGo, TagWebmail, TagMailService},
+	"RainLoop":                  {TagRainLoop, TagWebmail, TagMailService},
+	"Postfix":                   {TagPostfix, TagSMTP, TagMailService},
+	"Exim":                      {TagExim, TagSMTP, TagMailService},
+	"Dovecot":                   {TagDovecot, TagIMAP, TagPOP3, TagMailService},
 }
 
 // TechTaggerModule implements the engine.Module interface.
@@ -246,11 +258,18 @@ type targetData struct {
 
 func (m *TechTaggerModule) generateTags(data *targetData) []string {
 	tagSet := make(map[string]struct{})
+	addTag := func(raw string) {
+		normalized, ok := NormalizeTechTag(raw)
+		if !ok {
+			return
+		}
+		tagSet[normalized] = struct{}{}
+	}
 
 	// 1. Map Product -> Tags (from high-confidence fingerprint)
-	if tags, ok := productToTags[data.Product]; ok {
+	if tags, ok := findProductTags(data.Product); ok {
 		for _, t := range tags {
-			tagSet[strings.ToLower(t)] = struct{}{}
+			addTag(t)
 		}
 	}
 
@@ -271,7 +290,7 @@ func (m *TechTaggerModule) generateTags(data *targetData) []string {
 		}
 
 		if match {
-			tagSet[strings.ToLower(rule.Name)] = struct{}{}
+			addTag(rule.Name)
 		}
 	}
 
@@ -279,7 +298,18 @@ func (m *TechTaggerModule) generateTags(data *targetData) []string {
 	for t := range tagSet {
 		result = append(result, t)
 	}
+	result = NormalizeTechTags(result)
+	sort.Strings(result)
 	return result
+}
+
+func findProductTags(product string) ([]string, bool) {
+	for key, tags := range productToTags {
+		if strings.EqualFold(strings.TrimSpace(product), key) {
+			return tags, true
+		}
+	}
+	return nil, false
 }
 
 func dumpHeaders(h map[string]string) string {

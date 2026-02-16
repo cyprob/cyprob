@@ -5,7 +5,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
 	"github.com/vulntor/vulntor/pkg/engine"
+	"github.com/vulntor/vulntor/pkg/modules/discovery"
 	"github.com/vulntor/vulntor/pkg/modules/parse"
 )
 
@@ -62,6 +64,44 @@ func TestAssetProfileBuilderMergesParsedDetails(t *testing.T) {
 		if _, ok := ap.OpenPorts[target]; !ok {
 			t.Fatalf("expected open ports for %s", target)
 		}
+	case <-time.After(time.Second):
+		t.Fatal("timeout")
+	}
+}
+
+func TestAssetProfileBuilderNormalizesTechTags(t *testing.T) {
+	m := newAssetProfileBuilderModule()
+	require.NoError(t, m.Init(assetProfileBuilderModuleTypeName, map[string]any{}))
+
+	target := "198.51.100.12"
+	port := 443
+	inputs := map[string]any{
+		"config.targets": []string{target},
+		"discovery.open_tcp_ports": []any{
+			discovery.TCPPortDiscoveryResult{Target: target, OpenPorts: []int{port}},
+		},
+		"service.tech.tags": []any{
+			parse.TechTagResult{Target: target, Port: port, Tags: []string{"mail_server", "IIS", "roundcube", "unknown-tag"}},
+		},
+	}
+
+	outCh := make(chan engine.ModuleOutput, 1)
+	require.NoError(t, m.Execute(context.Background(), inputs, outCh))
+
+	select {
+	case out := <-outCh:
+		profiles, ok := out.Data.([]engine.AssetProfile)
+		require.True(t, ok)
+		require.NotEmpty(t, profiles)
+
+		ports := profiles[0].OpenPorts[target]
+		require.NotEmpty(t, ports)
+		tags := ports[0].Service.TechTags
+		require.Contains(t, tags, parse.TagMailService)
+		require.Contains(t, tags, parse.TagMicrosoftIIS)
+		require.Contains(t, tags, parse.TagRoundcube)
+		require.Contains(t, tags, parse.TagWebmail)
+		require.NotContains(t, tags, "unknown-tag")
 	case <-time.After(time.Second):
 		t.Fatal("timeout")
 	}

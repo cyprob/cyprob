@@ -7,7 +7,9 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/vulntor/vulntor/pkg/engine"
+	"gopkg.in/yaml.v3"
 )
 
 // Mock data helpers
@@ -130,4 +132,31 @@ func TestExecute_EndToEnd(t *testing.T) {
 	assert.True(t, exists)
 	assert.Contains(t, httpRes.Tags, "nginx")
 	assert.Contains(t, httpRes.Tags, "php")
+
+	for _, res := range results {
+		for _, tag := range res.Tags {
+			assert.True(t, IsCanonicalTechTag(tag), "non-canonical tag emitted: %s", tag)
+		}
+	}
+}
+
+func TestTechTagCatalog_AllRulesAndProductTagsAreCanonical(t *testing.T) {
+	t.Parallel()
+
+	var cfg TechRulesConfig
+	require.NoError(t, yaml.Unmarshal(techQueriesYAML, &cfg))
+	require.NotEmpty(t, cfg.Rules)
+
+	for _, rule := range cfg.Rules {
+		normalized, ok := NormalizeTechTag(rule.Name)
+		require.Truef(t, ok, "rule %q not in canonical dictionary", rule.Name)
+		require.Truef(t, IsCanonicalTechTag(normalized), "rule %q resolved to non-canonical %q", rule.Name, normalized)
+	}
+
+	require.NotEmpty(t, productToTags)
+	for product, tags := range productToTags {
+		for _, tag := range tags {
+			require.Truef(t, IsCanonicalTechTag(tag), "product %q contains non-canonical tag %q", product, tag)
+		}
+	}
 }
