@@ -7,8 +7,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/vulntor/vulntor/cmd/vulntor/internal/format"
-	"github.com/vulntor/vulntor/pkg/plugin"
+	"github.com/cyprob/cyprob/cmd/vulntor/internal/format"
+	"github.com/cyprob/cyprob/pkg/plugin"
 )
 
 func newEmbeddedCommand() *cobra.Command {

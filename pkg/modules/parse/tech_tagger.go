@@ -13,8 +13,8 @@ import (
 	"github.com/rs/zerolog/log"
 	"gopkg.in/yaml.v3"
 
-	"github.com/vulntor/vulntor/pkg/engine"
-	"github.com/vulntor/vulntor/pkg/modules/scan"
+	"github.com/cyprob/cyprob/pkg/engine"
+	"github.com/cyprob/cyprob/pkg/modules/scan"
 )
 
 const (

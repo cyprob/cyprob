@@ -12,9 +12,9 @@ import (
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 
-	"github.com/vulntor/vulntor/cmd/vulntor/internal/bind"
-	"github.com/vulntor/vulntor/cmd/vulntor/internal/format"
-	"github.com/vulntor/vulntor/pkg/engine"
+	"github.com/cyprob/cyprob/cmd/vulntor/internal/bind"
+	"github.com/cyprob/cyprob/cmd/vulntor/internal/format"
+	"github.com/cyprob/cyprob/pkg/engine"
 )
 
 func newValidateCommand() *cobra.Command {

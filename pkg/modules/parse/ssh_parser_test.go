@@ -6,8 +6,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/vulntor/vulntor/pkg/engine"
-	"github.com/vulntor/vulntor/pkg/modules/scan"
+	"github.com/cyprob/cyprob/pkg/engine"
+	"github.com/cyprob/cyprob/pkg/modules/scan"
 )
 
 func buildSSHParser(t *testing.T) *SSHParserModule {

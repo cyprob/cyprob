@@ -6,11 +6,11 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 
-	"github.com/vulntor/vulntor/cmd/vulntor/internal/bind"
-	"github.com/vulntor/vulntor/cmd/vulntor/internal/format"
-	"github.com/vulntor/vulntor/pkg/fingerprint"
-	"github.com/vulntor/vulntor/pkg/fingerprint/catalogsync"
-	"github.com/vulntor/vulntor/pkg/storage"
+	"github.com/cyprob/cyprob/cmd/vulntor/internal/bind"
+	"github.com/cyprob/cyprob/cmd/vulntor/internal/format"
+	"github.com/cyprob/cyprob/pkg/fingerprint"
+	"github.com/cyprob/cyprob/pkg/fingerprint/catalogsync"
+	"github.com/cyprob/cyprob/pkg/storage"
 )
 
 // NewFingerprintCommand wires CLI helpers for fingerprint catalog management.

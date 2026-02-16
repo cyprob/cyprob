@@ -8,7 +8,7 @@ import (
 
 	"github.com/go-playground/validator/v10"
 
-	"github.com/vulntor/vulntor/pkg/plugin"
+	"github.com/cyprob/cyprob/pkg/plugin"
 )
 
 var validate = validator.New()

@@ -6,7 +6,7 @@ import (
 
 	"github.com/rs/zerolog/log"
 
-	"github.com/vulntor/vulntor/pkg/config"
+	"github.com/cyprob/cyprob/pkg/config"
 )
 
 // Auth returns a middleware that enforces token-based authentication.

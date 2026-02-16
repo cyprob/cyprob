@@ -7,8 +7,8 @@ import (
 
 	"github.com/rs/zerolog/log"
 
-	"github.com/vulntor/vulntor/pkg/plugin"
-	"github.com/vulntor/vulntor/pkg/storage"
+	"github.com/cyprob/cyprob/pkg/plugin"
+	"github.com/cyprob/cyprob/pkg/storage"
 )
 
 // Note on API Error DTOs and Evolution Policy

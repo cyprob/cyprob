@@ -7,7 +7,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/vulntor/vulntor/pkg/config"
+	"github.com/cyprob/cyprob/pkg/config"
 )
 
 func TestChain(t *testing.T) {

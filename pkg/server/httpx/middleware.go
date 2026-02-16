@@ -6,7 +6,7 @@ import (
 
 	"github.com/rs/zerolog/log"
 
-	"github.com/vulntor/vulntor/pkg/config"
+	"github.com/cyprob/cyprob/pkg/config"
 )
 
 // Chain applies middleware in order: Logger → Auth → Recovery → CORS → handler

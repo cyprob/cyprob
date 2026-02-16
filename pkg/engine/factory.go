@@ -7,10 +7,10 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/spf13/pflag"
 
-	"github.com/vulntor/vulntor/pkg/config"
-	"github.com/vulntor/vulntor/pkg/event"
-	"github.com/vulntor/vulntor/pkg/hook"
-	"github.com/vulntor/vulntor/pkg/logging"
+	"github.com/cyprob/cyprob/pkg/config"
+	"github.com/cyprob/cyprob/pkg/event"
+	"github.com/cyprob/cyprob/pkg/hook"
+	"github.com/cyprob/cyprob/pkg/logging"
 )
 
 // Factory is responsible for constructing an AppManager instance with all required components.

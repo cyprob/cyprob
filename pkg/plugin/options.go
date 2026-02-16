@@ -7,7 +7,7 @@ package plugin
 import (
 	"github.com/rs/zerolog"
 
-	"github.com/vulntor/vulntor/pkg/storage"
+	"github.com/cyprob/cyprob/pkg/storage"
 )
 
 // ServiceOption is a functional option for configuring Service.

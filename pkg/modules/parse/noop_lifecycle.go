@@ -6,7 +6,7 @@ import (
 
 	"github.com/rs/zerolog/log"
 
-	"github.com/vulntor/vulntor/pkg/engine"
+	"github.com/cyprob/cyprob/pkg/engine"
 )
 
 // noopLifecycleModule is a minimal example module that implements ModuleLifecycle.

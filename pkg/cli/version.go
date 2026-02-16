@@ -7,7 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	v "github.com/vulntor/vulntor/pkg/version"
+	v "github.com/cyprob/cyprob/pkg/version"
 )
 
 func NewVersionCommand(cliExecutable string) *cobra.Command {

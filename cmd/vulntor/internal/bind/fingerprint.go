@@ -3,7 +3,7 @@ package bind
 import (
 	"github.com/spf13/cobra"
 
-	"github.com/vulntor/vulntor/pkg/fingerprint"
+	"github.com/cyprob/cyprob/pkg/fingerprint"
 )
 
 // FingerprintOptions holds configuration options for the fingerprint command.

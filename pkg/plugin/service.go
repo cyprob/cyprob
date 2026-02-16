@@ -16,9 +16,9 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
-	"github.com/vulntor/vulntor/pkg/output"
-	"github.com/vulntor/vulntor/pkg/paths"
-	"github.com/vulntor/vulntor/pkg/storage"
+	"github.com/cyprob/cyprob/pkg/output"
+	"github.com/cyprob/cyprob/pkg/paths"
+	"github.com/cyprob/cyprob/pkg/storage"
 )
 
 const (

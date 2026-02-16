@@ -13,7 +13,7 @@ import (
 
 	"github.com/fatih/color"
 
-	"github.com/vulntor/vulntor/pkg/plugin"
+	"github.com/cyprob/cyprob/pkg/plugin"
 )
 
 // OutputMode defines the output format for CLI commands

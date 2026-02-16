@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/vulntor/vulntor/pkg/config"
+	"github.com/cyprob/cyprob/pkg/config"
 )
 
 func TestWithConfig(t *testing.T) {

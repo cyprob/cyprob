@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/vulntor/vulntor/pkg/fingerprint"
+	"github.com/cyprob/cyprob/pkg/fingerprint"
 )
 
 // Source loads the raw probe catalog bytes (YAML/JSON) from a backing store.

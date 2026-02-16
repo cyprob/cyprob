@@ -7,10 +7,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/vulntor/vulntor/pkg/config"
-	"github.com/vulntor/vulntor/pkg/server/api"
-	"github.com/vulntor/vulntor/pkg/server/httpx"
-	"github.com/vulntor/vulntor/pkg/server/jobs"
+	"github.com/cyprob/cyprob/pkg/config"
+	"github.com/cyprob/cyprob/pkg/server/api"
+	"github.com/cyprob/cyprob/pkg/server/httpx"
+	"github.com/cyprob/cyprob/pkg/server/jobs"
 )
 
 // App orchestrates the server runtime components:

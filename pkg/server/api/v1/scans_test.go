@@ -12,8 +12,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/vulntor/vulntor/pkg/server/api"
-	"github.com/vulntor/vulntor/pkg/storage"
+	"github.com/cyprob/cyprob/pkg/server/api"
+	"github.com/cyprob/cyprob/pkg/storage"
 )
 
 // Mock workspace for testing

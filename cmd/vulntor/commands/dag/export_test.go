@@ -14,8 +14,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 
-	"github.com/vulntor/vulntor/cmd/vulntor/internal/bind"
-	"github.com/vulntor/vulntor/pkg/engine"
+	"github.com/cyprob/cyprob/cmd/vulntor/internal/bind"
+	"github.com/cyprob/cyprob/pkg/engine"
 )
 
 func TestExportCommand_DefaultYAML(t *testing.T) {

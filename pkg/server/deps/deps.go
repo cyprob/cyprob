@@ -10,8 +10,8 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/vulntor/vulntor/pkg/engine"
-	"github.com/vulntor/vulntor/pkg/storage"
+	"github.com/cyprob/cyprob/pkg/engine"
+	"github.com/cyprob/cyprob/pkg/storage"
 )
 
 // Deps holds all dependencies required by server components.

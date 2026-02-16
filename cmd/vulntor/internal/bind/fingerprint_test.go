@@ -6,7 +6,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
 
-	"github.com/vulntor/vulntor/pkg/fingerprint"
+	"github.com/cyprob/cyprob/pkg/fingerprint"
 )
 
 func TestBindFingerprintOptions(t *testing.T) {

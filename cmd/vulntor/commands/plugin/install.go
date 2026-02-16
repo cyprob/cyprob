@@ -9,10 +9,10 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 
-	"github.com/vulntor/vulntor/cmd/vulntor/internal/bind"
-	"github.com/vulntor/vulntor/cmd/vulntor/internal/format"
-	"github.com/vulntor/vulntor/pkg/output"
-	"github.com/vulntor/vulntor/pkg/plugin"
+	"github.com/cyprob/cyprob/cmd/vulntor/internal/bind"
+	"github.com/cyprob/cyprob/cmd/vulntor/internal/format"
+	"github.com/cyprob/cyprob/pkg/output"
+	"github.com/cyprob/cyprob/pkg/plugin"
 )
 
 func newInstallCommand() *cobra.Command {

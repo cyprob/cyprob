@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/vulntor/vulntor/pkg/engine"
+	"github.com/cyprob/cyprob/pkg/engine"
 )
 
 func TestNoopLifecycle_FullCoverage(t *testing.T) {

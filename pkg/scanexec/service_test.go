@@ -9,11 +9,11 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/vulntor/vulntor/pkg/appctx"
-	"github.com/vulntor/vulntor/pkg/engine"
-	_ "github.com/vulntor/vulntor/pkg/modules/discovery"
-	_ "github.com/vulntor/vulntor/pkg/modules/scan"
-	"github.com/vulntor/vulntor/pkg/storage"
+	"github.com/cyprob/cyprob/pkg/appctx"
+	"github.com/cyprob/cyprob/pkg/engine"
+	_ "github.com/cyprob/cyprob/pkg/modules/discovery"
+	_ "github.com/cyprob/cyprob/pkg/modules/scan"
+	"github.com/cyprob/cyprob/pkg/storage"
 )
 
 // TestRun_HermeticLocal validates minimal execution path using an ephemeral

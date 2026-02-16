@@ -11,8 +11,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/vulntor/vulntor/pkg/plugin"
-	"github.com/vulntor/vulntor/pkg/server/api"
+	"github.com/cyprob/cyprob/pkg/plugin"
+	"github.com/cyprob/cyprob/pkg/server/api"
 )
 
 // mockPluginService implements PluginService for testing

@@ -6,9 +6,9 @@ package engine
 import (
 	"context"
 
-	"github.com/vulntor/vulntor/pkg/config"
-	"github.com/vulntor/vulntor/pkg/event"
-	"github.com/vulntor/vulntor/pkg/hook"
+	"github.com/cyprob/cyprob/pkg/config"
+	"github.com/cyprob/cyprob/pkg/event"
+	"github.com/cyprob/cyprob/pkg/hook"
 )
 
 // Manager exposes core application services and lifecycle control.

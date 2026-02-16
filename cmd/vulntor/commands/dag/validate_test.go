@@ -12,7 +12,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/vulntor/vulntor/cmd/vulntor/internal/bind"
+	"github.com/cyprob/cyprob/cmd/vulntor/internal/bind"
 )
 
 func init() {

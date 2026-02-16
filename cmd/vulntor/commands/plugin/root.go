@@ -7,7 +7,7 @@ package plugin
 import (
 	"github.com/spf13/cobra"
 
-	"github.com/vulntor/vulntor/cmd/vulntor/internal/format"
+	"github.com/cyprob/cyprob/cmd/vulntor/internal/format"
 )
 
 // NewCommand creates the plugin command with all subcommands.

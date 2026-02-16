@@ -10,16 +10,16 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
 
-	"github.com/vulntor/vulntor/cmd/vulntor/internal/bind"
-	"github.com/vulntor/vulntor/cmd/vulntor/internal/format"
-	"github.com/vulntor/vulntor/pkg/appctx"
-	"github.com/vulntor/vulntor/pkg/config"
-	"github.com/vulntor/vulntor/pkg/logging"
-	"github.com/vulntor/vulntor/pkg/plugin"
-	serversvc "github.com/vulntor/vulntor/pkg/server"
-	"github.com/vulntor/vulntor/pkg/server/api"
-	"github.com/vulntor/vulntor/pkg/server/app"
-	"github.com/vulntor/vulntor/pkg/storage"
+	"github.com/cyprob/cyprob/cmd/vulntor/internal/bind"
+	"github.com/cyprob/cyprob/cmd/vulntor/internal/format"
+	"github.com/cyprob/cyprob/pkg/appctx"
+	"github.com/cyprob/cyprob/pkg/config"
+	"github.com/cyprob/cyprob/pkg/logging"
+	"github.com/cyprob/cyprob/pkg/plugin"
+	serversvc "github.com/cyprob/cyprob/pkg/server"
+	"github.com/cyprob/cyprob/pkg/server/api"
+	"github.com/cyprob/cyprob/pkg/server/app"
+	"github.com/cyprob/cyprob/pkg/storage"
 )
 
 // stubWorkspace is a temporary workspace implementation.

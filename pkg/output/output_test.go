@@ -13,8 +13,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/vulntor/vulntor/pkg/output"
-	"github.com/vulntor/vulntor/pkg/output/subscribers"
+	"github.com/cyprob/cyprob/pkg/output"
+	"github.com/cyprob/cyprob/pkg/output/subscribers"
 )
 
 // MockSubscriber is a test subscriber that records all events

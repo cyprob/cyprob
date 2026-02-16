@@ -16,9 +16,9 @@ import (
 
 	"github.com/rs/zerolog/log"
 
-	"github.com/vulntor/vulntor/pkg/engine"
-	"github.com/vulntor/vulntor/pkg/modules/scan" // To consume scan.BannerGrabResult
-	"github.com/vulntor/vulntor/pkg/output"
+	"github.com/cyprob/cyprob/pkg/engine"
+	"github.com/cyprob/cyprob/pkg/modules/scan" // To consume scan.BannerGrabResult
+	"github.com/cyprob/cyprob/pkg/output"
 )
 
 const (

@@ -25,8 +25,8 @@ type Factory func(ctx context.Context, cfg *Config) (Backend, error)
 // Example (Enterprise):
 //
 //	import (
-//	    "github.com/vulntor/vulntor/pkg/storage"
-//	    enterpriseStorage "github.com/vulntor/vulntor-enterprise/pkg/storage"
+//	    "github.com/cyprob/cyprob/pkg/storage"
+//	    enterpriseStorage "github.com/cyprob/cyprob-enterprise/pkg/storage"
 //	)
 //
 //	func init() {

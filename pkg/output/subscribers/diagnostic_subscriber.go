@@ -11,7 +11,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/vulntor/vulntor/pkg/output"
+	"github.com/cyprob/cyprob/pkg/output"
 )
 
 // Lipgloss styles for diagnostic messages

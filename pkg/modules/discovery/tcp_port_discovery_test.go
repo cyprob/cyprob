@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vulntor/vulntor/pkg/engine"
+	"github.com/cyprob/cyprob/pkg/engine"
 )
 
 func TestTCPPortDiscoveryModule_Metadata(t *testing.T) {

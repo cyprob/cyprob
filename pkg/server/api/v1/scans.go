@@ -5,8 +5,8 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/vulntor/vulntor/pkg/server/api"
-	"github.com/vulntor/vulntor/pkg/storage"
+	"github.com/cyprob/cyprob/pkg/server/api"
+	"github.com/cyprob/cyprob/pkg/storage"
 )
 
 // DTO Evolution Policy

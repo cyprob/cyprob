@@ -14,9 +14,9 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cast"
 
-	"github.com/vulntor/vulntor/pkg/engine" // Engine interfaces
-	"github.com/vulntor/vulntor/pkg/netutil"
-	"github.com/vulntor/vulntor/pkg/output"
+	"github.com/cyprob/cyprob/pkg/engine" // Engine interfaces
+	"github.com/cyprob/cyprob/pkg/netutil"
+	"github.com/cyprob/cyprob/pkg/output"
 )
 
 // TCPPortDiscoveryResult stores the outcome of the TCP port discovery for a single target.

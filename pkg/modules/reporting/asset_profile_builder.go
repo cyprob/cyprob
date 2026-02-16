@@ -9,12 +9,12 @@ import (
 
 	"github.com/rs/zerolog/log"
 
-	"github.com/vulntor/vulntor/pkg/engine"
-	"github.com/vulntor/vulntor/pkg/modules/discovery"  // For ICMPPingDiscoveryResult, TCPPortDiscoveryResult
-	"github.com/vulntor/vulntor/pkg/modules/evaluation" // For VulnerabilityResult
-	"github.com/vulntor/vulntor/pkg/modules/parse"      // For HTTPParsedInfo, SSHParsedInfo
-	"github.com/vulntor/vulntor/pkg/modules/scan"       // For BannerGrabResult
-	"github.com/vulntor/vulntor/pkg/netutil"
+	"github.com/cyprob/cyprob/pkg/engine"
+	"github.com/cyprob/cyprob/pkg/modules/discovery"  // For ICMPPingDiscoveryResult, TCPPortDiscoveryResult
+	"github.com/cyprob/cyprob/pkg/modules/evaluation" // For VulnerabilityResult
+	"github.com/cyprob/cyprob/pkg/modules/parse"      // For HTTPParsedInfo, SSHParsedInfo
+	"github.com/cyprob/cyprob/pkg/modules/scan"       // For BannerGrabResult
+	"github.com/cyprob/cyprob/pkg/netutil"
 )
 
 const (

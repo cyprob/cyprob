@@ -12,9 +12,9 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/stretchr/testify/require"
 
-	"github.com/vulntor/vulntor/pkg/config"
-	"github.com/vulntor/vulntor/pkg/plugin"
-	"github.com/vulntor/vulntor/pkg/server/api"
+	"github.com/cyprob/cyprob/pkg/config"
+	"github.com/cyprob/cyprob/pkg/plugin"
+	"github.com/cyprob/cyprob/pkg/server/api"
 )
 
 func TestNewRouter(t *testing.T) {

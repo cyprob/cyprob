@@ -10,8 +10,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/vulntor/vulntor/pkg/plugin"
-	"github.com/vulntor/vulntor/pkg/storage"
+	"github.com/cyprob/cyprob/pkg/plugin"
+	"github.com/cyprob/cyprob/pkg/storage"
 )
 
 func TestWriteError_NotFound(t *testing.T) {

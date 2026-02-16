@@ -3,7 +3,7 @@ package bind
 import (
 	"github.com/spf13/cobra"
 
-	"github.com/vulntor/vulntor/pkg/scanexec"
+	"github.com/cyprob/cyprob/pkg/scanexec"
 )
 
 // BindScanOptions extracts and validates scan command flags.

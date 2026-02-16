@@ -5,11 +5,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vulntor/vulntor/pkg/engine"
-	"github.com/vulntor/vulntor/pkg/modules/discovery"
-	"github.com/vulntor/vulntor/pkg/modules/evaluation"
-	"github.com/vulntor/vulntor/pkg/modules/parse"
-	"github.com/vulntor/vulntor/pkg/modules/scan"
+	"github.com/cyprob/cyprob/pkg/engine"
+	"github.com/cyprob/cyprob/pkg/modules/discovery"
+	"github.com/cyprob/cyprob/pkg/modules/evaluation"
+	"github.com/cyprob/cyprob/pkg/modules/parse"
+	"github.com/cyprob/cyprob/pkg/modules/scan"
 )
 
 func TestAssetProfileBuilderUsesFingerprintForNonDefaultPort(t *testing.T) {

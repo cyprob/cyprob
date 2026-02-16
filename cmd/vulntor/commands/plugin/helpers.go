@@ -10,11 +10,11 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 
-	"github.com/vulntor/vulntor/cmd/vulntor/internal/format"
-	"github.com/vulntor/vulntor/pkg/output"
-	"github.com/vulntor/vulntor/pkg/output/subscribers"
-	"github.com/vulntor/vulntor/pkg/plugin"
-	"github.com/vulntor/vulntor/pkg/storage"
+	"github.com/cyprob/cyprob/cmd/vulntor/internal/format"
+	"github.com/cyprob/cyprob/pkg/output"
+	"github.com/cyprob/cyprob/pkg/output/subscribers"
+	"github.com/cyprob/cyprob/pkg/plugin"
+	"github.com/cyprob/cyprob/pkg/storage"
 )
 
 const (

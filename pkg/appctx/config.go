@@ -3,7 +3,7 @@ package appctx
 import (
 	"context"
 
-	"github.com/vulntor/vulntor/pkg/config"
+	"github.com/cyprob/cyprob/pkg/config"
 )
 
 type key string

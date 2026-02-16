@@ -7,7 +7,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
 
-	srv "github.com/vulntor/vulntor/pkg/server"
+	srv "github.com/cyprob/cyprob/pkg/server"
 )
 
 func TestBindServerOptions(t *testing.T) {

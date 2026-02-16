@@ -13,10 +13,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/vulntor/vulntor/pkg/engine"
-	"github.com/vulntor/vulntor/pkg/modules/discovery"
-	parsepkg "github.com/vulntor/vulntor/pkg/modules/parse"
-	scanpkg "github.com/vulntor/vulntor/pkg/modules/scan"
+	"github.com/cyprob/cyprob/pkg/engine"
+	"github.com/cyprob/cyprob/pkg/modules/discovery"
+	parsepkg "github.com/cyprob/cyprob/pkg/modules/parse"
+	scanpkg "github.com/cyprob/cyprob/pkg/modules/scan"
 )
 
 type scanDebugTargetOptions struct {

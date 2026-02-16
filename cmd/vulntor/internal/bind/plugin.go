@@ -12,7 +12,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/vulntor/vulntor/pkg/plugin"
+	"github.com/cyprob/cyprob/pkg/plugin"
 )
 
 // formatList formats a string slice as a comma-separated list.

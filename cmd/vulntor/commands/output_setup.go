@@ -9,8 +9,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/vulntor/vulntor/pkg/output"
-	"github.com/vulntor/vulntor/pkg/output/subscribers"
+	"github.com/cyprob/cyprob/pkg/output"
+	"github.com/cyprob/cyprob/pkg/output/subscribers"
 )
 
 // setupOutputPipeline creates and configures the output pipeline based on CLI flags.

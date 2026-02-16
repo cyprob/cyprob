@@ -6,9 +6,9 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"github.com/vulntor/vulntor/pkg/engine"
-	"github.com/vulntor/vulntor/pkg/modules/discovery"
-	"github.com/vulntor/vulntor/pkg/modules/parse"
+	"github.com/cyprob/cyprob/pkg/engine"
+	"github.com/cyprob/cyprob/pkg/modules/discovery"
+	"github.com/cyprob/cyprob/pkg/modules/parse"
 )
 
 // NOTE: Vulnerability aggregation is handled, but not asserted here due to

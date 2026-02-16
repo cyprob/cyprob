@@ -6,10 +6,10 @@ import (
 
 	"github.com/rs/zerolog/log"
 
-	"github.com/vulntor/vulntor/pkg/config"
-	"github.com/vulntor/vulntor/pkg/server/api"
-	v1 "github.com/vulntor/vulntor/pkg/server/api/v1"
-	"github.com/vulntor/vulntor/pkg/ui"
+	"github.com/cyprob/cyprob/pkg/config"
+	"github.com/cyprob/cyprob/pkg/server/api"
+	v1 "github.com/cyprob/cyprob/pkg/server/api/v1"
+	"github.com/cyprob/cyprob/pkg/ui"
 )
 
 // NewRouter creates and configures the main HTTP router.

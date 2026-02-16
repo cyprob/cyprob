@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vulntor/vulntor/pkg/engine"
-	"github.com/vulntor/vulntor/pkg/fingerprint"
-	"github.com/vulntor/vulntor/pkg/modules/scan"
+	"github.com/cyprob/cyprob/pkg/engine"
+	"github.com/cyprob/cyprob/pkg/fingerprint"
+	"github.com/cyprob/cyprob/pkg/modules/scan"
 )
 
 // --- MOCK RESOLVER ---

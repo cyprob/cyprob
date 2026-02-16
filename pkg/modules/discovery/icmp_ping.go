@@ -18,9 +18,9 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cast"
 
-	"github.com/vulntor/vulntor/pkg/engine" // Assuming your core module interfaces are in pkg/engine
-	"github.com/vulntor/vulntor/pkg/netutil"
-	"github.com/vulntor/vulntor/pkg/output"
+	"github.com/cyprob/cyprob/pkg/engine" // Assuming your core module interfaces are in pkg/engine
+	"github.com/cyprob/cyprob/pkg/netutil"
+	"github.com/cyprob/cyprob/pkg/output"
 )
 
 // ICMPPingDiscoveryResult stores the outcome of the ping discovery.

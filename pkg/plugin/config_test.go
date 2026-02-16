@@ -10,7 +10,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/vulntor/vulntor/pkg/plugin"
+	"github.com/cyprob/cyprob/pkg/plugin"
 )
 
 func TestDefaultConfig(t *testing.T) {

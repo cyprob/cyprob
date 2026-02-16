@@ -3,7 +3,7 @@ package api
 import (
 	"sync/atomic"
 
-	"github.com/vulntor/vulntor/pkg/storage"
+	"github.com/cyprob/cyprob/pkg/storage"
 )
 
 // Deps holds dependencies for API handlers.

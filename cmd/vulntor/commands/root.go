@@ -8,20 +8,20 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 
-	dagCmd "github.com/vulntor/vulntor/cmd/vulntor/commands/dag"
-	pluginCmd "github.com/vulntor/vulntor/cmd/vulntor/commands/plugin"
-	serverCmd "github.com/vulntor/vulntor/cmd/vulntor/commands/server"
-	storageCmd "github.com/vulntor/vulntor/cmd/vulntor/commands/storage"
-	"github.com/vulntor/vulntor/pkg/appctx"
-	"github.com/vulntor/vulntor/pkg/cli"
-	"github.com/vulntor/vulntor/pkg/config"
-	"github.com/vulntor/vulntor/pkg/engine"
+	dagCmd "github.com/cyprob/cyprob/cmd/vulntor/commands/dag"
+	pluginCmd "github.com/cyprob/cyprob/cmd/vulntor/commands/plugin"
+	serverCmd "github.com/cyprob/cyprob/cmd/vulntor/commands/server"
+	storageCmd "github.com/cyprob/cyprob/cmd/vulntor/commands/storage"
+	"github.com/cyprob/cyprob/pkg/appctx"
+	"github.com/cyprob/cyprob/pkg/cli"
+	"github.com/cyprob/cyprob/pkg/config"
+	"github.com/cyprob/cyprob/pkg/engine"
 	// Register all available modules for DAG execution
-	_ "github.com/vulntor/vulntor/pkg/modules/evaluation" // Vulnerability evaluation modules
-	_ "github.com/vulntor/vulntor/pkg/modules/parse"      // Protocol parser modules
-	_ "github.com/vulntor/vulntor/pkg/modules/reporting"  // Reporting modules
-	_ "github.com/vulntor/vulntor/pkg/modules/scan"       // Scanner modules
-	"github.com/vulntor/vulntor/pkg/storage"
+	_ "github.com/cyprob/cyprob/pkg/modules/evaluation" // Vulnerability evaluation modules
+	_ "github.com/cyprob/cyprob/pkg/modules/parse"      // Protocol parser modules
+	_ "github.com/cyprob/cyprob/pkg/modules/reporting"  // Reporting modules
+	_ "github.com/cyprob/cyprob/pkg/modules/scan"       // Scanner modules
+	"github.com/cyprob/cyprob/pkg/storage"
 )
 
 const cliExecutable = "vulntor"

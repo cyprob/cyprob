@@ -5,7 +5,7 @@ package plugin
 import (
 	"github.com/rs/zerolog"
 
-	"github.com/vulntor/vulntor/pkg/hook"
+	"github.com/cyprob/cyprob/pkg/hook"
 )
 
 // PluginContext carries execution context for plugins.

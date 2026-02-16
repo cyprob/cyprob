@@ -1,4 +1,4 @@
-module github.com/vulntor/vulntor
+module github.com/cyprob/cyprob
 
 go 1.25.0
 

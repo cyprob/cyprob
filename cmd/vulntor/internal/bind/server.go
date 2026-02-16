@@ -3,7 +3,7 @@ package bind
 import (
 	"github.com/spf13/cobra"
 
-	srv "github.com/vulntor/vulntor/pkg/server"
+	srv "github.com/cyprob/cyprob/pkg/server"
 )
 
 // ServerOptions holds configuration options for the server start command.

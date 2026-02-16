@@ -7,7 +7,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
 
-	"github.com/vulntor/vulntor/pkg/scanexec"
+	"github.com/cyprob/cyprob/pkg/scanexec"
 )
 
 func TestBindScanOptions(t *testing.T) {

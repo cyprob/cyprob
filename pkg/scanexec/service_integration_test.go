@@ -9,8 +9,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/vulntor/vulntor/pkg/appctx"
-	"github.com/vulntor/vulntor/pkg/engine"
+	"github.com/cyprob/cyprob/pkg/appctx"
+	"github.com/cyprob/cyprob/pkg/engine"
 )
 
 // TestRunWithEphemeralTCP ensures the scan service can execute end-to-end

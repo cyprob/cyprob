@@ -13,15 +13,15 @@ import (
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
-	"github.com/vulntor/vulntor/cmd/vulntor/internal/bind"
-	"github.com/vulntor/vulntor/cmd/vulntor/internal/format"
-	"github.com/vulntor/vulntor/pkg/appctx"
-	"github.com/vulntor/vulntor/pkg/engine"
-	parsepkg "github.com/vulntor/vulntor/pkg/modules/parse" // Alias for parse package functions
-	"github.com/vulntor/vulntor/pkg/output"
-	"github.com/vulntor/vulntor/pkg/scanexec"
-	"github.com/vulntor/vulntor/pkg/storage"
-	"github.com/vulntor/vulntor/pkg/stringutil"
+	"github.com/cyprob/cyprob/cmd/vulntor/internal/bind"
+	"github.com/cyprob/cyprob/cmd/vulntor/internal/format"
+	"github.com/cyprob/cyprob/pkg/appctx"
+	"github.com/cyprob/cyprob/pkg/engine"
+	parsepkg "github.com/cyprob/cyprob/pkg/modules/parse" // Alias for parse package functions
+	"github.com/cyprob/cyprob/pkg/output"
+	"github.com/cyprob/cyprob/pkg/scanexec"
+	"github.com/cyprob/cyprob/pkg/storage"
+	"github.com/cyprob/cyprob/pkg/stringutil"
 )
 
 // ScanCmd defines the 'scan' command for comprehensive scanning.

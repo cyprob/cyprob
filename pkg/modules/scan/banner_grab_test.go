@@ -15,8 +15,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vulntor/vulntor/pkg/engine"
-	"github.com/vulntor/vulntor/pkg/fingerprint"
+	"github.com/cyprob/cyprob/pkg/engine"
+	"github.com/cyprob/cyprob/pkg/fingerprint"
 )
 
 func mustListenTCP(t *testing.T, addr string) net.Listener {

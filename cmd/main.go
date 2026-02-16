@@ -4,8 +4,8 @@ import (
 	"errors"
 	"os"
 
-	vulntorCli "github.com/vulntor/vulntor/cmd/vulntor/commands"
-	"github.com/vulntor/vulntor/pkg/plugin"
+	vulntorCli "github.com/cyprob/cyprob/cmd/vulntor/commands"
+	"github.com/cyprob/cyprob/pkg/plugin"
 )
 
 // main initializes the CLI application by determining the executable name and selecting

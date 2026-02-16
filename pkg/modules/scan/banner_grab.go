@@ -21,10 +21,10 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cast"
 
-	"github.com/vulntor/vulntor/pkg/engine" // Your engine/core package
-	"github.com/vulntor/vulntor/pkg/fingerprint"
-	"github.com/vulntor/vulntor/pkg/modules/discovery"
-	"github.com/vulntor/vulntor/pkg/output"
+	"github.com/cyprob/cyprob/pkg/engine" // Your engine/core package
+	"github.com/cyprob/cyprob/pkg/fingerprint"
+	"github.com/cyprob/cyprob/pkg/modules/discovery"
+	"github.com/cyprob/cyprob/pkg/output"
 )
 
 // BannerGrabConfig holds configuration for the banner grabbing module.

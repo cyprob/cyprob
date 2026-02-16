@@ -9,7 +9,7 @@ import (
 	"io"
 	"time"
 
-	"github.com/vulntor/vulntor/pkg/output"
+	"github.com/cyprob/cyprob/pkg/output"
 )
 
 // JSONFormatter emits structured JSON output (when --json flag is present).

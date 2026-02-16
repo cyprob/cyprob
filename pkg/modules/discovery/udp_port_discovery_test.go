@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/vulntor/vulntor/pkg/engine"
+	"github.com/cyprob/cyprob/pkg/engine"
 )
 
 func TestUDPPortDiscoveryModule_Metadata(t *testing.T) {
