@@ -5,10 +5,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/require"
 	"github.com/cyprob/cyprob/pkg/engine"
 	"github.com/cyprob/cyprob/pkg/modules/discovery"
 	"github.com/cyprob/cyprob/pkg/modules/parse"
+	"github.com/stretchr/testify/require"
 )
 
 // NOTE: Vulnerability aggregation is handled, but not asserted here due to

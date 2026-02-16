@@ -6,14 +6,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cyprob/cyprob/pkg/engine"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/cyprob/cyprob/pkg/engine"
 	"gopkg.in/yaml.v3"
 )
 
 // Mock data helpers
-func mockTargetData(target string, port int, product string, banner string, headers map[string]string) *targetData {
+func mockTargetData(target string, port int, product, banner string, headers map[string]string) *targetData {
 	return &targetData{
 		Target:      target,
 		Port:        port,
