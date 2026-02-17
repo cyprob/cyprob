@@ -28,10 +28,11 @@ type TCPPortDiscoveryResult struct {
 
 // TCPPortDiscoveryConfig holds configuration for the TCP port discovery module.
 type TCPPortDiscoveryConfig struct {
-	Targets     []string      `json:"targets"`
-	Ports       []string      `json:"ports"`   // Port ranges and lists (e.g., "1-1024", "80,443,8080")
-	Timeout     time.Duration `json:"timeout"` // Connection timeout for each port
-	Concurrency int           `json:"concurrency"`
+	Targets         []string      `json:"targets"`
+	Ports           []string      `json:"ports"`   // Port ranges and lists (e.g., "1-1024", "80,443,8080")
+	Timeout         time.Duration `json:"timeout"` // Connection timeout for each port
+	Concurrency     int           `json:"concurrency"`
+	StopOnFirstOpen bool          `json:"stop_on_first_open"`
 }
 
 // TCPPortDiscoveryModule implements the engine.Module interface for TCP port discovery.
@@ -47,15 +48,21 @@ const (
 	defaultTCPPorts                = "1-1024" // Default common ports or a well-known range
 )
 
-var lookupHost = net.LookupHost
+var (
+	lookupHost  = net.LookupHost
+	dialTimeout = net.DialTimeout
+)
 
 // newTCPPortDiscoveryModule is the internal constructor for the module.
 // It sets up metadata and initializes the config with default values.
+//
+//nolint:dupl // TCP/UDP discovery module metadata is intentionally parallel for maintainability.
 func newTCPPortDiscoveryModule() *TCPPortDiscoveryModule {
 	defaultConfig := TCPPortDiscoveryConfig{
-		Ports:       []string{defaultTCPPorts},
-		Timeout:     defaultTCPPortDiscoveryTimeout,
-		Concurrency: defaultTCPConcurrency,
+		Ports:           []string{defaultTCPPorts},
+		Timeout:         defaultTCPPortDiscoveryTimeout,
+		Concurrency:     defaultTCPConcurrency,
+		StopOnFirstOpen: false,
 	}
 	return &TCPPortDiscoveryModule{
 		meta: engine.ModuleMetadata{
@@ -125,6 +132,12 @@ func newTCPPortDiscoveryModule() *TCPPortDiscoveryModule {
 					Required:    false,
 					Default:     defaultTCPConcurrency,
 				},
+				"stop_on_first_open": {
+					Description: "Stop scanning remaining ports for a target after the first open port is found.",
+					Type:        "bool",
+					Required:    false,
+					Default:     false,
+				},
 			},
 			// ActivationTriggers: Usually none for a primary discovery module, unless it depends on a very specific prior state.
 			// IsDynamic: false,
@@ -166,6 +179,9 @@ func (m *TCPPortDiscoveryModule) Init(instanceID string, moduleConfig map[string
 			fmt.Printf("[WARN] Module '%s': Concurrency in config is < 1 (%d). Setting to default: %d.\n", m.meta.Name, cfg.Concurrency, defaultTCPConcurrency)
 			cfg.Concurrency = defaultTCPConcurrency
 		}
+	}
+	if stopVal, ok := moduleConfig["stop_on_first_open"]; ok {
+		cfg.StopOnFirstOpen = cast.ToBool(stopVal)
 	}
 
 	// Sanitize final values
@@ -243,8 +259,10 @@ func (m *TCPPortDiscoveryModule) Execute(ctx context.Context, inputs map[string]
 		return nil
 	}
 
-	logger.Info().Msgf("Starting TCP Port Discovery for %d targets on %d unique ports. Concurrency: %d, Timeout per port: %s",
-		len(targetsToScan), len(parsedPorts), m.config.Concurrency, m.config.Timeout)
+	logger.Info().Msgf(
+		"Starting TCP Port Discovery for %d targets on %d unique ports. Concurrency: %d, Timeout per port: %s, stop_on_first_open: %t",
+		len(targetsToScan), len(parsedPorts), m.config.Concurrency, m.config.Timeout, m.config.StopOnFirstOpen,
+	)
 
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, m.config.Concurrency) // Semaphore to limit concurrency
@@ -273,59 +291,7 @@ func (m *TCPPortDiscoveryModule) Execute(ctx context.Context, inputs map[string]
 			// Streaming event: Target started
 			engine.PublishEvent(ctx, engine.NewTargetStartedEvent(ip, "port_scan"))
 
-			var portWg sync.WaitGroup
-			ipPorts := make([]int, 0)
-			var ipMutex sync.Mutex
-
-			// Scan all ports for this IP
-			for _, port := range parsedPorts {
-				// Check context cancellation
-				select {
-				case <-ctx.Done():
-					return
-				default:
-				}
-
-				portWg.Add(1)
-				go func(p int) {
-					defer portWg.Done()
-					sem <- struct{}{}        // Acquire semaphore
-					defer func() { <-sem }() // Release semaphore
-
-					// Check context again inside the goroutine
-					select {
-					case <-ctx.Done():
-						return
-					default:
-					}
-
-					address := net.JoinHostPort(ip, strconv.Itoa(p))
-					conn, err := net.DialTimeout("tcp", address, m.config.Timeout)
-					if err == nil {
-						_ = conn.Close()
-
-						// Store open port for this IP
-						ipMutex.Lock()
-						ipPorts = append(ipPorts, p)
-						ipMutex.Unlock()
-
-						mapMutex.Lock()
-						openPortsByTarget[ip] = append(openPortsByTarget[ip], p)
-						mapMutex.Unlock()
-
-						// Real-time output: Emit open port discovery to user
-						if out, ok := ctx.Value(output.OutputKey).(output.Output); ok {
-							out.Diag(output.LevelNormal, fmt.Sprintf("Open port: %s:%d/tcp", ip, p), nil)
-						}
-
-						// Streaming event: Port open (real-time)
-						engine.PublishEvent(ctx, engine.NewPortOpenEvent(ip, p, "tcp"))
-					}
-				}(port)
-			}
-
-			// Wait for all ports of THIS IP to complete
-			portWg.Wait()
+			ipPorts := m.scanTargetPorts(ctx, ip, parsedPorts, sem, &mapMutex, openPortsByTarget)
 
 			duration := time.Since(startTime)
 			logger.Debug().Msgf("Completed target: %s (duration: %v, open ports: %d)", ip, duration, len(ipPorts))
@@ -364,6 +330,119 @@ endLoops:
 	// Consider if an explicit "no open ports found for any target" message is needed.
 	log.Info().Msg("TCP Port Discovery completed.")
 	return nil // Indicate successful completion of the module's execution logic
+}
+
+func (m *TCPPortDiscoveryModule) scanTargetPorts(
+	ctx context.Context,
+	ip string,
+	parsedPorts []int,
+	sem chan struct{},
+	mapMutex *sync.Mutex,
+	openPortsByTarget map[string][]int,
+) []int {
+	if m.config.StopOnFirstOpen {
+		return m.scanTargetPortsStopOnFirstOpen(ctx, ip, parsedPorts, sem, mapMutex, openPortsByTarget)
+	}
+	return m.scanTargetPortsAll(ctx, ip, parsedPorts, sem, mapMutex, openPortsByTarget)
+}
+
+func (m *TCPPortDiscoveryModule) scanTargetPortsStopOnFirstOpen(
+	ctx context.Context,
+	ip string,
+	parsedPorts []int,
+	sem chan struct{},
+	mapMutex *sync.Mutex,
+	openPortsByTarget map[string][]int,
+) []int {
+	ipPorts := make([]int, 0, 1)
+
+	for _, p := range parsedPorts {
+		select {
+		case <-ctx.Done():
+			return ipPorts
+		default:
+		}
+
+		sem <- struct{}{}
+		address := net.JoinHostPort(ip, strconv.Itoa(p))
+		conn, err := dialTimeout("tcp", address, m.config.Timeout)
+		<-sem
+		if err != nil {
+			continue
+		}
+		_ = conn.Close()
+
+		ipPorts = append(ipPorts, p)
+
+		mapMutex.Lock()
+		openPortsByTarget[ip] = append(openPortsByTarget[ip], p)
+		mapMutex.Unlock()
+
+		if out, ok := ctx.Value(output.OutputKey).(output.Output); ok {
+			out.Diag(output.LevelNormal, fmt.Sprintf("Open port: %s:%d/tcp", ip, p), nil)
+		}
+		engine.PublishEvent(ctx, engine.NewPortOpenEvent(ip, p, "tcp"))
+		break
+	}
+
+	return ipPorts
+}
+
+func (m *TCPPortDiscoveryModule) scanTargetPortsAll(
+	ctx context.Context,
+	ip string,
+	parsedPorts []int,
+	sem chan struct{},
+	mapMutex *sync.Mutex,
+	openPortsByTarget map[string][]int,
+) []int {
+	var portWg sync.WaitGroup
+	ipPorts := make([]int, 0)
+	var ipMutex sync.Mutex
+
+	for _, port := range parsedPorts {
+		select {
+		case <-ctx.Done():
+			return ipPorts
+		default:
+		}
+
+		portWg.Add(1)
+		go func(p int) {
+			defer portWg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+
+			address := net.JoinHostPort(ip, strconv.Itoa(p))
+			conn, err := dialTimeout("tcp", address, m.config.Timeout)
+			if err != nil {
+				return
+			}
+			_ = conn.Close()
+
+			ipMutex.Lock()
+			ipPorts = append(ipPorts, p)
+			ipMutex.Unlock()
+
+			mapMutex.Lock()
+			openPortsByTarget[ip] = append(openPortsByTarget[ip], p)
+			mapMutex.Unlock()
+
+			if out, ok := ctx.Value(output.OutputKey).(output.Output); ok {
+				out.Diag(output.LevelNormal, fmt.Sprintf("Open port: %s:%d/tcp", ip, p), nil)
+			}
+			engine.PublishEvent(ctx, engine.NewPortOpenEvent(ip, p, "tcp"))
+		}(port)
+	}
+
+	portWg.Wait()
+	return ipPorts
 }
 
 // TCPPortDiscoveryModuleFactory creates a new TCPPortDiscoveryModule instance.

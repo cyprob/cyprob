@@ -2,7 +2,11 @@ package discovery
 
 import (
 	"context"
+	"errors"
+	"net"
 	"reflect"
+	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -116,10 +120,11 @@ func TestTCPPortDiscoveryModule_Init(t *testing.T) {
 			name:  "empty config uses defaults",
 			input: map[string]any{},
 			wantConfig: TCPPortDiscoveryConfig{
-				Targets:     nil,
-				Ports:       []string{"1-1024"},
-				Timeout:     defaultTCPPortDiscoveryTimeout,
-				Concurrency: defaultTCPConcurrency,
+				Targets:         nil,
+				Ports:           []string{"1-1024"},
+				Timeout:         defaultTCPPortDiscoveryTimeout,
+				Concurrency:     defaultTCPConcurrency,
+				StopOnFirstOpen: false,
 			},
 		},
 		{
@@ -129,10 +134,11 @@ func TestTCPPortDiscoveryModule_Init(t *testing.T) {
 				"ports":   []string{"22", "80-81"},
 			},
 			wantConfig: TCPPortDiscoveryConfig{
-				Targets:     []string{"127.0.0.1", "192.168.1.1"},
-				Ports:       []string{"22", "80-81"},
-				Timeout:     defaultTCPPortDiscoveryTimeout,
-				Concurrency: defaultTCPConcurrency,
+				Targets:         []string{"127.0.0.1", "192.168.1.1"},
+				Ports:           []string{"22", "80-81"},
+				Timeout:         defaultTCPPortDiscoveryTimeout,
+				Concurrency:     defaultTCPConcurrency,
+				StopOnFirstOpen: false,
 			},
 		},
 		{
@@ -142,10 +148,11 @@ func TestTCPPortDiscoveryModule_Init(t *testing.T) {
 				"concurrency": 50,
 			},
 			wantConfig: TCPPortDiscoveryConfig{
-				Targets:     nil,
-				Ports:       []string{"1-1024"},
-				Timeout:     2 * time.Second,
-				Concurrency: 50,
+				Targets:         nil,
+				Ports:           []string{"1-1024"},
+				Timeout:         2 * time.Second,
+				Concurrency:     50,
+				StopOnFirstOpen: false,
 			},
 		},
 		{
@@ -154,10 +161,11 @@ func TestTCPPortDiscoveryModule_Init(t *testing.T) {
 				"timeout": "notaduration",
 			},
 			wantConfig: TCPPortDiscoveryConfig{
-				Targets:     nil,
-				Ports:       []string{"1-1024"},
-				Timeout:     defaultTCPPortDiscoveryTimeout,
-				Concurrency: defaultTCPConcurrency,
+				Targets:         nil,
+				Ports:           []string{"1-1024"},
+				Timeout:         defaultTCPPortDiscoveryTimeout,
+				Concurrency:     defaultTCPConcurrency,
+				StopOnFirstOpen: false,
 			},
 		},
 		{
@@ -166,10 +174,11 @@ func TestTCPPortDiscoveryModule_Init(t *testing.T) {
 				"concurrency": 0,
 			},
 			wantConfig: TCPPortDiscoveryConfig{
-				Targets:     nil,
-				Ports:       []string{"1-1024"},
-				Timeout:     defaultTCPPortDiscoveryTimeout,
-				Concurrency: defaultTCPConcurrency,
+				Targets:         nil,
+				Ports:           []string{"1-1024"},
+				Timeout:         defaultTCPPortDiscoveryTimeout,
+				Concurrency:     defaultTCPConcurrency,
+				StopOnFirstOpen: false,
 			},
 		},
 		{
@@ -178,10 +187,24 @@ func TestTCPPortDiscoveryModule_Init(t *testing.T) {
 				"ports": []string{""},
 			},
 			wantConfig: TCPPortDiscoveryConfig{
-				Targets:     nil,
-				Ports:       []string{"1-1024"},
-				Timeout:     defaultTCPPortDiscoveryTimeout,
-				Concurrency: defaultTCPConcurrency,
+				Targets:         nil,
+				Ports:           []string{"1-1024"},
+				Timeout:         defaultTCPPortDiscoveryTimeout,
+				Concurrency:     defaultTCPConcurrency,
+				StopOnFirstOpen: false,
+			},
+		},
+		{
+			name: "set stop_on_first_open",
+			input: map[string]any{
+				"stop_on_first_open": true,
+			},
+			wantConfig: TCPPortDiscoveryConfig{
+				Targets:         nil,
+				Ports:           []string{"1-1024"},
+				Timeout:         defaultTCPPortDiscoveryTimeout,
+				Concurrency:     defaultTCPConcurrency,
+				StopOnFirstOpen: true,
 			},
 		},
 	}
@@ -206,6 +229,9 @@ func TestTCPPortDiscoveryModule_Init(t *testing.T) {
 			}
 			if got.Concurrency != tt.wantConfig.Concurrency {
 				t.Errorf("Concurrency: got %v, want %v", got.Concurrency, tt.wantConfig.Concurrency)
+			}
+			if got.StopOnFirstOpen != tt.wantConfig.StopOnFirstOpen {
+				t.Errorf("StopOnFirstOpen: got %v, want %v", got.StopOnFirstOpen, tt.wantConfig.StopOnFirstOpen)
 			}
 		})
 	}
@@ -382,5 +408,108 @@ func TestBuildHostnameByIPMap(t *testing.T) {
 	}
 	if _, ok := m["10.0.0.20"]; ok {
 		t.Fatalf("expected raw IP target not to be treated as hostname source")
+	}
+}
+
+func TestTCPPortDiscoveryModule_StopOnFirstOpenPerTarget(t *testing.T) {
+	module := newTCPPortDiscoveryModule()
+	module.meta.ID = "test-instance"
+	module.config.Targets = []string{"198.51.100.10", "198.51.100.11"}
+	module.config.Ports = []string{"101", "102", "103", "104"}
+	module.config.Timeout = 20 * time.Millisecond
+	module.config.Concurrency = 8
+	module.config.StopOnFirstOpen = true
+
+	originalDial := dialTimeout
+	t.Cleanup(func() { dialTimeout = originalDial })
+
+	var mu sync.Mutex
+	attemptsByIP := make(map[string]int)
+	dialTimeout = func(network, address string, timeout time.Duration) (net.Conn, error) {
+		host, portStr, err := net.SplitHostPort(address)
+		if err != nil {
+			return nil, err
+		}
+		port, err := strconv.Atoi(portStr)
+		if err != nil {
+			return nil, err
+		}
+
+		mu.Lock()
+		attemptsByIP[host]++
+		mu.Unlock()
+
+		if host == "198.51.100.10" && port == 101 {
+			c1, c2 := net.Pipe()
+			_ = c2.Close()
+			return c1, nil
+		}
+		return nil, errors.New("closed")
+	}
+
+	outputs := make(chan engine.ModuleOutput, 8)
+	err := module.Execute(context.Background(), map[string]any{}, outputs)
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	close(outputs)
+
+	// Target-1 should stop after first open, target-2 should continue all probes.
+	if got := attemptsByIP["198.51.100.10"]; got != 1 {
+		t.Fatalf("target 198.51.100.10 attempts = %d, want 1", got)
+	}
+	if got := attemptsByIP["198.51.100.11"]; got != 4 {
+		t.Fatalf("target 198.51.100.11 attempts = %d, want 4", got)
+	}
+}
+
+func TestTCPPortDiscoveryModule_StopOnFirstOpenDisabledScansAll(t *testing.T) {
+	module := newTCPPortDiscoveryModule()
+	module.meta.ID = "test-instance"
+	module.config.Targets = []string{"198.51.100.20"}
+	module.config.Ports = []string{"201", "202", "203", "204"}
+	module.config.Timeout = 20 * time.Millisecond
+	module.config.Concurrency = 8
+	module.config.StopOnFirstOpen = false
+
+	originalDial := dialTimeout
+	t.Cleanup(func() { dialTimeout = originalDial })
+
+	var mu sync.Mutex
+	attempts := 0
+	dialTimeout = func(network, address string, timeout time.Duration) (net.Conn, error) {
+		host, portStr, err := net.SplitHostPort(address)
+		if err != nil {
+			return nil, err
+		}
+		if host != "198.51.100.20" {
+			return nil, errors.New("unknown host")
+		}
+		port, err := strconv.Atoi(portStr)
+		if err != nil {
+			return nil, err
+		}
+
+		mu.Lock()
+		attempts++
+		mu.Unlock()
+
+		if port == 201 {
+			c1, c2 := net.Pipe()
+			_ = c2.Close()
+			return c1, nil
+		}
+		return nil, errors.New("closed")
+	}
+
+	outputs := make(chan engine.ModuleOutput, 8)
+	err := module.Execute(context.Background(), map[string]any{}, outputs)
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	close(outputs)
+
+	if attempts != 4 {
+		t.Fatalf("attempt count = %d, want 4", attempts)
 	}
 }

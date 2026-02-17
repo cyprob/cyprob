@@ -51,6 +51,8 @@ const (
 )
 
 // newUDPPortDiscoveryModule is the internal constructor for the module.
+//
+//nolint:dupl // TCP/UDP discovery module metadata is intentionally parallel for maintainability.
 func newUDPPortDiscoveryModule() *UDPPortDiscoveryModule {
 	defaultConfig := UDPPortDiscoveryConfig{
 		Ports:          []string{defaultUDPPorts},
