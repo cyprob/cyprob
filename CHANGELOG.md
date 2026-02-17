@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-02-17
+
+### Fixed
+- **TCP discovery fallback cost reduction**
+  - Added `stop_on_first_open` behavior to `tcp-port-discovery` for discovery-oriented usage.
+  - When enabled, per-target scanning now stops after the first open TCP port is found.
+  - Preserved full-scan behavior when the flag is disabled (default remains unchanged).
+- Added targeted tests to verify:
+  - Early-exit only affects the current target.
+  - Other targets continue scanning.
+  - Full scan behavior remains intact when early-exit is disabled.
+
 ## [0.5.0] - 2026-02-16
 
 ### Added
@@ -100,7 +112,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Initial release candidate with core scanning capabilities.
 
-[Unreleased]: https://github.com/cyprob/cyprob/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/cyprob/cyprob/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/cyprob/cyprob/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/cyprob/cyprob/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/cyprob/cyprob/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/cyprob/cyprob/compare/v0.2.0...v0.3.0

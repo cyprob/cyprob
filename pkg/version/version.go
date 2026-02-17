@@ -12,7 +12,7 @@ import (
 // buildDate holds the build date of vulntor in RFC3339 format. It is set at build time.
 // tag holds the git tag associated with the build. It is set at build time.
 var (
-	version   = "0.5.0"                // Version holds the current version of vulntor.
+	version   = "0.5.1"                // Version holds the current version of vulntor.
 	commit    = ""                     // Commit holds the current version commit of vulntor.
 	buildDate = "1970-01-01T00:00:00Z" // BuildDate holds the build date of vulntor.
 	tag       = ""                     // Tag holds the git tag of the build.
