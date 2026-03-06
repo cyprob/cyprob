@@ -396,6 +396,16 @@ rules:
     port_bonuses: [9200, 9300]
 
   # Mail Servers
+  - id: 'smtp.sophos'
+    protocol: 'smtp'
+    description: 'Sophos ESMTP banner'
+    product: 'Sophos ESMTP'
+    vendor: 'Sophos'
+    cpe: 'cpe:2.3:a:sophos:esmtp:*:*:*:*:*:*:*:*'
+    match: '(?i)^220\s+sophos\s+esmtp\s+ready\b'
+    pattern_strength: 0.92
+    port_bonuses: [25, 587, 465]
+
   - id: 'smtp.postfix'
     protocol: 'smtp'
     description: 'Postfix SMTP server banner'

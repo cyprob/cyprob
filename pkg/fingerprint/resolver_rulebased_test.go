@@ -1569,6 +1569,42 @@ func TestResolve_Dovecot(t *testing.T) {
 	}
 }
 
+func TestResolve_BuiltinSMTP_Sophos(t *testing.T) {
+	rb := NewRuleBasedResolver(loadBuiltinRules())
+	ctx := context.Background()
+
+	t.Run("matches sophos banner", func(t *testing.T) {
+		res, err := rb.Resolve(ctx, Input{
+			Protocol: "smtp",
+			Banner:   "220 Sophos ESMTP ready",
+			Port:     25,
+		})
+		if err != nil {
+			t.Fatalf("expected sophos match, got error: %v", err)
+		}
+		if res.Product != "Sophos ESMTP" {
+			t.Fatalf("expected Sophos ESMTP, got %s", res.Product)
+		}
+		if res.Vendor != "Sophos" {
+			t.Fatalf("expected Sophos vendor, got %s", res.Vendor)
+		}
+		if res.Version != "" {
+			t.Fatalf("expected empty version, got %s", res.Version)
+		}
+	})
+
+	t.Run("does not match near miss banner", func(t *testing.T) {
+		_, err := rb.Resolve(ctx, Input{
+			Protocol: "smtp",
+			Banner:   "220 Sophos SMTP ready",
+			Port:     25,
+		})
+		if err == nil {
+			t.Fatalf("expected no match for near-miss sophos banner")
+		}
+	})
+}
+
 // FTP Servers Tests (Phase 4)
 
 func TestResolve_PureFTPd(t *testing.T) {

@@ -502,7 +502,7 @@ true_positives:
     expected_version: '8.7.1'
     description: 'Elasticsearch 8.7'
 
-  # SMTP Servers (10 cases)
+  # SMTP Servers (11 cases)
   - protocol: smtp
     port: 25
     banner: '220 mail.example.com ESMTP Postfix'
@@ -582,6 +582,14 @@ true_positives:
     expected_vendor: 'Exim'
     expected_version: '4.95'
     description: 'Exim 4.95'
+
+  - protocol: smtp
+    port: 25
+    banner: '220 Sophos ESMTP ready'
+    expected_product: 'Sophos ESMTP'
+    expected_vendor: 'Sophos'
+    expected_version: ''
+    description: 'Sophos ESMTP banner'
 
   # Other Services (20 cases)
   - protocol: rdp
@@ -985,6 +993,12 @@ true_negatives:
     banner: 'INVALID SMTP'
     expected_match: false
     description: 'Invalid SMTP banner'
+
+  - protocol: smtp
+    port: 25
+    banner: '220 Sophos SMTP ready'
+    expected_match: false
+    description: 'Near-miss Sophos SMTP banner'
 
   - protocol: http
     port: 80
