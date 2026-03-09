@@ -22,6 +22,12 @@ const (
 	TagExim         = "exim"
 	TagDovecot      = "dovecot"
 	TagMicrosoftIIS = "microsoft_iis"
+	TagRDP          = "rdp"
+	TagTLS          = "tls"
+	TagHTTPS        = "https"
+	TagRPC          = "rpc"
+	TagMSRPC        = "msrpc"
+	TagWindowsHint  = "windows_hint"
 )
 
 var canonicalTechTagSet = map[string]struct{}{
@@ -123,6 +129,12 @@ var canonicalTechTagSet = map[string]struct{}{
 	TagExim:         {},
 	TagDovecot:      {},
 	TagMicrosoftIIS: {},
+	TagRDP:          {},
+	TagTLS:          {},
+	TagHTTPS:        {},
+	TagRPC:          {},
+	TagMSRPC:        {},
+	TagWindowsHint:  {},
 }
 
 var techTagAliases = map[string]string{
@@ -133,7 +145,11 @@ var techTagAliases = map[string]string{
 	"mail_server":   TagMailService,
 	"microsoft_iis": TagMicrosoftIIS,
 	"moment.js":     "momentjs",
+	"ms-wbt-server": TagRDP,
+	"rpc":           TagRPC,
+	"msrpc":         TagMSRPC,
 	"node.js":       "nodejs",
+	"ssl":           TagTLS,
 	"spring-boot":   "spring_boot",
 	"spring_boot":   "spring_boot",
 	"vue.js":        "vuejs",

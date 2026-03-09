@@ -49,6 +49,7 @@ type scanDebugPayload struct {
 	RDPDetails      []scanpkg.RDPServiceInfo           `json:"rdp_details"`
 	TLSDetails      []scanpkg.TLSServiceInfo           `json:"tls_details"`
 	SMBDetails      []scanpkg.SMBServiceInfo           `json:"smb_details"`
+	ServiceIdentity []parsepkg.ServiceIdentityInfo     `json:"service_identity"`
 	Steps           []scanDebugStep                    `json:"steps"`
 }
 
@@ -105,6 +106,7 @@ func runScanDebugTarget(cmd *cobra.Command, target string, opts scanDebugTargetO
 		"banner-grabber",
 		"fingerprint-parser",
 		"tech-tagger",
+		"service-identity-normalizer",
 	)
 
 	resolved, resolveErr := resolveDebugTargets(target)
@@ -162,6 +164,20 @@ func runScanDebugTarget(cmd *cobra.Command, target string, opts scanDebugTargetO
 	if err != nil {
 		return err
 	}
+	serviceIdentity, err := runDebugServiceIdentityStage(
+		ctx,
+		steps,
+		banners,
+		fingerprints,
+		techTags,
+		smbDetails,
+		rdpDetails,
+		rpcDetails,
+		tlsDetails,
+	)
+	if err != nil {
+		return err
+	}
 
 	payload := scanDebugPayload{
 		Target:          target,
@@ -175,6 +191,7 @@ func runScanDebugTarget(cmd *cobra.Command, target string, opts scanDebugTargetO
 		RDPDetails:      rdpDetails,
 		TLSDetails:      tlsDetails,
 		SMBDetails:      smbDetails,
+		ServiceIdentity: serviceIdentity,
 		Steps:           steps.values(),
 	}
 
@@ -494,6 +511,42 @@ func runDebugTLSNativeProbeStage(
 	return tlsDetails, nil
 }
 
+func runDebugServiceIdentityStage(
+	ctx context.Context,
+	steps *scanDebugStepCollection,
+	banners []scanpkg.BannerGrabResult,
+	fingerprints []parsepkg.FingerprintParsedInfo,
+	techTags []parsepkg.TechTagResult,
+	smbDetails []scanpkg.SMBServiceInfo,
+	rdpDetails []scanpkg.RDPServiceInfo,
+	rpcDetails []scanpkg.RPCServiceInfo,
+	tlsDetails []scanpkg.TLSServiceInfo,
+) ([]parsepkg.ServiceIdentityInfo, error) {
+	normalizerModule, err := engine.GetModuleInstance("scan_debug_service_identity_normalizer", "service-identity-normalizer", map[string]any{})
+	if err != nil {
+		return nil, fmt.Errorf("create service-identity-normalizer module: %w", err)
+	}
+
+	normalizerOutputs, normalizerExecErr := executeDebugModule(ctx, normalizerModule, map[string]any{
+		"service.banner.tcp":          toAnySlice(banners),
+		"service.fingerprint.details": toAnySlice(fingerprints),
+		"service.tech.tags":           toAnySlice(techTags),
+		"service.smb.details":         toAnySlice(smbDetails),
+		"service.rdp.details":         toAnySlice(rdpDetails),
+		"service.rpc.details":         toAnySlice(rpcDetails),
+		"service.tls.details":         toAnySlice(tlsDetails),
+	})
+	if normalizerExecErr != nil {
+		steps.addError("service-identity-normalizer", normalizerExecErr.Error())
+	}
+	steps.addErrors("service-identity-normalizer", collectOutputErrors(normalizerOutputs))
+	serviceIdentity := collectServiceIdentityResults(normalizerOutputs)
+	if len(serviceIdentity) == 0 {
+		steps.addWarning("service-identity-normalizer", "no canonical service identity generated")
+	}
+	return serviceIdentity, nil
+}
+
 func executeDebugModule(ctx context.Context, module engine.Module, inputs map[string]any) ([]engine.ModuleOutput, error) {
 	outputChan := make(chan engine.ModuleOutput, 256)
 	execDone := make(chan error, 1)
@@ -691,6 +744,25 @@ func collectTLSDetailsResults(outputs []engine.ModuleOutput) []scanpkg.TLSServic
 	return results
 }
 
+func collectServiceIdentityResults(outputs []engine.ModuleOutput) []parsepkg.ServiceIdentityInfo {
+	results := make([]parsepkg.ServiceIdentityInfo, 0)
+	for _, output := range outputs {
+		switch data := output.Data.(type) {
+		case parsepkg.ServiceIdentityInfo:
+			results = append(results, data)
+		case []parsepkg.ServiceIdentityInfo:
+			results = append(results, data...)
+		}
+	}
+	sort.Slice(results, func(i, j int) bool {
+		if results[i].Target == results[j].Target {
+			return results[i].Port < results[j].Port
+		}
+		return results[i].Target < results[j].Target
+	})
+	return results
+}
+
 func resolveDebugTargets(target string) ([]scanDebugResolvedTarget, error) {
 	if ip := net.ParseIP(target); ip != nil {
 		return []scanDebugResolvedTarget{{Input: target, IP: ip.String()}}, nil
@@ -773,6 +845,7 @@ func writeScanDebugPretty(w io.Writer, payload scanDebugPayload) error {
 	fmt.Fprintf(w, "RDP Details: %d\n", len(payload.RDPDetails))
 	fmt.Fprintf(w, "TLS Details: %d\n", len(payload.TLSDetails))
 	fmt.Fprintf(w, "SMB Details: %d\n", len(payload.SMBDetails))
+	fmt.Fprintf(w, "Service Identity: %d\n", len(payload.ServiceIdentity))
 	fmt.Fprintln(w, "")
 	fmt.Fprintln(w, "Step Status:")
 	for _, step := range payload.Steps {

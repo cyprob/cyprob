@@ -51,6 +51,10 @@ func newAssetProfileBuilderModule() *AssetProfileBuilderModule {
 				{Key: "service.ssh.details", DataTypeName: "parse.SSHParsedInfo", Cardinality: engine.CardinalityList, IsOptional: true},                   // []interface{}{SSHParsedInfo1, ...}
 				{Key: "service.fingerprint.details", DataTypeName: "parse.FingerprintParsedInfo", Cardinality: engine.CardinalityList, IsOptional: true},   // []interface{}{FingerprintParsedInfo1, ...}
 				{Key: "service.tech.tags", DataTypeName: "parse.TechTagResult", Cardinality: engine.CardinalityList, IsOptional: true},                     // []interface{}{TechTagResult1, ...}
+				{Key: "service.rdp.details", DataTypeName: "scan.RDPServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},                   // []interface{}{RDPServiceInfo1, ...}
+				{Key: "service.rpc.details", DataTypeName: "scan.RPCServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},                   // []interface{}{RPCServiceInfo1, ...}
+				{Key: "service.tls.details", DataTypeName: "scan.TLSServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},                   // []interface{}{TLSServiceInfo1, ...}
+				{Key: "service.identity.details", DataTypeName: "parse.ServiceIdentityInfo", Cardinality: engine.CardinalityList, IsOptional: true},        // []interface{}{ServiceIdentityInfo1, ...}
 				{Key: "evaluation.vulnerabilities", DataTypeName: "evaluation.VulnerabilityResult", Cardinality: engine.CardinalityList, IsOptional: true}, // []interface{}{VulnerabilityResult1, ...}
 			},
 			Produces: []engine.DataContractEntry{
@@ -168,6 +172,58 @@ func (m *AssetProfileBuilderModule) Execute(ctx context.Context, inputs map[stri
 					techTagResults = append(techTagResults, casted)
 				}
 			}
+		}
+	}
+
+	identityDetails := []parse.ServiceIdentityInfo{}
+	if rawIdentity, ok := inputs["service.identity.details"]; ok {
+		if list, listOK := rawIdentity.([]any); listOK {
+			for _, item := range list {
+				if casted, castOK := item.(parse.ServiceIdentityInfo); castOK {
+					identityDetails = append(identityDetails, casted)
+				}
+			}
+		} else if typed, typedOK := rawIdentity.([]parse.ServiceIdentityInfo); typedOK {
+			identityDetails = append(identityDetails, typed...)
+		}
+	}
+
+	rdpDetails := []scan.RDPServiceInfo{}
+	if rawRDP, ok := inputs["service.rdp.details"]; ok {
+		if list, listOK := rawRDP.([]any); listOK {
+			for _, item := range list {
+				if casted, castOK := item.(scan.RDPServiceInfo); castOK {
+					rdpDetails = append(rdpDetails, casted)
+				}
+			}
+		} else if typed, typedOK := rawRDP.([]scan.RDPServiceInfo); typedOK {
+			rdpDetails = append(rdpDetails, typed...)
+		}
+	}
+
+	rpcDetails := []scan.RPCServiceInfo{}
+	if rawRPC, ok := inputs["service.rpc.details"]; ok {
+		if list, listOK := rawRPC.([]any); listOK {
+			for _, item := range list {
+				if casted, castOK := item.(scan.RPCServiceInfo); castOK {
+					rpcDetails = append(rpcDetails, casted)
+				}
+			}
+		} else if typed, typedOK := rawRPC.([]scan.RPCServiceInfo); typedOK {
+			rpcDetails = append(rpcDetails, typed...)
+		}
+	}
+
+	tlsDetails := []scan.TLSServiceInfo{}
+	if rawTLS, ok := inputs["service.tls.details"]; ok {
+		if list, listOK := rawTLS.([]any); listOK {
+			for _, item := range list {
+				if casted, castOK := item.(scan.TLSServiceInfo); castOK {
+					tlsDetails = append(tlsDetails, casted)
+				}
+			}
+		} else if typed, typedOK := rawTLS.([]scan.TLSServiceInfo); typedOK {
+			tlsDetails = append(tlsDetails, typed...)
 		}
 	}
 
@@ -367,6 +423,23 @@ func (m *AssetProfileBuilderModule) Execute(ctx context.Context, inputs map[stri
 						portProfile.Service.ParsedAttributes["fingerprints"] = fpMatches
 					}
 
+					identity := findServiceIdentity(identityDetails, targetIP, portNum)
+					if identity != nil {
+						applyServiceIdentity(asset, &portProfile, *identity)
+					}
+					rdp := findRDPDetails(rdpDetails, targetIP, portNum)
+					if rdp != nil {
+						applyRDPDetails(&portProfile, *rdp)
+					}
+					rpc := findRPCDetails(rpcDetails, targetIP, portNum)
+					if rpc != nil {
+						applyRPCDetails(&portProfile, *rpc)
+					}
+					tls := findTLSDetails(tlsDetails, targetIP, portNum)
+					if tls != nil {
+						applyTLSDetails(&portProfile, *tls)
+					}
+
 					// Bu porta ait zafiyetleri bul
 					targetPortKey := fmt.Sprintf("%s:%d", targetIP, portNum)
 					if vulns, found := allVulnerabilities[targetPortKey]; found {
@@ -400,4 +473,208 @@ func AssetProfileBuilderModuleFactory() engine.Module {
 
 func init() {
 	engine.RegisterModuleFactory(assetProfileBuilderModuleTypeName, AssetProfileBuilderModuleFactory)
+}
+
+func findServiceIdentity(items []parse.ServiceIdentityInfo, target string, port int) *parse.ServiceIdentityInfo {
+	for i := range items {
+		if items[i].Target == target && items[i].Port == port {
+			return &items[i]
+		}
+	}
+	return nil
+}
+
+func applyServiceIdentity(asset *engine.AssetProfile, portProfile *engine.PortProfile, identity parse.ServiceIdentityInfo) {
+	if portProfile.Service.ParsedAttributes == nil {
+		portProfile.Service.ParsedAttributes = make(map[string]any)
+	}
+
+	if strings.TrimSpace(identity.ServiceName) != "" {
+		portProfile.Service.Name = strings.TrimSpace(identity.ServiceName)
+	}
+	if strings.TrimSpace(identity.Product) != "" {
+		portProfile.Service.Product = strings.TrimSpace(identity.Product)
+	}
+	if strings.TrimSpace(identity.Version) != "" {
+		portProfile.Service.Version = strings.TrimSpace(identity.Version)
+	}
+	if strings.TrimSpace(identity.Banner) != "" && strings.TrimSpace(portProfile.Service.RawBanner) == "" {
+		portProfile.Service.RawBanner = strings.TrimSpace(identity.Banner)
+	}
+
+	if strings.TrimSpace(identity.Vendor) != "" {
+		portProfile.Service.ParsedAttributes["vendor"] = strings.TrimSpace(identity.Vendor)
+	}
+	if strings.TrimSpace(identity.CPE) != "" {
+		portProfile.Service.ParsedAttributes["cpe"] = strings.TrimSpace(identity.CPE)
+	}
+	if strings.TrimSpace(identity.HostnameHint) != "" {
+		host := strings.TrimSpace(identity.HostnameHint)
+		portProfile.Service.ParsedAttributes["hostname_hint"] = host
+		asset.Hostnames = appendUniqueString(asset.Hostnames, host)
+	}
+	if (identity.OSHints != parse.ServiceOSHints{}) {
+		portProfile.Service.ParsedAttributes["os_hints"] = identity.OSHints
+	}
+	if len(identity.FieldSources) > 0 {
+		portProfile.Service.ParsedAttributes["field_sources"] = identity.FieldSources
+	}
+	if len(identity.FieldConfidence) > 0 {
+		portProfile.Service.ParsedAttributes["field_confidence"] = identity.FieldConfidence
+	}
+
+	if len(identity.TechTags) > 0 {
+		portProfile.Service.TechTags = parse.NormalizeTechTags(append(portProfile.Service.TechTags, identity.TechTags...))
+	}
+}
+
+func appendUniqueString(values []string, candidate string) []string {
+	candidate = strings.TrimSpace(candidate)
+	if candidate == "" {
+		return values
+	}
+	for _, existing := range values {
+		if strings.EqualFold(existing, candidate) {
+			return values
+		}
+	}
+	return append(values, candidate)
+}
+
+func findRDPDetails(items []scan.RDPServiceInfo, target string, port int) *scan.RDPServiceInfo {
+	for i := range items {
+		if items[i].Target == target && items[i].Port == port {
+			return &items[i]
+		}
+	}
+	return nil
+}
+
+func applyRDPDetails(portProfile *engine.PortProfile, details scan.RDPServiceInfo) {
+	if portProfile.Service.ParsedAttributes == nil {
+		portProfile.Service.ParsedAttributes = make(map[string]any)
+	}
+
+	if strings.TrimSpace(details.RDPDetected) != "" {
+		portProfile.Service.ParsedAttributes["rdp_detected"] = strings.TrimSpace(details.RDPDetected)
+	}
+	if strings.TrimSpace(details.SelectedProtocol) != "" {
+		portProfile.Service.ParsedAttributes["rdp_selected_protocol"] = strings.TrimSpace(details.SelectedProtocol)
+	}
+	if details.NLACapable != nil {
+		portProfile.Service.ParsedAttributes["rdp_nla_capable"] = *details.NLACapable
+	}
+	if details.TLSCapable != nil {
+		portProfile.Service.ParsedAttributes["rdp_tls_capable"] = *details.TLSCapable
+	}
+	if strings.TrimSpace(details.NegFailureCode) != "" {
+		portProfile.Service.ParsedAttributes["rdp_neg_failure_code"] = strings.TrimSpace(details.NegFailureCode)
+	}
+	if strings.TrimSpace(details.Error) != "" {
+		portProfile.Service.ParsedAttributes["rdp_probe_error"] = strings.TrimSpace(details.Error)
+	}
+}
+
+func findTLSDetails(items []scan.TLSServiceInfo, target string, port int) *scan.TLSServiceInfo {
+	for i := range items {
+		if items[i].Target == target && items[i].Port == port {
+			return &items[i]
+		}
+	}
+	return nil
+}
+
+func findRPCDetails(items []scan.RPCServiceInfo, target string, port int) *scan.RPCServiceInfo {
+	for i := range items {
+		if items[i].Target == target && items[i].Port == port {
+			return &items[i]
+		}
+	}
+	return nil
+}
+
+func applyRPCDetails(portProfile *engine.PortProfile, details scan.RPCServiceInfo) {
+	if portProfile.Service.ParsedAttributes == nil {
+		portProfile.Service.ParsedAttributes = make(map[string]any)
+	}
+
+	portProfile.Service.ParsedAttributes["rpc_probe"] = details.RPCProbe
+	if details.DerivedFromPort > 0 {
+		portProfile.Service.ParsedAttributes["rpc_derived_from_port"] = details.DerivedFromPort
+	}
+	portProfile.Service.ParsedAttributes["rpc_anonymous_bind"] = details.AnonymousBind
+	portProfile.Service.ParsedAttributes["rpc_is_server_listening"] = details.IsServerListening
+
+	if strings.TrimSpace(details.PrincipalName) != "" {
+		portProfile.Service.ParsedAttributes["rpc_principal_name"] = strings.TrimSpace(details.PrincipalName)
+	}
+	if details.InterfaceCount > 0 {
+		portProfile.Service.ParsedAttributes["rpc_interface_count"] = details.InterfaceCount
+	}
+	if len(details.InterfaceUUIDs) > 0 {
+		portProfile.Service.ParsedAttributes["rpc_interface_uuids"] = append([]string(nil), details.InterfaceUUIDs...)
+	}
+	if len(details.NamedPipes) > 0 {
+		portProfile.Service.ParsedAttributes["rpc_named_pipes"] = append([]string(nil), details.NamedPipes...)
+	}
+	if len(details.InternalIPs) > 0 {
+		portProfile.Service.ParsedAttributes["rpc_internal_ips"] = append([]string(nil), details.InternalIPs...)
+	}
+	if len(details.RPCStats) > 0 {
+		portProfile.Service.ParsedAttributes["rpc_stats"] = append([]int(nil), details.RPCStats...)
+	}
+	if strings.TrimSpace(details.ProbeError) != "" {
+		portProfile.Service.ParsedAttributes["rpc_probe_error"] = strings.TrimSpace(details.ProbeError)
+	}
+}
+
+func applyTLSDetails(portProfile *engine.PortProfile, details scan.TLSServiceInfo) {
+	if portProfile.Service.ParsedAttributes == nil {
+		portProfile.Service.ParsedAttributes = make(map[string]any)
+	}
+
+	if details.TLSProbe {
+		portProfile.Service.IsTLS = true
+	}
+	if strings.TrimSpace(details.TLSVersion) != "" {
+		portProfile.Service.ParsedAttributes["tls_version"] = strings.TrimSpace(details.TLSVersion)
+	}
+	if strings.TrimSpace(details.CipherSuite) != "" {
+		portProfile.Service.ParsedAttributes["tls_cipher_suite"] = strings.TrimSpace(details.CipherSuite)
+	}
+	if strings.TrimSpace(details.ALPN) != "" {
+		portProfile.Service.ParsedAttributes["tls_alpn"] = strings.TrimSpace(details.ALPN)
+	}
+	if strings.TrimSpace(details.SNIServerName) != "" {
+		portProfile.Service.ParsedAttributes["tls_sni_server_name"] = strings.TrimSpace(details.SNIServerName)
+	}
+	if strings.TrimSpace(details.CertSubjectCN) != "" {
+		portProfile.Service.ParsedAttributes["tls_cert_subject_cn"] = strings.TrimSpace(details.CertSubjectCN)
+	}
+	if strings.TrimSpace(details.CertIssuer) != "" {
+		portProfile.Service.ParsedAttributes["tls_cert_issuer"] = strings.TrimSpace(details.CertIssuer)
+	}
+	if len(details.CertDNSNames) > 0 {
+		portProfile.Service.ParsedAttributes["tls_cert_dns_names"] = append([]string(nil), details.CertDNSNames...)
+	}
+	if !details.CertNotBefore.IsZero() {
+		portProfile.Service.ParsedAttributes["tls_cert_not_before"] = details.CertNotBefore
+	}
+	if !details.CertNotAfter.IsZero() {
+		portProfile.Service.ParsedAttributes["tls_cert_not_after"] = details.CertNotAfter
+	}
+	if strings.TrimSpace(details.CertSHA256) != "" {
+		portProfile.Service.ParsedAttributes["tls_cert_sha256"] = strings.TrimSpace(details.CertSHA256)
+	}
+
+	portProfile.Service.ParsedAttributes["tls_cert_is_expired"] = details.CertIsExpired
+	portProfile.Service.ParsedAttributes["tls_cert_is_self_signed"] = details.CertIsSelfSigned
+	portProfile.Service.ParsedAttributes["tls_weak_protocol"] = details.WeakProtocol
+	portProfile.Service.ParsedAttributes["tls_weak_cipher"] = details.WeakCipher
+	portProfile.Service.ParsedAttributes["tls_hostname_mismatch"] = details.HostnameMismatch
+	portProfile.Service.ParsedAttributes["tls_cert_expiring_soon"] = details.CertExpiringSoon
+
+	if strings.TrimSpace(details.ProbeError) != "" {
+		portProfile.Service.ParsedAttributes["tls_probe_error"] = strings.TrimSpace(details.ProbeError)
+	}
 }
