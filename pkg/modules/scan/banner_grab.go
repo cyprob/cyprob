@@ -688,18 +688,37 @@ func readOriginalTargets(inputs map[string]any) []string {
 	if !ok {
 		return nil
 	}
-	targets, ok := raw.([]string)
-	if !ok {
+	switch targets := raw.(type) {
+	case []string:
+		return targets
+	case []any:
+		out := make([]string, 0, len(targets))
+		for _, target := range targets {
+			text, ok := target.(string)
+			if !ok {
+				return nil
+			}
+			out = append(out, text)
+		}
+		return out
+	default:
 		return nil
 	}
-	return targets
 }
 
 func resolveProbeHostOverride(originalTargets []string) string {
-	if len(originalTargets) != 1 {
+	return resolveSingleNonIPHostnameTarget(originalTargets)
+}
+
+func resolveSingleNonIPHostnameTarget(targets []string) string {
+	if len(targets) != 1 {
 		return ""
 	}
-	target := strings.TrimSpace(originalTargets[0])
+	return normalizeNonIPHostname(strings.TrimSpace(targets[0]))
+}
+
+func normalizeNonIPHostname(target string) string {
+	target = strings.TrimSpace(target)
 	if target == "" {
 		return ""
 	}
