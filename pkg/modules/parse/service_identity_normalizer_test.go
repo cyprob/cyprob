@@ -815,6 +815,130 @@ func TestServiceIdentityNormalizer_SSHDoesNotOverwriteFingerprint(t *testing.T) 
 	}
 }
 
+func TestServiceIdentityNormalizer_SMTPFallbackIdentity(t *testing.T) {
+	module := newServiceIdentityNormalizerModule()
+	if err := module.Init("test-service-identity-smtp", map[string]any{}); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+
+	inputs := map[string]any{
+		"service.smtp.details": []any{
+			scanpkg.SMTPServiceInfo{
+				Target:            "198.51.100.120",
+				Port:              587,
+				SMTPProbe:         true,
+				SMTPProtocol:      "submission",
+				Banner:            "220 mail.example.test ESMTP SmarterMail",
+				TLSEnabled:        true,
+				SoftwareHint:      "SmarterMail",
+				VendorHint:        "SmarterTools",
+				VersionHint:       "17.1",
+				StartTLSSupported: true,
+			},
+		},
+	}
+
+	out := make(chan engine.ModuleOutput, 8)
+	if err := module.Execute(context.Background(), inputs, out); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	close(out)
+
+	var identity ServiceIdentityInfo
+	found := false
+	for item := range out {
+		candidate, ok := item.Data.(ServiceIdentityInfo)
+		if !ok {
+			continue
+		}
+		if candidate.Target == "198.51.100.120" && candidate.Port == 587 {
+			identity = candidate
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected smtp identity output")
+	}
+	if identity.ServiceName != "smtp" {
+		t.Fatalf("expected service_name=smtp, got %q", identity.ServiceName)
+	}
+	if identity.Product != "SmarterMail" || identity.Vendor != "SmarterTools" || identity.Version != "17.1" {
+		t.Fatalf("unexpected smtp identity fields: product=%q vendor=%q version=%q", identity.Product, identity.Vendor, identity.Version)
+	}
+	if identity.FieldSources["product"] != sourceSMTPNative || identity.FieldSources["vendor"] != sourceSMTPNative {
+		t.Fatalf("expected smtp native field sources, got %+v", identity.FieldSources)
+	}
+	if !hasTag(identity.TechTags, TagSMTP) || !hasTag(identity.TechTags, TagMailService) || !hasTag(identity.TechTags, TagTLS) {
+		t.Fatalf("expected smtp/mail/tls tech tags, got %+v", identity.TechTags)
+	}
+}
+
+func TestServiceIdentityNormalizer_SMTPDoesNotOverwriteFingerprint(t *testing.T) {
+	module := newServiceIdentityNormalizerModule()
+	if err := module.Init("test-service-identity-smtp-no-overwrite", map[string]any{}); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+
+	inputs := map[string]any{
+		"service.fingerprint.details": []any{
+			FingerprintParsedInfo{
+				Target:     "198.51.100.121",
+				Port:       465,
+				Protocol:   "smtp",
+				Product:    "Postfix",
+				Vendor:     "postfix",
+				Version:    "3.9.0",
+				Confidence: 0.90,
+			},
+		},
+		"service.smtp.details": []any{
+			scanpkg.SMTPServiceInfo{
+				Target:       "198.51.100.121",
+				Port:         465,
+				SMTPProbe:    true,
+				SMTPProtocol: "smtps",
+				TLSEnabled:   true,
+				SoftwareHint: "SmarterMail",
+				VendorHint:   "SmarterTools",
+				VersionHint:  "17.1",
+			},
+		},
+	}
+
+	out := make(chan engine.ModuleOutput, 8)
+	if err := module.Execute(context.Background(), inputs, out); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	close(out)
+
+	var identity ServiceIdentityInfo
+	found := false
+	for item := range out {
+		candidate, ok := item.Data.(ServiceIdentityInfo)
+		if !ok {
+			continue
+		}
+		if candidate.Target == "198.51.100.121" && candidate.Port == 465 {
+			identity = candidate
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected smtp identity output")
+	}
+	if identity.Product != "Postfix" || identity.Vendor != "postfix" || identity.Version != "3.9.0" {
+		t.Fatalf("expected fingerprint identity preserved, got product=%q vendor=%q version=%q", identity.Product, identity.Vendor, identity.Version)
+	}
+	if identity.FieldSources["product"] != sourceFingerprint || identity.FieldSources["version"] != sourceFingerprint {
+		t.Fatalf("expected fingerprint sources preserved, got %+v", identity.FieldSources)
+	}
+	if !hasTag(identity.TechTags, TagSMTP) || !hasTag(identity.TechTags, TagTLS) {
+		t.Fatalf("expected smtp/tls tags even with fingerprint identity, got %+v", identity.TechTags)
+	}
+}
+
 func TestServiceIdentityNormalizer_HTTPIdentityHintFillsGitHubProductVendor(t *testing.T) {
 	module := newServiceIdentityNormalizerModule()
 	if err := module.Init("test-service-identity-http-hint", map[string]any{}); err != nil {

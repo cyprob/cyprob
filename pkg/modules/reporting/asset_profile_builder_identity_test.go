@@ -232,6 +232,99 @@ func TestAssetProfileBuilder_MapsSSHNativeDetailsToParsedAttributes(t *testing.T
 	}
 }
 
+func TestAssetProfileBuilder_MapsSMTPNativeDetailsToParsedAttributes(t *testing.T) {
+	module := newAssetProfileBuilderModule()
+	if err := module.Init("smtp-builder", map[string]any{}); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+
+	target := "192.0.2.63"
+	port := 465
+	notAfter := time.Date(2026, 4, 12, 0, 0, 0, 0, time.UTC)
+
+	inputs := map[string]any{
+		"config.targets": []string{target},
+		"discovery.open_tcp_ports": []any{
+			discovery.TCPPortDiscoveryResult{Target: target, OpenPorts: []int{port}},
+		},
+		"service.smtp.details": []any{
+			scan.SMTPServiceInfo{
+				Target:              target,
+				Port:                port,
+				SMTPProbe:           true,
+				SMTPProtocol:        "smtps",
+				Banner:              "220 mail.example.test ESMTP Postfix",
+				GreetingDomain:      "mail.example.test",
+				EHLOResponse:        "250-mail.example.test\r\n250-AUTH PLAIN LOGIN\r\n250 SIZE 699050666",
+				StartTLSSupported:   false,
+				AuthSupported:       true,
+				PipeliningSupported: true,
+				ChunkingSupported:   false,
+				SizeAdvertised:      true,
+				TLSEnabled:          true,
+				TLSVersion:          "TLS1.2",
+				TLSCipherSuite:      "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384",
+				CertSubjectCN:       "mail.example.test",
+				CertIssuer:          "CN=example-ca",
+				CertNotAfter:        notAfter,
+				CertIsSelfSigned:    false,
+				WeakTLSProtocol:     false,
+				WeakTLSCipher:       false,
+				SoftwareHint:        "Postfix",
+				VersionHint:         "3.9.0",
+			},
+		},
+	}
+
+	out := make(chan engine.ModuleOutput, 1)
+	if err := module.Execute(context.Background(), inputs, out); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+
+	result := <-out
+	profiles, ok := result.Data.([]engine.AssetProfile)
+	if !ok {
+		t.Fatalf("expected []engine.AssetProfile, got %T", result.Data)
+	}
+	if len(profiles) != 1 {
+		t.Fatalf("expected 1 profile, got %d", len(profiles))
+	}
+
+	ports := profiles[0].OpenPorts[target]
+	if len(ports) != 1 {
+		t.Fatalf("expected 1 open port entry, got %d", len(ports))
+	}
+
+	service := ports[0].Service
+	if service.Name != "smtps" {
+		t.Fatalf("expected service name smtps, got %q", service.Name)
+	}
+	if service.Product != "Postfix" {
+		t.Fatalf("expected product Postfix, got %q", service.Product)
+	}
+	if service.Version != "3.9.0" {
+		t.Fatalf("expected version 3.9.0, got %q", service.Version)
+	}
+	if service.RawBanner != "220 mail.example.test ESMTP Postfix" {
+		t.Fatalf("expected smtp banner, got %q", service.RawBanner)
+	}
+	if !service.IsTLS {
+		t.Fatalf("expected service to be marked TLS")
+	}
+	if service.ParsedAttributes["smtp_protocol"] != "smtps" {
+		t.Fatalf("expected smtp_protocol smtps, got %v", service.ParsedAttributes["smtp_protocol"])
+	}
+	if service.ParsedAttributes["smtp_auth_supported"] != true {
+		t.Fatalf("expected smtp_auth_supported true, got %v", service.ParsedAttributes["smtp_auth_supported"])
+	}
+	if service.ParsedAttributes["smtp_tls_version"] != "TLS1.2" {
+		t.Fatalf("expected smtp_tls_version TLS1.2, got %v", service.ParsedAttributes["smtp_tls_version"])
+	}
+	if service.ParsedAttributes["smtp_cert_subject_cn"] != "mail.example.test" {
+		t.Fatalf("expected smtp_cert_subject_cn, got %v", service.ParsedAttributes["smtp_cert_subject_cn"])
+	}
+}
+
 func TestAssetProfileBuilder_MapsTLSDetailsToParsedAttributes(t *testing.T) {
 	module := newAssetProfileBuilderModule()
 	if err := module.Init("tls-builder", map[string]any{}); err != nil {

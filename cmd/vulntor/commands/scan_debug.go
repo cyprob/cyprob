@@ -44,6 +44,7 @@ type scanDebugPayload struct {
 	Banners         []scanpkg.BannerGrabResult         `json:"banners"`
 	Fingerprints    []parsepkg.FingerprintParsedInfo   `json:"fingerprints"`
 	TechTags        []parsepkg.TechTagResult           `json:"tech_tags"`
+	SMTPDetails     []scanpkg.SMTPServiceInfo          `json:"smtp_details"`
 	SSHDetails      []scanpkg.SSHServiceInfo           `json:"ssh_details"`
 	RPCEpmapper     []scanpkg.RPCEpmapperInfo          `json:"rpc_epmapper"`
 	RPCDetails      []scanpkg.RPCServiceInfo           `json:"rpc_details"`
@@ -100,6 +101,7 @@ func runScanDebugTarget(cmd *cobra.Command, target string, opts scanDebugTargetO
 		"resolve-targets",
 		"tcp-port-discovery",
 		"banner-grabber",
+		"smtp-native-probe",
 		"ssh-native-probe",
 		"rpc-epmapper-probe",
 		"rpc-followup-probe",
@@ -135,6 +137,10 @@ func runScanDebugTarget(cmd *cobra.Command, target string, opts scanDebugTargetO
 		return err
 	}
 	banners, err := runDebugBannerGrabStage(ctx, target, opts, steps, openPorts)
+	if err != nil {
+		return err
+	}
+	smtpDetails, err := runDebugSMTPNativeProbeStage(ctx, opts, steps, openPorts, banners)
 	if err != nil {
 		return err
 	}
@@ -176,6 +182,7 @@ func runScanDebugTarget(cmd *cobra.Command, target string, opts scanDebugTargetO
 		banners,
 		fingerprints,
 		techTags,
+		smtpDetails,
 		sshDetails,
 		smbDetails,
 		rdpDetails,
@@ -193,6 +200,7 @@ func runScanDebugTarget(cmd *cobra.Command, target string, opts scanDebugTargetO
 		Banners:         banners,
 		Fingerprints:    fingerprints,
 		TechTags:        techTags,
+		SMTPDetails:     smtpDetails,
 		SSHDetails:      sshDetails,
 		RPCEpmapper:     rpcEpmapper,
 		RPCDetails:      rpcDetails,
@@ -316,6 +324,54 @@ func runDebugRPCEpmapperStage(
 	results := collectRPCEpmapperResults(rpcOutputs)
 	if len(results) == 0 {
 		steps.addWarning("rpc-epmapper-probe", "no rpc epmapper metadata generated")
+	}
+	return results, nil
+}
+
+func runDebugSMTPNativeProbeStage(
+	ctx context.Context,
+	opts scanDebugTargetOptions,
+	steps *scanDebugStepCollection,
+	openPorts []discovery.TCPPortDiscoveryResult,
+	banners []scanpkg.BannerGrabResult,
+) ([]scanpkg.SMTPServiceInfo, error) {
+	smtpConfig := map[string]any{}
+	if opts.Timeout != "" {
+		smtpConfig["timeout"] = opts.Timeout
+		smtpConfig["connect_timeout"] = opts.Timeout
+		smtpConfig["io_timeout"] = opts.Timeout
+		smtpConfig["retries"] = 0
+	}
+	if strings.TrimSpace(opts.Ports) != "" {
+		candidatePorts := make([]int, 0, 4)
+		for _, item := range splitAndTrim(opts.Ports) {
+			port, convErr := strconv.Atoi(item)
+			if convErr != nil || port <= 0 || port > 65535 {
+				continue
+			}
+			candidatePorts = append(candidatePorts, port)
+		}
+		if len(candidatePorts) > 0 {
+			smtpConfig["candidate_ports"] = candidatePorts
+		}
+	}
+
+	smtpModule, err := engine.GetModuleInstance("scan_debug_smtp_native_probe", "smtp-native-probe", smtpConfig)
+	if err != nil {
+		return nil, fmt.Errorf("create smtp-native-probe module: %w", err)
+	}
+
+	smtpOutputs, smtpExecErr := executeDebugModule(ctx, smtpModule, map[string]any{
+		"discovery.open_tcp_ports": toAnySlice(openPorts),
+		"service.banner.tcp":       toAnySlice(banners),
+	})
+	if smtpExecErr != nil {
+		steps.addError("smtp-native-probe", smtpExecErr.Error())
+	}
+	steps.addErrors("smtp-native-probe", collectOutputErrors(smtpOutputs))
+	results := collectSMTPDetailsResults(smtpOutputs)
+	if len(results) == 0 {
+		steps.addWarning("smtp-native-probe", "no smtp metadata generated")
 	}
 	return results, nil
 }
@@ -573,6 +629,7 @@ func runDebugServiceIdentityStage(
 	banners []scanpkg.BannerGrabResult,
 	fingerprints []parsepkg.FingerprintParsedInfo,
 	techTags []parsepkg.TechTagResult,
+	smtpDetails []scanpkg.SMTPServiceInfo,
 	sshDetails []scanpkg.SSHServiceInfo,
 	smbDetails []scanpkg.SMBServiceInfo,
 	rdpDetails []scanpkg.RDPServiceInfo,
@@ -588,6 +645,7 @@ func runDebugServiceIdentityStage(
 		"service.banner.tcp":          toAnySlice(banners),
 		"service.fingerprint.details": toAnySlice(fingerprints),
 		"service.tech.tags":           toAnySlice(techTags),
+		"service.smtp.details":        toAnySlice(smtpDetails),
 		"service.ssh.details":         toAnySlice(sshDetails),
 		"service.smb.details":         toAnySlice(smbDetails),
 		"service.rdp.details":         toAnySlice(rdpDetails),
@@ -733,6 +791,25 @@ func collectSSHDetailsResults(outputs []engine.ModuleOutput) []scanpkg.SSHServic
 		case scanpkg.SSHServiceInfo:
 			results = append(results, data)
 		case []scanpkg.SSHServiceInfo:
+			results = append(results, data...)
+		}
+	}
+	sort.Slice(results, func(i, j int) bool {
+		if results[i].Target == results[j].Target {
+			return results[i].Port < results[j].Port
+		}
+		return results[i].Target < results[j].Target
+	})
+	return results
+}
+
+func collectSMTPDetailsResults(outputs []engine.ModuleOutput) []scanpkg.SMTPServiceInfo {
+	results := make([]scanpkg.SMTPServiceInfo, 0)
+	for _, output := range outputs {
+		switch data := output.Data.(type) {
+		case scanpkg.SMTPServiceInfo:
+			results = append(results, data)
+		case []scanpkg.SMTPServiceInfo:
 			results = append(results, data...)
 		}
 	}
@@ -917,6 +994,7 @@ func writeScanDebugPretty(w io.Writer, payload scanDebugPayload) error {
 	fmt.Fprintf(w, "Banners: %d\n", len(payload.Banners))
 	fmt.Fprintf(w, "Fingerprints: %d\n", len(payload.Fingerprints))
 	fmt.Fprintf(w, "Tech Tags: %d\n", len(payload.TechTags))
+	fmt.Fprintf(w, "SMTP Details: %d\n", len(payload.SMTPDetails))
 	fmt.Fprintf(w, "SSH Details: %d\n", len(payload.SSHDetails))
 	fmt.Fprintf(w, "RPC Epmapper: %d\n", len(payload.RPCEpmapper))
 	fmt.Fprintf(w, "RPC Details: %d\n", len(payload.RPCDetails))

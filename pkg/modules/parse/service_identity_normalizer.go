@@ -25,6 +25,7 @@ const (
 	sourceRPCNative        = "rpc_native_probe"
 	sourceTLSNative        = "tls_native_probe"
 	sourceSSHNative        = "ssh_native_probe"
+	sourceSMTPNative       = "smtp_native_probe"
 	sourceHTTPIdentityHint = "http_identity_hint"
 	sourceFingerprint      = "fingerprint"
 	sourceHeuristic        = "heuristic"
@@ -142,6 +143,7 @@ func newServiceIdentityNormalizerModule() *serviceIdentityNormalizerModule {
 				{Key: "service.banner.tcp", DataTypeName: "scan.BannerGrabResult", Cardinality: engine.CardinalityList, IsOptional: true},
 				{Key: "service.fingerprint.details", DataTypeName: "parse.FingerprintParsedInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 				{Key: "service.tech.tags", DataTypeName: "parse.TechTagResult", Cardinality: engine.CardinalityList, IsOptional: true},
+				{Key: "service.smtp.details", DataTypeName: "scan.SMTPServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 				{Key: "service.ssh.details", DataTypeName: "scan.SSHServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 				{Key: "service.smb.details", DataTypeName: "scan.SMBServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 				{Key: "service.rdp.details", DataTypeName: "scan.RDPServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
@@ -186,6 +188,7 @@ func (m *serviceIdentityNormalizerModule) Execute(ctx context.Context, inputs ma
 	m.ingestBanners(inputs, getEntry)
 	m.ingestFingerprints(inputs, getEntry)
 	m.ingestTechTags(inputs, getEntry)
+	m.ingestSMTPDetails(inputs, getEntry)
 	m.ingestSMBDetails(inputs, getEntry)
 	smbEvidence := collectSMBHostEvidence(inputs)
 	m.ingestRDPDetails(inputs, smbEvidence, getEntry)
@@ -306,6 +309,47 @@ func (m *serviceIdentityNormalizerModule) ingestTechTags(inputs map[string]any, 
 		}
 		entry := getEntry(tagResult.Target, tagResult.Port)
 		entry.TechTags = NormalizeTechTags(append(entry.TechTags, tagResult.Tags...))
+	}
+}
+
+func (m *serviceIdentityNormalizerModule) ingestSMTPDetails(inputs map[string]any, getEntry func(target string, port int) *ServiceIdentityInfo) {
+	raw, ok := inputs["service.smtp.details"]
+	if !ok {
+		return
+	}
+	items := toAnyList(raw)
+	for _, item := range items {
+		smtpInfo, ok := item.(scanpkg.SMTPServiceInfo)
+		if !ok {
+			continue
+		}
+		if smtpInfo.Target == "" || smtpInfo.Port <= 0 {
+			continue
+		}
+		if !smtpInfo.SMTPProbe && strings.TrimSpace(smtpInfo.Banner) == "" && strings.TrimSpace(smtpInfo.EHLOResponse) == "" {
+			continue
+		}
+
+		entry := getEntry(smtpInfo.Target, smtpInfo.Port)
+		setIdentityField(entry, "service_name", smtpServiceNameFromNative(smtpInfo), sourceSMTPNative, 0.62)
+		if strings.TrimSpace(entry.Product) == "" && strings.TrimSpace(smtpInfo.SoftwareHint) != "" {
+			setIdentityField(entry, "product", strings.TrimSpace(smtpInfo.SoftwareHint), sourceSMTPNative, 0.70)
+		}
+		if strings.TrimSpace(entry.Vendor) == "" && strings.TrimSpace(smtpInfo.VendorHint) != "" {
+			setIdentityField(entry, "vendor", strings.TrimSpace(smtpInfo.VendorHint), sourceSMTPNative, 0.68)
+		}
+		if strings.TrimSpace(entry.Version) == "" && strings.TrimSpace(smtpInfo.VersionHint) != "" {
+			setIdentityField(entry, "version", strings.TrimSpace(smtpInfo.VersionHint), sourceSMTPNative, 0.66)
+		}
+		if strings.TrimSpace(entry.Banner) == "" && strings.TrimSpace(smtpInfo.Banner) != "" {
+			setIdentityField(entry, "banner", strings.TrimSpace(smtpInfo.Banner), sourceSMTPNative, 0.56)
+		}
+
+		tags := []string{TagSMTP}
+		if smtpInfo.TLSEnabled || strings.EqualFold(strings.TrimSpace(smtpInfo.SMTPProtocol), "smtps") {
+			tags = append(tags, TagTLS)
+		}
+		entry.TechTags = NormalizeTechTags(append(entry.TechTags, tags...))
 	}
 }
 
@@ -869,14 +913,23 @@ func isHTTPSLikePort(port int) bool {
 	return port == 443 || port == 8443 || port == 9443
 }
 
+func smtpServiceNameFromNative(info scanpkg.SMTPServiceInfo) string {
+	if info.Port == 465 || strings.EqualFold(strings.TrimSpace(info.SMTPProtocol), "smtps") {
+		return "smtps"
+	}
+	return "smtp"
+}
+
 func serviceNameFromPort(port int) string {
 	switch port {
 	case 21:
 		return "ftp"
 	case 22:
 		return "ssh"
-	case 25:
+	case 25, 587, 2525:
 		return "smtp"
+	case 465:
+		return "smtps"
 	case 80:
 		return "http"
 	case 110:
@@ -913,6 +966,12 @@ func toAnyList(value any) []any {
 		}
 		return out
 	case []TechTagResult:
+		out := make([]any, 0, len(typed))
+		for _, item := range typed {
+			out = append(out, item)
+		}
+		return out
+	case []scanpkg.SMTPServiceInfo:
 		out := make([]any, 0, len(typed))
 		for _, item := range typed {
 			out = append(out, item)

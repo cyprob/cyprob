@@ -1,9 +1,11 @@
 package commands
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -49,6 +51,21 @@ type scanDebugTestOutput struct {
 		Port   int      `json:"port"`
 		Tags   []string `json:"tags"`
 	} `json:"tech_tags"`
+	SMTPDetails []struct {
+		Target              string `json:"target"`
+		Port                int    `json:"port"`
+		SMTPProbe           bool   `json:"smtp_probe"`
+		SMTPProtocol        string `json:"smtp_protocol"`
+		Banner              string `json:"banner"`
+		GreetingDomain      string `json:"greeting_domain"`
+		StartTLSSupported   bool   `json:"starttls_supported"`
+		AuthSupported       bool   `json:"auth_supported"`
+		PipeliningSupported bool   `json:"pipelining_supported"`
+		SizeAdvertised      bool   `json:"size_advertised"`
+		TLSEnabled          bool   `json:"tls_enabled"`
+		SoftwareHint        string `json:"software_hint"`
+		ProbeError          string `json:"probe_error"`
+	} `json:"smtp_details"`
 	SSHDetails []struct {
 		Target      string   `json:"target"`
 		Port        int      `json:"port"`
@@ -160,6 +177,39 @@ func TestScanDebugTargetHTTPSGetEvidenceSmoke(t *testing.T) {
 	}
 }
 
+func TestScanDebugTargetSMTPJSONSmoke(t *testing.T) {
+	host, port, cleanup := startSMTPTestServer(t)
+	defer cleanup()
+
+	cmd := NewCommand()
+	out := &bytes.Buffer{}
+	errOut := &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs([]string{
+		"scan-debug", "target", host,
+		"--ports", fmt.Sprintf("%d", port),
+		"--timeout", "3s",
+		"--format", "json",
+	})
+
+	err := cmd.Execute()
+	require.NoError(t, err, "stderr: %s", errOut.String())
+
+	var payload scanDebugTestOutput
+	require.NoError(t, json.Unmarshal(out.Bytes(), &payload))
+	require.NotEmpty(t, payload.SMTPDetails)
+	require.True(t, payload.SMTPDetails[0].SMTPProbe)
+	require.Equal(t, "smtp", payload.SMTPDetails[0].SMTPProtocol)
+	require.True(t, payload.SMTPDetails[0].AuthSupported)
+	require.True(t, payload.SMTPDetails[0].PipeliningSupported)
+	require.True(t, payload.SMTPDetails[0].SizeAdvertised)
+	require.Equal(t, "Postfix", payload.SMTPDetails[0].SoftwareHint)
+	require.NotEmpty(t, payload.ServiceIdentity)
+	require.Equal(t, "smtp", payload.ServiceIdentity[0].ServiceName)
+	require.Equal(t, "Postfix", payload.ServiceIdentity[0].Product)
+}
+
 func startBannerTestServer(t *testing.T) (string, int, func()) {
 	t.Helper()
 
@@ -180,6 +230,42 @@ func startBannerTestServer(t *testing.T) (string, int, func()) {
 				_, _ = c.Write([]byte("SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.1\r\n"))
 				buf := make([]byte, 256)
 				_, _ = c.Read(buf)
+			}(conn)
+		}
+	}()
+
+	addr := ln.Addr().(*net.TCPAddr)
+	cleanup := func() {
+		_ = ln.Close()
+		<-done
+	}
+	return "127.0.0.1", addr.Port, cleanup
+}
+
+func startSMTPTestServer(t *testing.T) (string, int, func()) {
+	t.Helper()
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			conn, acceptErr := ln.Accept()
+			if acceptErr != nil {
+				return
+			}
+			go func(c net.Conn) {
+				defer c.Close()
+				_ = c.SetDeadline(time.Now().Add(2 * time.Second))
+				reader := bufio.NewReader(c)
+				_, _ = io.WriteString(c, "220 mail.example.test ESMTP Postfix\r\n")
+				line, err := reader.ReadString('\n')
+				if err != nil || !strings.HasPrefix(line, "EHLO ") {
+					return
+				}
+				_, _ = io.WriteString(c, "250-mail.example.test\r\n250-PIPELINING\r\n250-AUTH PLAIN LOGIN\r\n250 SIZE 1024000\r\n")
 			}(conn)
 		}
 	}()

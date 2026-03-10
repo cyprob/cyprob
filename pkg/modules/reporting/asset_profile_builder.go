@@ -49,6 +49,7 @@ func newAssetProfileBuilderModule() *AssetProfileBuilderModule {
 				{Key: "service.banner.tcp", DataTypeName: "scan.BannerGrabResult", Cardinality: engine.CardinalityList, IsOptional: true},                  // []interface{}{BannerResult1, BannerResult2}
 				{Key: "service.http.details", DataTypeName: "parse.HTTPParsedInfo", Cardinality: engine.CardinalityList, IsOptional: true},                 // []interface{}{HTTPParsedInfo1, ...}
 				{Key: "service.ssh.details", DataTypeName: "parse.SSHParsedInfo", Cardinality: engine.CardinalityList, IsOptional: true},                   // []interface{}{SSHParsedInfo1, ...}
+				{Key: "service.smtp.details", DataTypeName: "scan.SMTPServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},                 // []interface{}{SMTPServiceInfo1, ...}
 				{Key: "service.fingerprint.details", DataTypeName: "parse.FingerprintParsedInfo", Cardinality: engine.CardinalityList, IsOptional: true},   // []interface{}{FingerprintParsedInfo1, ...}
 				{Key: "service.tech.tags", DataTypeName: "parse.TechTagResult", Cardinality: engine.CardinalityList, IsOptional: true},                     // []interface{}{TechTagResult1, ...}
 				{Key: "service.rdp.details", DataTypeName: "scan.RDPServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},                   // []interface{}{RDPServiceInfo1, ...}
@@ -157,6 +158,19 @@ func (m *AssetProfileBuilderModule) Execute(ctx context.Context, inputs map[stri
 			sshDetailsResults = append(sshDetailsResults, typed...)
 		} else if typed, typedOk := rawSSH.([]scan.SSHServiceInfo); typedOk {
 			sshNativeDetailsResults = append(sshNativeDetailsResults, typed...)
+		}
+	}
+
+	smtpDetails := []scan.SMTPServiceInfo{}
+	if rawSMTP, ok := inputs["service.smtp.details"]; ok {
+		if list, listOk := rawSMTP.([]any); listOk {
+			for _, item := range list {
+				if casted, castOk := item.(scan.SMTPServiceInfo); castOk {
+					smtpDetails = append(smtpDetails, casted)
+				}
+			}
+		} else if typed, typedOk := rawSMTP.([]scan.SMTPServiceInfo); typedOk {
+			smtpDetails = append(smtpDetails, typed...)
 		}
 	}
 
@@ -432,6 +446,9 @@ func (m *AssetProfileBuilderModule) Execute(ctx context.Context, inputs map[stri
 						}
 						portProfile.Service.ParsedAttributes["fingerprints"] = fpMatches
 					}
+					if smtpNative := findSMTPDetails(smtpDetails, targetIP, portNum); smtpNative != nil {
+						applySMTPDetails(&portProfile, *smtpNative)
+					}
 
 					identity := findServiceIdentity(identityDetails, targetIP, portNum)
 					if identity != nil {
@@ -603,6 +620,94 @@ func applySSHNativeDetails(portProfile *engine.PortProfile, details scan.SSHServ
 
 	if strings.TrimSpace(details.ProbeError) != "" {
 		portProfile.Service.ParsedAttributes["ssh_probe_error"] = strings.TrimSpace(details.ProbeError)
+	}
+}
+
+func findSMTPDetails(items []scan.SMTPServiceInfo, target string, port int) *scan.SMTPServiceInfo {
+	for i := range items {
+		if items[i].Target == target && items[i].Port == port {
+			return &items[i]
+		}
+	}
+	return nil
+}
+
+func applySMTPDetails(portProfile *engine.PortProfile, details scan.SMTPServiceInfo) {
+	if portProfile.Service.ParsedAttributes == nil {
+		portProfile.Service.ParsedAttributes = make(map[string]any)
+	}
+
+	if details.SMTPProbe && strings.TrimSpace(portProfile.Service.Name) == "" {
+		if strings.TrimSpace(details.SMTPProtocol) == "smtps" {
+			portProfile.Service.Name = "smtps"
+		} else {
+			portProfile.Service.Name = "smtp"
+		}
+	}
+	if strings.TrimSpace(details.SoftwareHint) != "" && strings.TrimSpace(portProfile.Service.Product) == "" {
+		portProfile.Service.Product = strings.TrimSpace(details.SoftwareHint)
+	}
+	if strings.TrimSpace(details.VersionHint) != "" && strings.TrimSpace(portProfile.Service.Version) == "" {
+		portProfile.Service.Version = strings.TrimSpace(details.VersionHint)
+	}
+	if strings.TrimSpace(details.Banner) != "" && strings.TrimSpace(portProfile.Service.RawBanner) == "" {
+		portProfile.Service.RawBanner = strings.TrimSpace(details.Banner)
+	}
+	if details.TLSEnabled {
+		portProfile.Service.IsTLS = true
+	}
+
+	if strings.TrimSpace(details.Banner) != "" {
+		portProfile.Service.ParsedAttributes["smtp_banner"] = strings.TrimSpace(details.Banner)
+	}
+	if strings.TrimSpace(details.SMTPProtocol) != "" {
+		portProfile.Service.ParsedAttributes["smtp_protocol"] = strings.TrimSpace(details.SMTPProtocol)
+	}
+	if strings.TrimSpace(details.GreetingDomain) != "" {
+		portProfile.Service.ParsedAttributes["smtp_greeting_domain"] = strings.TrimSpace(details.GreetingDomain)
+	}
+	if strings.TrimSpace(details.EHLOResponse) != "" {
+		portProfile.Service.ParsedAttributes["smtp_ehlo_response"] = strings.TrimSpace(details.EHLOResponse)
+	}
+
+	portProfile.Service.ParsedAttributes["smtp_starttls_supported"] = details.StartTLSSupported
+	portProfile.Service.ParsedAttributes["smtp_auth_supported"] = details.AuthSupported
+	portProfile.Service.ParsedAttributes["smtp_pipelining_supported"] = details.PipeliningSupported
+	portProfile.Service.ParsedAttributes["smtp_chunking_supported"] = details.ChunkingSupported
+	portProfile.Service.ParsedAttributes["smtp_size_advertised"] = details.SizeAdvertised
+	portProfile.Service.ParsedAttributes["smtp_tls_enabled"] = details.TLSEnabled
+	portProfile.Service.ParsedAttributes["smtp_open_relay_suspected"] = details.OpenRelaySuspected
+	portProfile.Service.ParsedAttributes["smtp_weak_tls_protocol"] = details.WeakTLSProtocol
+	portProfile.Service.ParsedAttributes["smtp_weak_tls_cipher"] = details.WeakTLSCipher
+
+	if strings.TrimSpace(details.TLSVersion) != "" {
+		portProfile.Service.ParsedAttributes["smtp_tls_version"] = strings.TrimSpace(details.TLSVersion)
+	}
+	if strings.TrimSpace(details.TLSCipherSuite) != "" {
+		portProfile.Service.ParsedAttributes["smtp_tls_cipher_suite"] = strings.TrimSpace(details.TLSCipherSuite)
+	}
+	if strings.TrimSpace(details.CertSubjectCN) != "" {
+		portProfile.Service.ParsedAttributes["smtp_cert_subject_cn"] = strings.TrimSpace(details.CertSubjectCN)
+	}
+	if strings.TrimSpace(details.CertIssuer) != "" {
+		portProfile.Service.ParsedAttributes["smtp_cert_issuer"] = strings.TrimSpace(details.CertIssuer)
+	}
+	if !details.CertNotAfter.IsZero() {
+		portProfile.Service.ParsedAttributes["smtp_cert_not_after"] = details.CertNotAfter
+	}
+	portProfile.Service.ParsedAttributes["smtp_cert_is_self_signed"] = details.CertIsSelfSigned
+
+	if strings.TrimSpace(details.SoftwareHint) != "" {
+		portProfile.Service.ParsedAttributes["smtp_software_hint"] = strings.TrimSpace(details.SoftwareHint)
+	}
+	if strings.TrimSpace(details.VendorHint) != "" {
+		portProfile.Service.ParsedAttributes["smtp_vendor_hint"] = strings.TrimSpace(details.VendorHint)
+	}
+	if strings.TrimSpace(details.VersionHint) != "" {
+		portProfile.Service.ParsedAttributes["smtp_version_hint"] = strings.TrimSpace(details.VersionHint)
+	}
+	if strings.TrimSpace(details.ProbeError) != "" {
+		portProfile.Service.ParsedAttributes["smtp_probe_error"] = strings.TrimSpace(details.ProbeError)
 	}
 }
 
