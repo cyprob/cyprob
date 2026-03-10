@@ -691,3 +691,126 @@ func TestServiceIdentityNormalizer_TLSDoesNotOverwriteFingerprint(t *testing.T) 
 		t.Fatalf("expected tls tags appended even with fingerprint identity, got %+v", identity.TechTags)
 	}
 }
+
+func TestServiceIdentityNormalizer_SSHFallbackIdentity(t *testing.T) {
+	module := newServiceIdentityNormalizerModule()
+	if err := module.Init("test-service-identity-ssh", map[string]any{}); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+
+	inputs := map[string]any{
+		"service.ssh.details": []any{
+			scanpkg.SSHServiceInfo{
+				Target:      "198.51.100.110",
+				Port:        22,
+				SSHProbe:    true,
+				SSHBanner:   "SSH-2.0-OpenSSH_9.6p1 Ubuntu-3ubuntu13.8",
+				SSHProtocol: "2.0",
+				SSHSoftware: "OpenSSH",
+				SSHVersion:  "9.6p1",
+			},
+		},
+	}
+
+	out := make(chan engine.ModuleOutput, 8)
+	if err := module.Execute(context.Background(), inputs, out); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	close(out)
+
+	var identity ServiceIdentityInfo
+	found := false
+	for item := range out {
+		candidate, ok := item.Data.(ServiceIdentityInfo)
+		if !ok {
+			continue
+		}
+		if candidate.Target == "198.51.100.110" && candidate.Port == 22 {
+			identity = candidate
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected ssh identity output")
+	}
+	if identity.ServiceName != "ssh" {
+		t.Fatalf("expected service_name=ssh, got %q", identity.ServiceName)
+	}
+	if identity.Product != "OpenSSH" {
+		t.Fatalf("expected product OpenSSH, got %q", identity.Product)
+	}
+	if identity.Version != "9.6p1" {
+		t.Fatalf("expected version 9.6p1, got %q", identity.Version)
+	}
+	if identity.FieldSources["service_name"] != sourceSSHNative {
+		t.Fatalf("expected ssh native source, got %q", identity.FieldSources["service_name"])
+	}
+	if !hasTag(identity.TechTags, "ssh") {
+		t.Fatalf("expected ssh tech tag, got %+v", identity.TechTags)
+	}
+}
+
+func TestServiceIdentityNormalizer_SSHDoesNotOverwriteFingerprint(t *testing.T) {
+	module := newServiceIdentityNormalizerModule()
+	if err := module.Init("test-service-identity-ssh-no-overwrite", map[string]any{}); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+
+	inputs := map[string]any{
+		"service.fingerprint.details": []any{
+			FingerprintParsedInfo{
+				Target:     "198.51.100.111",
+				Port:       22,
+				Protocol:   "ssh",
+				Product:    "OpenSSH",
+				Vendor:     "openbsd",
+				Version:    "9.9p2",
+				Confidence: 0.90,
+			},
+		},
+		"service.ssh.details": []any{
+			scanpkg.SSHServiceInfo{
+				Target:      "198.51.100.111",
+				Port:        22,
+				SSHProbe:    true,
+				SSHBanner:   "SSH-2.0-OpenSSH_9.6p1 Ubuntu-3ubuntu13.8",
+				SSHProtocol: "2.0",
+				SSHSoftware: "OpenSSH",
+				SSHVersion:  "9.6p1",
+			},
+		},
+	}
+
+	out := make(chan engine.ModuleOutput, 8)
+	if err := module.Execute(context.Background(), inputs, out); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	close(out)
+
+	var identity ServiceIdentityInfo
+	found := false
+	for item := range out {
+		candidate, ok := item.Data.(ServiceIdentityInfo)
+		if !ok {
+			continue
+		}
+		if candidate.Target == "198.51.100.111" && candidate.Port == 22 {
+			identity = candidate
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected ssh identity output")
+	}
+	if identity.Product != "OpenSSH" || identity.Version != "9.9p2" {
+		t.Fatalf("expected fingerprint product/version preserved, got product=%q version=%q", identity.Product, identity.Version)
+	}
+	if identity.Vendor != "openbsd" {
+		t.Fatalf("expected fingerprint vendor preserved, got %q", identity.Vendor)
+	}
+	if identity.FieldSources["version"] != sourceFingerprint {
+		t.Fatalf("expected fingerprint version source, got %q", identity.FieldSources["version"])
+	}
+}

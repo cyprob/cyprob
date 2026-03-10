@@ -368,6 +368,9 @@ func (m *PluginEvaluationModule) buildEvaluationContext(inputs map[string]any) m
 		if sshInfo, ok := sshDetails[0].(parse.SSHParsedInfo); ok {
 			context["target"] = sshInfo.Target
 			context["service.port"] = sshInfo.Port
+		} else if sshInfo, ok := sshDetails[0].(scan.SSHServiceInfo); ok {
+			context["target"] = sshInfo.Target
+			context["service.port"] = sshInfo.Port
 		} else if sshInfo, ok := sshDetails[0].(map[string]any); ok {
 			// Fallback to map (in case of JSON unmarshaling)
 			if target, ok := sshInfo["target"].(string); ok {

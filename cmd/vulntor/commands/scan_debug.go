@@ -44,6 +44,7 @@ type scanDebugPayload struct {
 	Banners         []scanpkg.BannerGrabResult         `json:"banners"`
 	Fingerprints    []parsepkg.FingerprintParsedInfo   `json:"fingerprints"`
 	TechTags        []parsepkg.TechTagResult           `json:"tech_tags"`
+	SSHDetails      []scanpkg.SSHServiceInfo           `json:"ssh_details"`
 	RPCEpmapper     []scanpkg.RPCEpmapperInfo          `json:"rpc_epmapper"`
 	RPCDetails      []scanpkg.RPCServiceInfo           `json:"rpc_details"`
 	RDPDetails      []scanpkg.RDPServiceInfo           `json:"rdp_details"`
@@ -98,12 +99,13 @@ func runScanDebugTarget(cmd *cobra.Command, target string, opts scanDebugTargetO
 	steps := newScanDebugSteps(
 		"resolve-targets",
 		"tcp-port-discovery",
+		"banner-grabber",
+		"ssh-native-probe",
 		"rpc-epmapper-probe",
 		"rpc-followup-probe",
 		"rdp-native-probe",
 		"tls-native-probe",
 		"smb-native-probe",
-		"banner-grabber",
 		"fingerprint-parser",
 		"tech-tagger",
 		"service-identity-normalizer",
@@ -132,6 +134,14 @@ func runScanDebugTarget(cmd *cobra.Command, target string, opts scanDebugTargetO
 	if err != nil {
 		return err
 	}
+	banners, err := runDebugBannerGrabStage(ctx, target, opts, steps, openPorts)
+	if err != nil {
+		return err
+	}
+	sshDetails, err := runDebugSSHNativeProbeStage(ctx, opts, steps, openPorts, banners)
+	if err != nil {
+		return err
+	}
 	rpcEpmapper, err := runDebugRPCEpmapperStage(ctx, opts, steps, openPorts)
 	if err != nil {
 		return err
@@ -152,10 +162,6 @@ func runScanDebugTarget(cmd *cobra.Command, target string, opts scanDebugTargetO
 	if err != nil {
 		return err
 	}
-	banners, err := runDebugBannerGrabStage(ctx, target, opts, steps, openPorts)
-	if err != nil {
-		return err
-	}
 	fingerprints, err := runDebugFingerprintStage(ctx, steps, banners)
 	if err != nil {
 		return err
@@ -170,6 +176,7 @@ func runScanDebugTarget(cmd *cobra.Command, target string, opts scanDebugTargetO
 		banners,
 		fingerprints,
 		techTags,
+		sshDetails,
 		smbDetails,
 		rdpDetails,
 		rpcDetails,
@@ -186,6 +193,7 @@ func runScanDebugTarget(cmd *cobra.Command, target string, opts scanDebugTargetO
 		Banners:         banners,
 		Fingerprints:    fingerprints,
 		TechTags:        techTags,
+		SSHDetails:      sshDetails,
 		RPCEpmapper:     rpcEpmapper,
 		RPCDetails:      rpcDetails,
 		RDPDetails:      rdpDetails,
@@ -308,6 +316,54 @@ func runDebugRPCEpmapperStage(
 	results := collectRPCEpmapperResults(rpcOutputs)
 	if len(results) == 0 {
 		steps.addWarning("rpc-epmapper-probe", "no rpc epmapper metadata generated")
+	}
+	return results, nil
+}
+
+func runDebugSSHNativeProbeStage(
+	ctx context.Context,
+	opts scanDebugTargetOptions,
+	steps *scanDebugStepCollection,
+	openPorts []discovery.TCPPortDiscoveryResult,
+	banners []scanpkg.BannerGrabResult,
+) ([]scanpkg.SSHServiceInfo, error) {
+	sshConfig := map[string]any{}
+	if opts.Timeout != "" {
+		sshConfig["timeout"] = opts.Timeout
+		sshConfig["connect_timeout"] = opts.Timeout
+		sshConfig["io_timeout"] = opts.Timeout
+		sshConfig["retries"] = 0
+	}
+	if strings.TrimSpace(opts.Ports) != "" {
+		candidatePorts := make([]int, 0, 4)
+		for _, item := range splitAndTrim(opts.Ports) {
+			port, convErr := strconv.Atoi(item)
+			if convErr != nil || port <= 0 || port > 65535 {
+				continue
+			}
+			candidatePorts = append(candidatePorts, port)
+		}
+		if len(candidatePorts) > 0 {
+			sshConfig["candidate_ports"] = candidatePorts
+		}
+	}
+
+	sshModule, err := engine.GetModuleInstance("scan_debug_ssh_native_probe", "ssh-native-probe", sshConfig)
+	if err != nil {
+		return nil, fmt.Errorf("create ssh-native-probe module: %w", err)
+	}
+
+	sshOutputs, sshExecErr := executeDebugModule(ctx, sshModule, map[string]any{
+		"discovery.open_tcp_ports": toAnySlice(openPorts),
+		"service.banner.tcp":       toAnySlice(banners),
+	})
+	if sshExecErr != nil {
+		steps.addError("ssh-native-probe", sshExecErr.Error())
+	}
+	steps.addErrors("ssh-native-probe", collectOutputErrors(sshOutputs))
+	results := collectSSHDetailsResults(sshOutputs)
+	if len(results) == 0 {
+		steps.addWarning("ssh-native-probe", "no ssh metadata generated")
 	}
 	return results, nil
 }
@@ -517,6 +573,7 @@ func runDebugServiceIdentityStage(
 	banners []scanpkg.BannerGrabResult,
 	fingerprints []parsepkg.FingerprintParsedInfo,
 	techTags []parsepkg.TechTagResult,
+	sshDetails []scanpkg.SSHServiceInfo,
 	smbDetails []scanpkg.SMBServiceInfo,
 	rdpDetails []scanpkg.RDPServiceInfo,
 	rpcDetails []scanpkg.RPCServiceInfo,
@@ -531,6 +588,7 @@ func runDebugServiceIdentityStage(
 		"service.banner.tcp":          toAnySlice(banners),
 		"service.fingerprint.details": toAnySlice(fingerprints),
 		"service.tech.tags":           toAnySlice(techTags),
+		"service.ssh.details":         toAnySlice(sshDetails),
 		"service.smb.details":         toAnySlice(smbDetails),
 		"service.rdp.details":         toAnySlice(rdpDetails),
 		"service.rpc.details":         toAnySlice(rpcDetails),
@@ -656,6 +714,25 @@ func collectSMBDetailsResults(outputs []engine.ModuleOutput) []scanpkg.SMBServic
 		case scanpkg.SMBServiceInfo:
 			results = append(results, data)
 		case []scanpkg.SMBServiceInfo:
+			results = append(results, data...)
+		}
+	}
+	sort.Slice(results, func(i, j int) bool {
+		if results[i].Target == results[j].Target {
+			return results[i].Port < results[j].Port
+		}
+		return results[i].Target < results[j].Target
+	})
+	return results
+}
+
+func collectSSHDetailsResults(outputs []engine.ModuleOutput) []scanpkg.SSHServiceInfo {
+	results := make([]scanpkg.SSHServiceInfo, 0)
+	for _, output := range outputs {
+		switch data := output.Data.(type) {
+		case scanpkg.SSHServiceInfo:
+			results = append(results, data)
+		case []scanpkg.SSHServiceInfo:
 			results = append(results, data...)
 		}
 	}
@@ -840,6 +917,7 @@ func writeScanDebugPretty(w io.Writer, payload scanDebugPayload) error {
 	fmt.Fprintf(w, "Banners: %d\n", len(payload.Banners))
 	fmt.Fprintf(w, "Fingerprints: %d\n", len(payload.Fingerprints))
 	fmt.Fprintf(w, "Tech Tags: %d\n", len(payload.TechTags))
+	fmt.Fprintf(w, "SSH Details: %d\n", len(payload.SSHDetails))
 	fmt.Fprintf(w, "RPC Epmapper: %d\n", len(payload.RPCEpmapper))
 	fmt.Fprintf(w, "RPC Details: %d\n", len(payload.RPCDetails))
 	fmt.Fprintf(w, "RDP Details: %d\n", len(payload.RDPDetails))

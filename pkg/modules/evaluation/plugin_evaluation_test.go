@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/cyprob/cyprob/pkg/engine"
+	"github.com/cyprob/cyprob/pkg/modules/scan"
 	"github.com/cyprob/cyprob/pkg/plugin"
 )
 
@@ -278,6 +279,25 @@ func TestBuildEvaluationContext_SSHDetails_MapFallback(t *testing.T) {
 	require.Equal(t, "192.0.2.10", ctx["target"])
 	// service.port should be converted to int
 	require.Equal(t, 2222, ctx["service.port"])
+}
+
+func TestBuildEvaluationContext_SSHNativeDetails(t *testing.T) {
+	module := NewPluginEvaluationModule()
+
+	inputs := map[string]any{
+		"service.ssh.details": []any{
+			scan.SSHServiceInfo{
+				Target:   "192.0.2.11",
+				Port:     22,
+				SSHProbe: true,
+			},
+		},
+	}
+
+	ctx := module.buildEvaluationContext(inputs)
+
+	require.Equal(t, "192.0.2.11", ctx["target"])
+	require.Equal(t, 22, ctx["service.port"])
 }
 
 func TestBuildEvaluationContext_BannerGrab_MapFallback(t *testing.T) {

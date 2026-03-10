@@ -49,6 +49,25 @@ type scanDebugTestOutput struct {
 		Port   int      `json:"port"`
 		Tags   []string `json:"tags"`
 	} `json:"tech_tags"`
+	SSHDetails []struct {
+		Target      string   `json:"target"`
+		Port        int      `json:"port"`
+		SSHProbe    bool     `json:"ssh_probe"`
+		SSHBanner   string   `json:"ssh_banner"`
+		SSHProtocol string   `json:"ssh_protocol"`
+		SSHSoftware string   `json:"ssh_software"`
+		SSHVersion  string   `json:"ssh_version"`
+		Ciphers     []string `json:"ciphers"`
+		ProbeError  string   `json:"probe_error"`
+	} `json:"ssh_details"`
+	ServiceIdentity []struct {
+		Target      string   `json:"target"`
+		Port        int      `json:"port"`
+		ServiceName string   `json:"service_name"`
+		Product     string   `json:"product"`
+		Version     string   `json:"version"`
+		TechTags    []string `json:"tech_tags"`
+	} `json:"service_identity"`
 	Steps []struct {
 		Step     string   `json:"step"`
 		Errors   []string `json:"errors"`
@@ -67,7 +86,7 @@ func TestScanDebugTargetJSONSmoke(t *testing.T) {
 	cmd.SetErr(errOut)
 	cmd.SetArgs([]string{
 		"scan-debug", "target", host,
-		"--ports", fmt.Sprintf("%d", port),
+		"--ports", fmt.Sprintf("%d-%d", port, port),
 		"--timeout", "2s",
 		"--format", "json",
 	})
@@ -86,6 +105,12 @@ func TestScanDebugTargetJSONSmoke(t *testing.T) {
 	require.Equal(t, "127.0.0.1", payload.Banners[0].ProbeHost)
 	require.NotEmpty(t, payload.Fingerprints)
 	require.NotEmpty(t, payload.TechTags)
+	require.NotEmpty(t, payload.SSHDetails)
+	require.True(t, payload.SSHDetails[0].SSHProbe)
+	require.Equal(t, "2.0", payload.SSHDetails[0].SSHProtocol)
+	require.Equal(t, "OpenSSH", payload.SSHDetails[0].SSHSoftware)
+	require.NotEmpty(t, payload.ServiceIdentity)
+	require.Equal(t, "ssh", payload.ServiceIdentity[0].ServiceName)
 	require.True(t, hasTag(payload.TechTags, "ssh"), "expected ssh tag in tech_tags")
 
 	for _, step := range payload.Steps {

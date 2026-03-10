@@ -143,13 +143,20 @@ func (m *AssetProfileBuilderModule) Execute(ctx context.Context, inputs map[stri
 	}
 
 	sshDetailsResults := []parse.SSHParsedInfo{}
+	sshNativeDetailsResults := []scan.SSHServiceInfo{}
 	if rawSSH, ok := inputs["service.ssh.details"]; ok {
 		if list, listOk := rawSSH.([]any); listOk {
 			for _, item := range list {
 				if casted, castOk := item.(parse.SSHParsedInfo); castOk {
 					sshDetailsResults = append(sshDetailsResults, casted)
+				} else if casted, castOk := item.(scan.SSHServiceInfo); castOk {
+					sshNativeDetailsResults = append(sshNativeDetailsResults, casted)
 				}
 			}
+		} else if typed, typedOk := rawSSH.([]parse.SSHParsedInfo); typedOk {
+			sshDetailsResults = append(sshDetailsResults, typed...)
+		} else if typed, typedOk := rawSSH.([]scan.SSHServiceInfo); typedOk {
+			sshNativeDetailsResults = append(sshNativeDetailsResults, typed...)
 		}
 	}
 
@@ -371,6 +378,9 @@ func (m *AssetProfileBuilderModule) Execute(ctx context.Context, inputs map[stri
 							break
 						}
 					}
+					if sshNative := findSSHNativeDetails(sshNativeDetailsResults, targetIP, portNum); sshNative != nil {
+						applySSHNativeDetails(&portProfile, *sshNative)
+					}
 
 					// Bu porta ait tech tagleri bul
 					for _, tags := range techTagResults {
@@ -525,6 +535,74 @@ func applyServiceIdentity(asset *engine.AssetProfile, portProfile *engine.PortPr
 
 	if len(identity.TechTags) > 0 {
 		portProfile.Service.TechTags = parse.NormalizeTechTags(append(portProfile.Service.TechTags, identity.TechTags...))
+	}
+}
+
+func findSSHNativeDetails(items []scan.SSHServiceInfo, target string, port int) *scan.SSHServiceInfo {
+	for i := range items {
+		if items[i].Target == target && items[i].Port == port {
+			return &items[i]
+		}
+	}
+	return nil
+}
+
+func applySSHNativeDetails(portProfile *engine.PortProfile, details scan.SSHServiceInfo) {
+	if portProfile.Service.ParsedAttributes == nil {
+		portProfile.Service.ParsedAttributes = make(map[string]any)
+	}
+
+	if details.SSHProbe {
+		portProfile.Service.Name = "ssh"
+	}
+	if strings.TrimSpace(details.SSHSoftware) != "" {
+		portProfile.Service.Product = strings.TrimSpace(details.SSHSoftware)
+	} else if details.SSHProbe && strings.TrimSpace(portProfile.Service.Product) == "" {
+		portProfile.Service.Product = "SSH"
+	}
+	if strings.TrimSpace(details.SSHVersion) != "" {
+		portProfile.Service.Version = strings.TrimSpace(details.SSHVersion)
+	}
+	if strings.TrimSpace(details.SSHBanner) != "" && strings.TrimSpace(portProfile.Service.RawBanner) == "" {
+		portProfile.Service.RawBanner = strings.TrimSpace(details.SSHBanner)
+	}
+
+	if strings.TrimSpace(details.SSHBanner) != "" {
+		portProfile.Service.ParsedAttributes["ssh_banner"] = strings.TrimSpace(details.SSHBanner)
+	}
+	if strings.TrimSpace(details.SSHProtocol) != "" {
+		portProfile.Service.ParsedAttributes["ssh_protocol"] = strings.TrimSpace(details.SSHProtocol)
+		portProfile.Service.ParsedAttributes["ssh_protocol_version"] = strings.TrimSpace(details.SSHProtocol)
+	}
+	if strings.TrimSpace(details.SSHSoftware) != "" {
+		portProfile.Service.ParsedAttributes["ssh_software"] = strings.TrimSpace(details.SSHSoftware)
+	}
+	if strings.TrimSpace(details.SSHVersion) != "" {
+		portProfile.Service.ParsedAttributes["ssh_version"] = strings.TrimSpace(details.SSHVersion)
+	}
+	if len(details.KEXAlgorithms) > 0 {
+		portProfile.Service.ParsedAttributes["ssh_kex_algorithms"] = append([]string(nil), details.KEXAlgorithms...)
+	}
+	if len(details.HostKeyAlgorithms) > 0 {
+		portProfile.Service.ParsedAttributes["ssh_host_key_algorithms"] = append([]string(nil), details.HostKeyAlgorithms...)
+	}
+	if len(details.Ciphers) > 0 {
+		portProfile.Service.ParsedAttributes["ssh_ciphers"] = append([]string(nil), details.Ciphers...)
+	}
+	if len(details.MACs) > 0 {
+		portProfile.Service.ParsedAttributes["ssh_macs"] = append([]string(nil), details.MACs...)
+	}
+	if len(details.AuthMethods) > 0 {
+		portProfile.Service.ParsedAttributes["ssh_auth_methods"] = append([]string(nil), details.AuthMethods...)
+	}
+
+	portProfile.Service.ParsedAttributes["ssh_weak_protocol"] = details.WeakProtocol
+	portProfile.Service.ParsedAttributes["ssh_weak_kex"] = details.WeakKEX
+	portProfile.Service.ParsedAttributes["ssh_weak_cipher"] = details.WeakCipher
+	portProfile.Service.ParsedAttributes["ssh_weak_mac"] = details.WeakMAC
+
+	if strings.TrimSpace(details.ProbeError) != "" {
+		portProfile.Service.ParsedAttributes["ssh_probe_error"] = strings.TrimSpace(details.ProbeError)
 	}
 }
 

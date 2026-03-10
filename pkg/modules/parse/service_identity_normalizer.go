@@ -23,6 +23,7 @@ const (
 	sourceRDPNative      = "rdp_native_probe"
 	sourceRPCNative      = "rpc_native_probe"
 	sourceTLSNative      = "tls_native_probe"
+	sourceSSHNative      = "ssh_native_probe"
 	sourceFingerprint    = "fingerprint"
 	sourceHeuristic      = "heuristic"
 	sourceBanner         = "banner"
@@ -76,6 +77,7 @@ func newServiceIdentityNormalizerModule() *serviceIdentityNormalizerModule {
 				{Key: "service.banner.tcp", DataTypeName: "scan.BannerGrabResult", Cardinality: engine.CardinalityList, IsOptional: true},
 				{Key: "service.fingerprint.details", DataTypeName: "parse.FingerprintParsedInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 				{Key: "service.tech.tags", DataTypeName: "parse.TechTagResult", Cardinality: engine.CardinalityList, IsOptional: true},
+				{Key: "service.ssh.details", DataTypeName: "scan.SSHServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 				{Key: "service.smb.details", DataTypeName: "scan.SMBServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 				{Key: "service.rdp.details", DataTypeName: "scan.RDPServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 				{Key: "service.rpc.details", DataTypeName: "scan.RPCServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
@@ -124,6 +126,7 @@ func (m *serviceIdentityNormalizerModule) Execute(ctx context.Context, inputs ma
 	m.ingestRDPDetails(inputs, smbEvidence, getEntry)
 	m.ingestRPCDetails(inputs, getEntry)
 	m.ingestTLSDetails(inputs, getEntry)
+	m.ingestSSHDetails(inputs, getEntry)
 	m.applyHeuristics(entries)
 
 	keys := make([]string, 0, len(entries))
@@ -405,6 +408,43 @@ func (m *serviceIdentityNormalizerModule) ingestTLSDetails(inputs map[string]any
 			setIdentityField(entry, "service_name", "https", sourceTLSNative, 0.65)
 		}
 		entry.TechTags = NormalizeTechTags(append(entry.TechTags, TagTLS, TagHTTPS))
+	}
+}
+
+func (m *serviceIdentityNormalizerModule) ingestSSHDetails(inputs map[string]any, getEntry func(target string, port int) *ServiceIdentityInfo) {
+	raw, ok := inputs["service.ssh.details"]
+	if !ok {
+		return
+	}
+	items := toAnyList(raw)
+	for _, item := range items {
+		sshInfo, ok := item.(scanpkg.SSHServiceInfo)
+		if !ok {
+			continue
+		}
+		if sshInfo.Target == "" || sshInfo.Port <= 0 {
+			continue
+		}
+		if !sshInfo.SSHProbe && strings.TrimSpace(sshInfo.SSHBanner) == "" {
+			continue
+		}
+
+		entry := getEntry(sshInfo.Target, sshInfo.Port)
+		setIdentityField(entry, "service_name", "ssh", sourceSSHNative, 0.64)
+		if strings.TrimSpace(entry.Product) == "" {
+			if strings.TrimSpace(sshInfo.SSHSoftware) != "" {
+				setIdentityField(entry, "product", strings.TrimSpace(sshInfo.SSHSoftware), sourceSSHNative, 0.64)
+			} else {
+				setIdentityField(entry, "product", "SSH", sourceSSHNative, 0.58)
+			}
+		}
+		if strings.TrimSpace(sshInfo.SSHVersion) != "" {
+			setIdentityField(entry, "version", strings.TrimSpace(sshInfo.SSHVersion), sourceSSHNative, 0.64)
+		}
+		if strings.TrimSpace(sshInfo.SSHBanner) != "" && strings.TrimSpace(entry.Banner) == "" {
+			setIdentityField(entry, "banner", strings.TrimSpace(sshInfo.SSHBanner), sourceSSHNative, 0.56)
+		}
+		entry.TechTags = NormalizeTechTags(append(entry.TechTags, "ssh"))
 	}
 }
 
@@ -716,6 +756,12 @@ func toAnyList(value any) []any {
 		}
 		return out
 	case []TechTagResult:
+		out := make([]any, 0, len(typed))
+		for _, item := range typed {
+			out = append(out, item)
+		}
+		return out
+	case []scanpkg.SSHServiceInfo:
 		out := make([]any, 0, len(typed))
 		for _, item := range typed {
 			out = append(out, item)

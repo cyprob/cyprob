@@ -157,6 +157,81 @@ func TestAssetProfileBuilder_MapsRDPDetailsToParsedAttributes(t *testing.T) {
 	}
 }
 
+func TestAssetProfileBuilder_MapsSSHNativeDetailsToParsedAttributes(t *testing.T) {
+	module := newAssetProfileBuilderModule()
+	if err := module.Init("ssh-builder", map[string]any{}); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+
+	target := "192.0.2.62"
+	port := 22
+
+	inputs := map[string]any{
+		"config.targets": []string{target},
+		"discovery.open_tcp_ports": []any{
+			discovery.TCPPortDiscoveryResult{Target: target, OpenPorts: []int{port}},
+		},
+		"service.ssh.details": []any{
+			scan.SSHServiceInfo{
+				Target:            target,
+				Port:              port,
+				SSHProbe:          true,
+				SSHBanner:         "SSH-2.0-OpenSSH_9.6p1 Ubuntu-3ubuntu13.8",
+				SSHProtocol:       "2.0",
+				SSHSoftware:       "OpenSSH",
+				SSHVersion:        "9.6p1",
+				KEXAlgorithms:     []string{"curve25519-sha256", "diffie-hellman-group14-sha256"},
+				HostKeyAlgorithms: []string{"ssh-ed25519", "rsa-sha2-512"},
+				Ciphers:           []string{"chacha20-poly1305@openssh.com", "aes256-ctr"},
+				MACs:              []string{"hmac-sha2-256-etm@openssh.com"},
+				WeakProtocol:      false,
+				WeakKEX:           false,
+				WeakCipher:        false,
+				WeakMAC:           false,
+			},
+		},
+	}
+
+	out := make(chan engine.ModuleOutput, 1)
+	if err := module.Execute(context.Background(), inputs, out); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+
+	result := <-out
+	profiles, ok := result.Data.([]engine.AssetProfile)
+	if !ok {
+		t.Fatalf("expected []engine.AssetProfile, got %T", result.Data)
+	}
+	if len(profiles) != 1 {
+		t.Fatalf("expected 1 profile, got %d", len(profiles))
+	}
+
+	ports := profiles[0].OpenPorts[target]
+	if len(ports) != 1 {
+		t.Fatalf("expected 1 open port entry, got %d", len(ports))
+	}
+
+	service := ports[0].Service
+	if service.Name != "ssh" {
+		t.Fatalf("expected service name ssh, got %q", service.Name)
+	}
+	if service.Product != "OpenSSH" {
+		t.Fatalf("expected product OpenSSH, got %q", service.Product)
+	}
+	if service.Version != "9.6p1" {
+		t.Fatalf("expected version 9.6p1, got %q", service.Version)
+	}
+	if service.ParsedAttributes["ssh_protocol"] != "2.0" {
+		t.Fatalf("expected ssh_protocol 2.0, got %v", service.ParsedAttributes["ssh_protocol"])
+	}
+	if service.ParsedAttributes["ssh_weak_cipher"] != false {
+		t.Fatalf("expected ssh_weak_cipher false, got %v", service.ParsedAttributes["ssh_weak_cipher"])
+	}
+	if _, ok := service.ParsedAttributes["ssh_kex_algorithms"].([]string); !ok {
+		t.Fatalf("expected ssh_kex_algorithms in parsed attributes")
+	}
+}
+
 func TestAssetProfileBuilder_MapsTLSDetailsToParsedAttributes(t *testing.T) {
 	module := newAssetProfileBuilderModule()
 	if err := module.Init("tls-builder", map[string]any{}); err != nil {
