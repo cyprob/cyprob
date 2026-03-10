@@ -181,6 +181,28 @@ func startCONNECTProxyTestServer(t *testing.T, connectStatus int) (string, int, 
 	return addr.IP.String(), addr.Port, &connectAttempts, func() { _ = ln.Close() }
 }
 
+func startTLSRedirectTestServer(t *testing.T, handler http.HandlerFunc) (string, int, func()) {
+	t.Helper()
+
+	ln := listenOnPreferredPort(t, []int{8443, 10443})
+	tlsConfig := mustSelfSignedTLSConfig(t, "localhost")
+	server := &http.Server{
+		Handler:   handler,
+		TLSConfig: tlsConfig,
+	}
+
+	go func() {
+		_ = server.ServeTLS(ln, "", "")
+	}()
+
+	addr := ln.Addr().(*net.TCPAddr)
+	return addr.IP.String(), addr.Port, func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		_ = server.Shutdown(ctx)
+		cancel()
+	}
+}
+
 func TestNewBannerGrabModule(t *testing.T) {
 	t.Parallel()
 
@@ -199,6 +221,9 @@ func TestNewBannerGrabModule(t *testing.T) {
 	}
 	if module.config.BufferSize != 2048 {
 		t.Errorf("Expected buffer size 2048, got %d", module.config.BufferSize)
+	}
+	if module.config.MaxRedirectHops != 2 {
+		t.Errorf("Expected max redirect hops 2, got %d", module.config.MaxRedirectHops)
 	}
 }
 
@@ -225,6 +250,7 @@ func TestBannerGrabModule_Init(t *testing.T) {
 				Concurrency:           50,
 				SendProbes:            true,
 				TLSInsecureSkipVerify: false,
+				MaxRedirectHops:       2,
 			},
 		},
 		{
@@ -240,14 +266,16 @@ func TestBannerGrabModule_Init(t *testing.T) {
 				Concurrency:           50,
 				SendProbes:            true,
 				TLSInsecureSkipVerify: true, // Phase 1.6: Default to true for service detection
+				MaxRedirectHops:       2,
 			},
 			expectError: false,
 		},
 		{
 			name: "custom buffer size and concurrency",
 			config: map[string]any{
-				"buffer_size": 4096,
-				"concurrency": 100,
+				"buffer_size":       4096,
+				"concurrency":       100,
+				"max_redirect_hops": 1,
 			},
 			expected: BannerGrabConfig{
 				ReadTimeout:           10 * time.Second,
@@ -256,6 +284,7 @@ func TestBannerGrabModule_Init(t *testing.T) {
 				Concurrency:           100,
 				SendProbes:            true,
 				TLSInsecureSkipVerify: true, // Phase 1.6: Default to true for service detection
+				MaxRedirectHops:       1,
 			},
 		},
 		{
@@ -270,6 +299,7 @@ func TestBannerGrabModule_Init(t *testing.T) {
 				Concurrency:           50,
 				SendProbes:            false,
 				TLSInsecureSkipVerify: true, // Phase 1.6: Default to true for service detection
+				MaxRedirectHops:       2,
 			},
 		},
 		{
@@ -287,6 +317,7 @@ func TestBannerGrabModule_Init(t *testing.T) {
 				Concurrency:           1,
 				SendProbes:            true,
 				TLSInsecureSkipVerify: true, // Phase 1.6: Default to true for service detection
+				MaxRedirectHops:       2,
 			},
 		},
 	}
@@ -325,6 +356,9 @@ func TestBannerGrabModule_Init(t *testing.T) {
 			}
 			if module.config.TLSInsecureSkipVerify != tt.expected.TLSInsecureSkipVerify {
 				t.Errorf("Expected TLSInsecureSkipVerify %v, got %v", tt.expected.TLSInsecureSkipVerify, module.config.TLSInsecureSkipVerify)
+			}
+			if module.config.MaxRedirectHops != tt.expected.MaxRedirectHops {
+				t.Errorf("Expected MaxRedirectHops %d, got %d", tt.expected.MaxRedirectHops, module.config.MaxRedirectHops)
 			}
 		})
 	}
@@ -390,6 +424,264 @@ func TestRunProbesCollectsHTTPEvidence(t *testing.T) {
 
 	if !foundHTTPProbe {
 		t.Fatalf("expected http-get probe in evidence")
+	}
+}
+
+func TestResolveRedirectRequest_RelativeLocation(t *testing.T) {
+	t.Parallel()
+
+	req := resolveRedirectRequest("https", "localhost", 8443, "/", "/final", 1)
+	if req.SkipError != "" {
+		t.Fatalf("expected relative redirect to be followed, got %q", req.SkipError)
+	}
+	if req.Scheme != "https" || req.Port != 8443 || req.Path != "/final" {
+		t.Fatalf("unexpected redirect target: %+v", req)
+	}
+}
+
+func TestResolveRedirectRequest_HTTPToHTTPSUpgrade(t *testing.T) {
+	t.Parallel()
+
+	req := resolveRedirectRequest("http", "localhost", 80, "/", "https://localhost/login", 1)
+	if req.SkipError != "" {
+		t.Fatalf("expected http->https upgrade to be followed, got %q", req.SkipError)
+	}
+	if req.Scheme != "https" || req.Port != 443 || req.Path != "/login" {
+		t.Fatalf("unexpected redirect target: %+v", req)
+	}
+}
+
+func TestResolveRedirectRequest_AbsoluteSameHost(t *testing.T) {
+	t.Parallel()
+
+	req := resolveRedirectRequest("https", "localhost", 8443, "/", "https://localhost:8443/interface/root", 1)
+	if req.SkipError != "" {
+		t.Fatalf("expected same-host absolute redirect to be followed, got %q", req.SkipError)
+	}
+	if req.Port != 8443 || req.Path != "/interface/root" {
+		t.Fatalf("unexpected redirect target: %+v", req)
+	}
+}
+
+func TestResolveRedirectRequest_CrossHostBlocked(t *testing.T) {
+	t.Parallel()
+
+	req := resolveRedirectRequest("https", "localhost", 8443, "/", "https://example.com/final", 1)
+	if req.SkipError != "redirect_cross_host_blocked" {
+		t.Fatalf("expected cross-host block, got %+v", req)
+	}
+}
+
+func TestResolveRedirectRequest_HTTPSDowngradeBlocked(t *testing.T) {
+	t.Parallel()
+
+	req := resolveRedirectRequest("https", "localhost", 443, "/", "http://localhost/login", 1)
+	if req.SkipError != "redirect_downgrade_blocked" {
+		t.Fatalf("expected downgrade block, got %+v", req)
+	}
+}
+
+func TestRunProbes_HTTPSRedirectFollowPrefersFinalOrigin(t *testing.T) {
+	t.Parallel()
+
+	host, port, cleanup := startTLSRedirectTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/":
+			http.Redirect(w, r, "/final", http.StatusFound)
+		case "/final":
+			w.Header().Set("Server", "RedirectOrigin/1.0")
+			w.WriteHeader(http.StatusOK)
+			_, _ = fmt.Fprint(w, "<html><title>Final Origin</title><body>origin-final</body></html>")
+		default:
+			http.NotFound(w, r)
+		}
+	})
+	defer cleanup()
+
+	module := newBannerGrabModule()
+	module.config.SendProbes = true
+	module.config.TLSInsecureSkipVerify = true
+	module.config.ConnectTimeout = 500 * time.Millisecond
+	module.config.ReadTimeout = 500 * time.Millisecond
+	module.config.MaxRedirectHops = 2
+
+	result := module.runProbes(context.Background(), host, "localhost", "localhost", port)
+	if !strings.Contains(result.Banner, "200 OK") {
+		t.Fatalf("expected final 200 banner, got %q", result.Banner)
+	}
+
+	foundRedirect := false
+	for _, ev := range result.Evidence {
+		if ev.ProbeID == "https-get-redirect-1" {
+			foundRedirect = true
+			if !ev.RedirectFollowed || ev.RedirectHop != 1 {
+				t.Fatalf("expected redirect hop metadata, got %+v", ev)
+			}
+			if ev.RedirectFrom == "" || ev.RedirectTo != "/final" {
+				t.Fatalf("expected redirect path metadata, got %+v", ev)
+			}
+			if ev.ResponseClass != "origin" || !strings.Contains(ev.Response, "200 OK") {
+				t.Fatalf("expected final origin response in redirect evidence, got %+v", ev)
+			}
+		}
+	}
+	if !foundRedirect {
+		t.Fatalf("expected redirect follow evidence, got %+v", result.Evidence)
+	}
+}
+
+func TestRunProbes_HTTPSRedirectFollowLoopStops(t *testing.T) {
+	t.Parallel()
+
+	host, port, cleanup := startTLSRedirectTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/" {
+			http.Redirect(w, r, "/loop", http.StatusFound)
+			return
+		}
+		http.Redirect(w, r, "/", http.StatusFound)
+	})
+	defer cleanup()
+
+	module := newBannerGrabModule()
+	module.config.SendProbes = true
+	module.config.TLSInsecureSkipVerify = true
+	module.config.ConnectTimeout = 500 * time.Millisecond
+	module.config.ReadTimeout = 500 * time.Millisecond
+	module.config.MaxRedirectHops = 2
+
+	result := module.runProbes(context.Background(), host, "localhost", "localhost", port)
+	foundLoop := false
+	for _, ev := range result.Evidence {
+		if ev.Error == "redirect_loop" {
+			foundLoop = true
+			if ev.RedirectHop != 2 {
+				t.Fatalf("expected loop on second hop, got %+v", ev)
+			}
+		}
+	}
+	if !foundLoop {
+		t.Fatalf("expected redirect_loop evidence, got %+v", result.Evidence)
+	}
+}
+
+func TestRunProbes_HTTPSRedirectFollowHopLimit(t *testing.T) {
+	t.Parallel()
+
+	host, port, cleanup := startTLSRedirectTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/":
+			http.Redirect(w, r, "/one", http.StatusFound)
+		case "/one":
+			http.Redirect(w, r, "/two", http.StatusFound)
+		case "/two":
+			http.Redirect(w, r, "/three", http.StatusFound)
+		default:
+			http.NotFound(w, r)
+		}
+	})
+	defer cleanup()
+
+	module := newBannerGrabModule()
+	module.config.SendProbes = true
+	module.config.TLSInsecureSkipVerify = true
+	module.config.ConnectTimeout = 500 * time.Millisecond
+	module.config.ReadTimeout = 500 * time.Millisecond
+	module.config.MaxRedirectHops = 2
+
+	result := module.runProbes(context.Background(), host, "localhost", "localhost", port)
+	foundLimit := false
+	for _, ev := range result.Evidence {
+		if ev.Error == "redirect_hop_limit_exceeded" {
+			foundLimit = true
+			if ev.RedirectHop != 3 {
+				t.Fatalf("expected limit notice on hop 3, got %+v", ev)
+			}
+		}
+	}
+	if !foundLimit {
+		t.Fatalf("expected redirect_hop_limit_exceeded evidence, got %+v", result.Evidence)
+	}
+}
+
+func TestRunProbes_HTTPSRedirectFollowBudgetExceeded(t *testing.T) {
+	t.Parallel()
+
+	host, port, cleanup := startTLSRedirectTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/":
+			http.Redirect(w, r, "/slow", http.StatusFound)
+		case "/slow":
+			time.Sleep(250 * time.Millisecond)
+			w.WriteHeader(http.StatusOK)
+			_, _ = fmt.Fprint(w, "slow-origin")
+		default:
+			http.NotFound(w, r)
+		}
+	})
+	defer cleanup()
+
+	module := newBannerGrabModule()
+	module.config.SendProbes = true
+	module.config.TLSInsecureSkipVerify = true
+	module.config.ConnectTimeout = 500 * time.Millisecond
+	module.config.ReadTimeout = 500 * time.Millisecond
+	module.config.MaxRedirectHops = 2
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	obs := engine.ProbeObservation{
+		ProbeID:       "https-get",
+		Protocol:      "https",
+		IsTLS:         true,
+		ResponseClass: "origin",
+		Response: "HTTP/1.1 302 Found\r\n" +
+			"Location: /slow\r\n" +
+			"Connection: close\r\n\r\n",
+	}
+
+	followed := module.followHTTPRedirects(ctx, host, "localhost", port, obs)
+	foundBudget := false
+	for _, ev := range followed {
+		if ev.Error == "redirect_budget_exceeded" {
+			foundBudget = true
+			break
+		}
+	}
+	if !foundBudget {
+		t.Fatalf("expected redirect_budget_exceeded evidence, got %+v", followed)
+	}
+}
+
+func TestRunProbes_HTTPSProxyOnlyDoesNotFollowRedirects(t *testing.T) {
+	t.Parallel()
+
+	host, port, cleanup := startTLSRedirectTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Via", "HTTP/1.1 forward.http.proxy:3128")
+		w.Header().Set("Location", "/final")
+		w.WriteHeader(http.StatusFound)
+		_, _ = fmt.Fprint(w, "generated by forward proxy")
+	})
+	defer cleanup()
+
+	module := newBannerGrabModule()
+	module.config.SendProbes = true
+	module.config.TLSInsecureSkipVerify = true
+	module.config.ConnectTimeout = 500 * time.Millisecond
+	module.config.ReadTimeout = 500 * time.Millisecond
+	module.config.MaxRedirectHops = 2
+
+	result := module.runProbes(context.Background(), host, "localhost", "localhost", port)
+	if result.Banner != "" {
+		t.Fatalf("expected proxy-only result to suppress primary banner, got %q", result.Banner)
+	}
+	if result.ResponseClass != "proxy_only" {
+		t.Fatalf("expected proxy_only response class, got %q", result.ResponseClass)
+	}
+	for _, ev := range result.Evidence {
+		if strings.Contains(ev.ProbeID, "-redirect-") {
+			t.Fatalf("did not expect redirect follow evidence for proxy-only response, got %+v", result.Evidence)
+		}
 	}
 }
 

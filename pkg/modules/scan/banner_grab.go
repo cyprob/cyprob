@@ -11,6 +11,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"slices"
 	"strconv"
@@ -37,6 +38,7 @@ type BannerGrabConfig struct {
 	Concurrency           int           `mapstructure:"concurrency"`              // Number of concurrent banner grabbing operations
 	SendProbes            bool          `mapstructure:"send_probes"`              // Whether to send basic probes (e.g., HTTP GET)
 	TLSInsecureSkipVerify bool          `mapstructure:"tls_insecure_skip_verify"` // For TLS connections, skip cert verification (not recommended for production)
+	MaxRedirectHops       int           `mapstructure:"max_redirect_hops"`        // Maximum number of HTTP redirects to follow
 	// Future: Define specific probes for common ports
 	// HTTPProbes     []string      `mapstructure:"http_probes"`  // e.g., ["GET / HTTP/1.1\r\nHost: {HOST}\r\n\r\n", "HEAD / HTTP/1.0\r\n\r\n"]
 	// GenericProbes  []string      `mapstructure:"generic_probes"`// e.g., ["\r\n\r\n", "HELP\r\n"]
@@ -90,6 +92,7 @@ func newBannerGrabModule() *BannerGrabModule {
 		Concurrency:           50,
 		SendProbes:            true,
 		TLSInsecureSkipVerify: true, // Default to skip cert validation for service detection (Phase 1.6)
+		MaxRedirectHops:       2,
 	}
 
 	return &BannerGrabModule{
@@ -126,11 +129,12 @@ func newBannerGrabModule() *BannerGrabModule {
 				},
 			},
 			ConfigSchema: map[string]engine.ParameterDefinition{
-				"read_timeout":    {Description: "Timeout for reading banner data from an open port (e.g., '3s').", Type: "duration", Required: false, Default: defaultConfig.ReadTimeout.String()},
-				"connect_timeout": {Description: "Timeout for establishing connection if re-dialing (e.g., '2s').", Type: "duration", Required: false, Default: defaultConfig.ConnectTimeout.String()},
-				"buffer_size":     {Description: "Size of the buffer (in bytes) for reading banner data.", Type: "int", Required: false, Default: defaultConfig.BufferSize},
-				"concurrency":     {Description: "Number of concurrent banner grabbing operations.", Type: "int", Required: false, Default: defaultConfig.Concurrency},
-				"send_probes":     {Description: "Whether to send protocol-specific probes after passive banner capture.", Type: "bool", Required: false, Default: defaultConfig.SendProbes},
+				"read_timeout":      {Description: "Timeout for reading banner data from an open port (e.g., '3s').", Type: "duration", Required: false, Default: defaultConfig.ReadTimeout.String()},
+				"connect_timeout":   {Description: "Timeout for establishing connection if re-dialing (e.g., '2s').", Type: "duration", Required: false, Default: defaultConfig.ConnectTimeout.String()},
+				"buffer_size":       {Description: "Size of the buffer (in bytes) for reading banner data.", Type: "int", Required: false, Default: defaultConfig.BufferSize},
+				"concurrency":       {Description: "Number of concurrent banner grabbing operations.", Type: "int", Required: false, Default: defaultConfig.Concurrency},
+				"send_probes":       {Description: "Whether to send protocol-specific probes after passive banner capture.", Type: "bool", Required: false, Default: defaultConfig.SendProbes},
+				"max_redirect_hops": {Description: "Maximum number of same-host HTTP redirects to follow for banner capture.", Type: "int", Required: false, Default: defaultConfig.MaxRedirectHops},
 			},
 			EstimatedCost: 2,
 		},
@@ -172,6 +176,9 @@ func (m *BannerGrabModule) Init(instanceID string, configMap map[string]any) err
 	if sendProbesVal, ok := configMap["send_probes"]; ok {
 		cfg.SendProbes = cast.ToBool(sendProbesVal)
 	}
+	if maxRedirectHopsVal, ok := configMap["max_redirect_hops"]; ok {
+		cfg.MaxRedirectHops = cast.ToInt(maxRedirectHopsVal)
+	}
 	if tlsInsecureSkipVerify, ok := configMap["tls_insecure_skip_verify"].(bool); ok {
 		cfg.TLSInsecureSkipVerify = cast.ToBool(tlsInsecureSkipVerify)
 	}
@@ -187,6 +194,9 @@ func (m *BannerGrabModule) Init(instanceID string, configMap map[string]any) err
 	}
 	if cfg.Concurrency < 1 {
 		cfg.Concurrency = 1
+	}
+	if cfg.MaxRedirectHops < 0 {
+		cfg.MaxRedirectHops = 2
 	}
 
 	m.config = cfg
@@ -460,7 +470,16 @@ func (m *BannerGrabModule) runProbes(ctx context.Context, target string, probeHo
 	if m.config.SendProbes && ctx.Err() == nil && catalogErr == nil {
 		m.runActiveProbes(ctx, target, probeHost, originHost, port, catalog, &observations, &lastError, &hintAcc)
 	}
+	if candidate, ok := selectRedirectFollowCandidate(port, observations); ok {
+		for _, redirectObs := range m.followHTTPRedirects(ctx, target, probeHost, port, candidate) {
+			if respHint := protocolHintFromBanner(redirectObs.Response); respHint != "" {
+				hintAcc.add(respHint)
+			}
+			m.collectObservation(&observations, redirectObs, &lastError)
+		}
+	}
 	selection := selectPrimaryBannerObservation(observations)
+	selection = suppressTLSUpgradeProxySelection(port, observations, selection)
 
 	result := BannerGrabResult{
 		IP:                   target,
@@ -539,7 +558,7 @@ func (m *BannerGrabModule) runConnectTunnelOriginRetry(ctx context.Context, dial
 	}
 
 	address := net.JoinHostPort(dialHost, strconv.Itoa(port))
-	dialer := &net.Dialer{Timeout: m.config.ConnectTimeout}
+	dialer := &net.Dialer{Timeout: m.effectiveTimeout(ctx, m.config.ConnectTimeout)}
 	start := time.Now()
 
 	conn, err := dialer.DialContext(ctx, "tcp", address)
@@ -551,7 +570,7 @@ func (m *BannerGrabModule) runConnectTunnelOriginRetry(ctx context.Context, dial
 	defer func() { _ = conn.Close() }()
 
 	reader := bufio.NewReader(conn)
-	if err := conn.SetWriteDeadline(time.Now().Add(m.config.ConnectTimeout)); err != nil {
+	if err := conn.SetWriteDeadline(time.Now().Add(m.effectiveTimeout(ctx, m.config.ConnectTimeout))); err != nil {
 		obs.Duration = time.Since(start)
 		obs.Error = classifyConnectTunnelError(err)
 		return obs
@@ -594,7 +613,7 @@ func (m *BannerGrabModule) runConnectTunnelOriginRetry(ctx context.Context, dial
 		InsecureSkipVerify: m.config.TLSInsecureSkipVerify,
 		ServerName:         serverName,
 	})
-	if err := tlsConn.SetDeadline(time.Now().Add(m.config.ReadTimeout)); err != nil {
+	if err := tlsConn.SetDeadline(time.Now().Add(m.effectiveTimeout(ctx, m.config.ReadTimeout))); err != nil {
 		obs.Duration = time.Since(start)
 		obs.Error = classifyConnectTunnelError(err)
 		return obs
@@ -694,6 +713,18 @@ type bannerSelection struct {
 	OriginRetrySuccess   bool
 }
 
+type redirectRequest struct {
+	Scheme      string
+	Host        string
+	Port        int
+	Path        string
+	URL         string
+	Location    string
+	ProbeID     string
+	RedirectHop int
+	SkipError   string
+}
+
 func selectPrimaryBannerObservation(observations []engine.ProbeObservation) bannerSelection {
 	selection := bannerSelection{}
 	bestScore := -1
@@ -748,6 +779,72 @@ func shouldKeepTLSFallbackProbing(port int, selection bannerSelection) bool {
 	return strings.HasPrefix(selection.ProbeID, "http-get")
 }
 
+func selectRedirectFollowCandidate(port int, observations []engine.ProbeObservation) (engine.ProbeObservation, bool) {
+	if !supportsHTTPRedirectFollow(port) {
+		return engine.ProbeObservation{}, false
+	}
+
+	bestScore := -1
+	var best engine.ProbeObservation
+	for _, obs := range observations {
+		if strings.TrimSpace(obs.Response) == "" {
+			continue
+		}
+		if obs.ProxyResponse || obs.ResponseClass == "proxy" || obs.ResponseClass == "proxy_only" {
+			continue
+		}
+		analysis := analyzeHTTPResponse(obs.Response)
+		if !analysis.IsHTTP || !isRedirectStatus(analysis.StatusCode) || strings.TrimSpace(analysis.Headers["location"]) == "" {
+			continue
+		}
+		score := bannerObservationScore(obs)
+		if score < bestScore {
+			continue
+		}
+		bestScore = score
+		best = obs
+	}
+
+	return best, bestScore >= 0
+}
+
+func suppressTLSUpgradeProxySelection(port int, observations []engine.ProbeObservation, selection bannerSelection) bannerSelection {
+	if !isLikelyTLSPort(port) || !isTLSUpgradeErrorBanner(selection.Banner) {
+		return selection
+	}
+
+	sawTLSProxyOnly := false
+	sawTLSOrigin := false
+	for _, obs := range observations {
+		if !strings.HasPrefix(obs.ProbeID, "https") {
+			continue
+		}
+		if strings.TrimSpace(obs.Response) == "" {
+			if obs.ProxyResponse || obs.ResponseClass == "proxy" || obs.ResponseClass == "proxy_only" {
+				sawTLSProxyOnly = true
+			}
+			continue
+		}
+		if obs.ProxyResponse || obs.ResponseClass == "proxy" || obs.ResponseClass == "proxy_only" {
+			sawTLSProxyOnly = true
+			continue
+		}
+		sawTLSOrigin = true
+		break
+	}
+
+	if sawTLSOrigin || !sawTLSProxyOnly {
+		return selection
+	}
+
+	selection.ProbeID = ""
+	selection.Banner = ""
+	selection.IsTLS = false
+	selection.ResponseClass = "proxy_only"
+	selection.ProxyResponse = true
+	return selection
+}
+
 func bannerObservationScore(obs engine.ProbeObservation) int {
 	score := 0
 	if obs.ResponseClass == "origin" {
@@ -774,6 +871,56 @@ func isLikelyTLSPort(port int) bool {
 	default:
 		return false
 	}
+}
+
+func supportsHTTPRedirectFollow(port int) bool {
+	return port == 80 || isLikelyTLSPort(port)
+}
+
+func isRedirectStatus(statusCode int) bool {
+	switch statusCode {
+	case http.StatusMovedPermanently, http.StatusFound, http.StatusSeeOther, http.StatusTemporaryRedirect, http.StatusPermanentRedirect:
+		return true
+	default:
+		return false
+	}
+}
+
+func redirectSchemeFromObservation(obs engine.ProbeObservation, fallbackPort int) string {
+	switch {
+	case obs.IsTLS:
+		return "https"
+	case strings.HasPrefix(obs.ProbeID, "https"), strings.EqualFold(obs.Protocol, "https"):
+		return "https"
+	case fallbackPort == 443:
+		return "https"
+	default:
+		return "http"
+	}
+}
+
+func redirectURLKey(scheme, host string, port int, path string) string {
+	host = strings.ToLower(strings.TrimSpace(host))
+	if path == "" {
+		path = "/"
+	}
+	return fmt.Sprintf("%s://%s:%d%s", scheme, host, port, path)
+}
+
+func isTLSUpgradeErrorBanner(banner string) bool {
+	lower := strings.ToLower(strings.TrimSpace(banner))
+	if lower == "" {
+		return false
+	}
+	for _, needle := range []string{
+		"client sent an http request to an https server",
+		"plain http request was sent to https port",
+	} {
+		if strings.Contains(lower, needle) {
+			return true
+		}
+	}
+	return false
 }
 
 type httpResponseAnalysis struct {
@@ -813,7 +960,7 @@ func analyzeHTTPResponse(response string) httpResponseAnalysis {
 	analysis := httpResponseAnalysis{
 		IsHTTP:  true,
 		Headers: make(map[string]string, len(lines)),
-		Body:    strings.ToLower(body),
+		Body:    body,
 	}
 
 	fields := strings.Fields(statusLine)
@@ -833,7 +980,7 @@ func analyzeHTTPResponse(response string) httpResponseAnalysis {
 			continue
 		}
 		key := strings.ToLower(strings.TrimSpace(line[:idx]))
-		value := strings.ToLower(strings.TrimSpace(line[idx+1:]))
+		value := strings.TrimSpace(line[idx+1:])
 		if key == "" || value == "" {
 			continue
 		}
@@ -848,7 +995,7 @@ func isHTTPProxyResponse(analysis httpResponseAnalysis) bool {
 		return false
 	}
 
-	if via := analysis.Headers["via"]; via != "" && (strings.Contains(via, "proxy") || strings.Contains(via, "forward")) {
+	if via := strings.ToLower(analysis.Headers["via"]); via != "" && (strings.Contains(via, "proxy") || strings.Contains(via, "forward")) {
 		return true
 	}
 
@@ -859,10 +1006,10 @@ func isHTTPProxyResponse(analysis httpResponseAnalysis) bool {
 	}
 
 	combined := strings.Join([]string{
-		analysis.Headers["server"],
-		analysis.Headers["via"],
-		analysis.Headers["warning"],
-		analysis.Body,
+		strings.ToLower(analysis.Headers["server"]),
+		strings.ToLower(analysis.Headers["via"]),
+		strings.ToLower(analysis.Headers["warning"]),
+		strings.ToLower(analysis.Body),
 	}, "\n")
 
 	for _, needle := range []string{
@@ -884,6 +1031,221 @@ func isHTTPProxyResponse(analysis httpResponseAnalysis) bool {
 	return analysis.StatusCode >= 500 && strings.Contains(combined, "proxy")
 }
 
+func (m *BannerGrabModule) followHTTPRedirects(ctx context.Context, dialHost string, requestHost string, initialPort int, initialObs engine.ProbeObservation) []engine.ProbeObservation {
+	if m.config.MaxRedirectHops == 0 || strings.TrimSpace(requestHost) == "" || initialObs.ProxyResponse {
+		return nil
+	}
+
+	currentObs := initialObs
+	currentScheme := redirectSchemeFromObservation(initialObs, initialPort)
+	currentPort := initialPort
+	currentPath := "/"
+	visited := map[string]struct{}{
+		redirectURLKey(currentScheme, requestHost, currentPort, currentPath): {},
+	}
+	followed := make([]engine.ProbeObservation, 0, m.config.MaxRedirectHops+1)
+
+	for hop := 1; hop <= m.config.MaxRedirectHops; hop++ {
+		if ctx.Err() != nil {
+			followed = append(followed, newRedirectSkipObservation(currentScheme, hop, currentScheme, redirectURLKey(currentScheme, requestHost, currentPort, currentPath), "", "redirect_budget_exceeded"))
+			break
+		}
+
+		analysis := analyzeHTTPResponse(currentObs.Response)
+		location := strings.TrimSpace(analysis.Headers["location"])
+		if !analysis.IsHTTP || !isRedirectStatus(analysis.StatusCode) || location == "" {
+			break
+		}
+
+		redirectFrom := redirectURLKey(currentScheme, requestHost, currentPort, currentPath)
+		req := resolveRedirectRequest(currentScheme, requestHost, currentPort, currentPath, location, hop)
+
+		if req.SkipError != "" {
+			followed = append(followed, newRedirectSkipObservation(currentScheme, hop, req.ProbeID, redirectFrom, req.Location, req.SkipError))
+			break
+		}
+
+		if _, exists := visited[req.URL]; exists {
+			followed = append(followed, newRedirectSkipObservation(currentScheme, hop, req.ProbeID, redirectFrom, req.Location, "redirect_loop"))
+			break
+		}
+		visited[req.URL] = struct{}{}
+
+		obs := m.runRedirectProbe(ctx, dialHost, req)
+		obs.RedirectFrom = redirectFrom
+		obs.RedirectTo = req.Location
+		obs.RedirectHop = hop
+		obs.RedirectFollowed = true
+		classifyHTTPProbeObservation(&obs)
+		if ctx.Err() != nil && (errors.Is(ctx.Err(), context.DeadlineExceeded) || errors.Is(ctx.Err(), context.Canceled)) {
+			obs.Error = "redirect_budget_exceeded"
+		}
+		followed = append(followed, obs)
+		if obs.Error != "" || obs.ProxyResponse || obs.ResponseClass == "proxy" || obs.ResponseClass == "proxy_only" {
+			break
+		}
+
+		currentObs = obs
+		currentScheme = req.Scheme
+		currentPort = req.Port
+		currentPath = req.Path
+	}
+
+	if len(followed) == 0 {
+		return nil
+	}
+
+	lastObs := followed[len(followed)-1]
+	if lastObs.RedirectFollowed && lastObs.Error == "" {
+		analysis := analyzeHTTPResponse(lastObs.Response)
+		location := strings.TrimSpace(analysis.Headers["location"])
+		if analysis.IsHTTP && isRedirectStatus(analysis.StatusCode) && location != "" && lastObs.RedirectHop >= m.config.MaxRedirectHops {
+			followed = append(followed, newRedirectSkipObservation(currentScheme, m.config.MaxRedirectHops+1, currentScheme, redirectURLKey(currentScheme, requestHost, currentPort, currentPath), location, "redirect_hop_limit_exceeded"))
+		}
+	}
+
+	return followed
+}
+
+func resolveRedirectRequest(currentScheme string, currentHost string, currentPort int, currentPath string, location string, hop int) redirectRequest {
+	req := redirectRequest{
+		Scheme:      currentScheme,
+		Host:        currentHost,
+		Port:        currentPort,
+		Path:        currentPath,
+		Location:    truncateRedirectValue(location),
+		ProbeID:     redirectProbeID(currentScheme, hop),
+		RedirectHop: hop,
+	}
+
+	location = strings.TrimSpace(location)
+	if location == "" {
+		req.SkipError = "redirect_invalid_location"
+		return req
+	}
+
+	base := &url.URL{Scheme: currentScheme, Host: hostWithOptionalPort(currentHost, currentPort), Path: currentPath}
+	locURL, err := url.Parse(location)
+	if err != nil {
+		req.SkipError = "redirect_invalid_location"
+		return req
+	}
+	resolved := base.ResolveReference(locURL)
+	targetScheme := strings.ToLower(strings.TrimSpace(resolved.Scheme))
+	targetHost := strings.TrimSpace(resolved.Hostname())
+	if targetHost == "" {
+		targetHost = currentHost
+	}
+	if !strings.EqualFold(targetHost, currentHost) {
+		req.SkipError = "redirect_cross_host_blocked"
+		return req
+	}
+	if currentScheme == "https" && targetScheme == "http" {
+		req.SkipError = "redirect_downgrade_blocked"
+		return req
+	}
+	if targetScheme != "http" && targetScheme != "https" {
+		req.SkipError = "redirect_invalid_location"
+		return req
+	}
+
+	targetPort := resolved.Port()
+	switch {
+	case targetPort != "":
+		parsedPort, parseErr := strconv.Atoi(targetPort)
+		if parseErr != nil || parsedPort <= 0 || parsedPort > 65535 {
+			req.SkipError = "redirect_invalid_location"
+			return req
+		}
+		req.Port = parsedPort
+	case locURL.IsAbs():
+		req.Port = defaultPortForScheme(targetScheme)
+	default:
+		req.Port = currentPort
+	}
+
+	req.Scheme = targetScheme
+	req.Host = currentHost
+	req.Path = requestURIForURL(resolved)
+	req.URL = redirectURLKey(req.Scheme, req.Host, req.Port, req.Path)
+	req.ProbeID = redirectProbeID(req.Scheme, hop)
+	return req
+}
+
+func (m *BannerGrabModule) runRedirectProbe(ctx context.Context, dialHost string, req redirectRequest) engine.ProbeObservation {
+	obs := m.runCommandProbe(ctx, dialHost, req.Host, req.Port, commandProbeSpec{
+		ProbeID:         req.ProbeID,
+		Description:     fmt.Sprintf("HTTP redirect follow hop %d", req.RedirectHop),
+		Protocol:        req.Scheme,
+		Commands:        []string{buildCanonicalGETRequestForPath(req.Host, req.Path)},
+		UseTLS:          req.Scheme == "https",
+		SkipInitialRead: true,
+	})
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) || errors.Is(ctx.Err(), context.Canceled) {
+		obs.Error = "redirect_budget_exceeded"
+	}
+	return obs
+}
+
+func newRedirectSkipObservation(fallbackScheme string, hop int, schemeOrProbeID string, redirectFrom string, redirectTo string, reason string) engine.ProbeObservation {
+	probeID := schemeOrProbeID
+	if !strings.Contains(schemeOrProbeID, "-redirect-") {
+		probeID = redirectProbeID(schemeOrProbeID, hop)
+	}
+	return engine.ProbeObservation{
+		ProbeID:          probeID,
+		Protocol:         fallbackScheme,
+		RedirectFrom:     redirectFrom,
+		RedirectTo:       truncateRedirectValue(redirectTo),
+		RedirectHop:      hop,
+		RedirectFollowed: false,
+		Error:            reason,
+	}
+}
+
+func redirectProbeID(scheme string, hop int) string {
+	if scheme == "https" {
+		return fmt.Sprintf("https-get-redirect-%d", hop)
+	}
+	return fmt.Sprintf("http-get-redirect-%d", hop)
+}
+
+func requestURIForURL(u *url.URL) string {
+	if u == nil {
+		return "/"
+	}
+	path := u.EscapedPath()
+	if path == "" {
+		path = "/"
+	}
+	if u.RawQuery != "" {
+		path += "?" + u.RawQuery
+	}
+	return path
+}
+
+func hostWithOptionalPort(host string, port int) string {
+	if host == "" || port <= 0 {
+		return host
+	}
+	return net.JoinHostPort(host, strconv.Itoa(port))
+}
+
+func defaultPortForScheme(scheme string) int {
+	if scheme == "https" {
+		return 443
+	}
+	return 80
+}
+
+func truncateRedirectValue(value string) string {
+	value = strings.TrimSpace(value)
+	if len(value) <= 512 {
+		return value
+	}
+	return value[:512]
+}
+
 func (m *BannerGrabModule) readHTTPHeaderBlock(ctx context.Context, conn net.Conn, reader *bufio.Reader) (string, httpResponseAnalysis, error) {
 	var builder strings.Builder
 
@@ -891,7 +1253,7 @@ func (m *BannerGrabModule) readHTTPHeaderBlock(ctx context.Context, conn net.Con
 		if ctx.Err() != nil {
 			return builder.String(), httpResponseAnalysis{}, ctx.Err()
 		}
-		if err := conn.SetReadDeadline(time.Now().Add(m.config.ReadTimeout)); err != nil {
+		if err := conn.SetReadDeadline(time.Now().Add(m.effectiveTimeout(ctx, m.config.ReadTimeout))); err != nil {
 			return builder.String(), httpResponseAnalysis{}, err
 		}
 
@@ -950,6 +1312,22 @@ func classifyConnectTunnelStatus(statusCode int) string {
 	}
 }
 
+func (m *BannerGrabModule) effectiveTimeout(ctx context.Context, fallback time.Duration) time.Duration {
+	if fallback <= 0 {
+		fallback = time.Second
+	}
+	if deadline, ok := ctx.Deadline(); ok {
+		remaining := time.Until(deadline)
+		switch {
+		case remaining <= 0:
+			return time.Millisecond
+		case remaining < fallback:
+			return remaining
+		}
+	}
+	return fallback
+}
+
 func (m *BannerGrabModule) runPassiveProbe(ctx context.Context, target string, port int) engine.ProbeObservation {
 	obs := engine.ProbeObservation{
 		ProbeID:     "tcp-passive",
@@ -989,7 +1367,7 @@ func (m *BannerGrabModule) runCommandProbe(ctx context.Context, dialHost string,
 	}
 
 	address := net.JoinHostPort(dialHost, strconv.Itoa(port))
-	dialer := &net.Dialer{Timeout: m.config.ConnectTimeout}
+	dialer := &net.Dialer{Timeout: m.effectiveTimeout(ctx, m.config.ConnectTimeout)}
 	start := time.Now()
 
 	var (
@@ -997,6 +1375,11 @@ func (m *BannerGrabModule) runCommandProbe(ctx context.Context, dialHost string,
 		err     error
 		tlsInfo *engine.TLSObservation
 	)
+
+	if ctx.Err() != nil {
+		obs.Error = ctx.Err().Error()
+		return obs
+	}
 
 	if spec.UseTLS {
 		serverName := chooseTLSServerName(probeHost, dialHost)
@@ -1069,7 +1452,7 @@ func (m *BannerGrabModule) runCommandProbe(ctx context.Context, dialHost string,
 
 func (m *BannerGrabModule) grabGenericBanner(ctx context.Context, host string, port int) (string, time.Duration, error) {
 	address := net.JoinHostPort(host, strconv.Itoa(port))
-	dialer := &net.Dialer{Timeout: m.config.ConnectTimeout}
+	dialer := &net.Dialer{Timeout: m.effectiveTimeout(ctx, m.config.ConnectTimeout)}
 	start := time.Now()
 
 	conn, err := dialer.DialContext(ctx, "tcp", address)
@@ -1078,7 +1461,7 @@ func (m *BannerGrabModule) grabGenericBanner(ctx context.Context, host string, p
 	}
 	defer func() { _ = conn.Close() }()
 
-	if err := conn.SetReadDeadline(time.Now().Add(m.config.ReadTimeout)); err != nil {
+	if err := conn.SetReadDeadline(time.Now().Add(m.effectiveTimeout(ctx, m.config.ReadTimeout))); err != nil {
 		return "", time.Since(start), err
 	}
 
@@ -1109,7 +1492,7 @@ func (m *BannerGrabModule) readProbeResponse(ctx context.Context, conn net.Conn)
 			return builder.String(), ctx.Err()
 		}
 
-		if err := conn.SetReadDeadline(time.Now().Add(m.config.ReadTimeout)); err != nil {
+		if err := conn.SetReadDeadline(time.Now().Add(m.effectiveTimeout(ctx, m.config.ReadTimeout))); err != nil {
 			return builder.String(), err
 		}
 
@@ -1176,8 +1559,18 @@ func decodeProbePayload(payload string) string {
 }
 
 func buildCanonicalGETRequest(host string) string {
+	return buildCanonicalGETRequestForPath(host, "/")
+}
+
+func buildCanonicalGETRequestForPath(host string, path string) string {
+	if path == "" {
+		path = "/"
+	}
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
 	return strings.Join([]string{
-		"GET / HTTP/1.1",
+		fmt.Sprintf("GET %s HTTP/1.1", path),
 		fmt.Sprintf("Host: %s", host),
 		"User-Agent: vulntor-probe/1.0",
 		"Accept: */*",

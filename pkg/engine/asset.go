@@ -20,6 +20,10 @@ type ProbeObservation struct {
 	ProxyResponse        bool            `json:"proxy_response,omitempty" yaml:"proxy_response,omitempty"`
 	OriginRetryAttempted bool            `json:"origin_retry_attempted,omitempty" yaml:"origin_retry_attempted,omitempty"`
 	OriginRetrySuccess   bool            `json:"origin_retry_success,omitempty" yaml:"origin_retry_success,omitempty"`
+	RedirectFrom         string          `json:"redirect_from,omitempty" yaml:"redirect_from,omitempty"`
+	RedirectTo           string          `json:"redirect_to,omitempty" yaml:"redirect_to,omitempty"`
+	RedirectHop          int             `json:"redirect_hop,omitempty" yaml:"redirect_hop,omitempty"`
+	RedirectFollowed     bool            `json:"redirect_followed,omitempty" yaml:"redirect_followed,omitempty"`
 	TLS                  *TLSObservation `json:"tls,omitempty" yaml:"tls,omitempty"` // Phase 1.7
 }
 
