@@ -9,14 +9,18 @@ import (
 // This struct is used in banner grabbing to record individual probe attempts
 // and their responses, including TLS metadata when applicable.
 type ProbeObservation struct {
-	ProbeID     string          `json:"probe_id" yaml:"probe_id"`
-	Description string          `json:"description,omitempty" yaml:"description,omitempty"`
-	Protocol    string          `json:"protocol,omitempty" yaml:"protocol,omitempty"`
-	IsTLS       bool            `json:"is_tls,omitempty" yaml:"is_tls,omitempty"`
-	Duration    time.Duration   `json:"duration_ns,omitempty" yaml:"duration_ns,omitempty"`
-	Response    string          `json:"response,omitempty" yaml:"response,omitempty"`
-	Error       string          `json:"error,omitempty" yaml:"error,omitempty"`
-	TLS         *TLSObservation `json:"tls,omitempty" yaml:"tls,omitempty"` // Phase 1.7
+	ProbeID              string          `json:"probe_id" yaml:"probe_id"`
+	Description          string          `json:"description,omitempty" yaml:"description,omitempty"`
+	Protocol             string          `json:"protocol,omitempty" yaml:"protocol,omitempty"`
+	IsTLS                bool            `json:"is_tls,omitempty" yaml:"is_tls,omitempty"`
+	Duration             time.Duration   `json:"duration_ns,omitempty" yaml:"duration_ns,omitempty"`
+	Response             string          `json:"response,omitempty" yaml:"response,omitempty"`
+	Error                string          `json:"error,omitempty" yaml:"error,omitempty"`
+	ResponseClass        string          `json:"response_class,omitempty" yaml:"response_class,omitempty"`
+	ProxyResponse        bool            `json:"proxy_response,omitempty" yaml:"proxy_response,omitempty"`
+	OriginRetryAttempted bool            `json:"origin_retry_attempted,omitempty" yaml:"origin_retry_attempted,omitempty"`
+	OriginRetrySuccess   bool            `json:"origin_retry_success,omitempty" yaml:"origin_retry_success,omitempty"`
+	TLS                  *TLSObservation `json:"tls,omitempty" yaml:"tls,omitempty"` // Phase 1.7
 }
 
 // TLSObservation captures TLS handshake metadata including certificate validity.

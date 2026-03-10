@@ -193,6 +193,38 @@ func TestFingerprintParserModule_gatherBannerCandidates(t *testing.T) {
 	}
 }
 
+func TestFingerprintParserModule_gatherBannerCandidates_SkipsProxyResponses(t *testing.T) {
+	banner := scan.BannerGrabResult{
+		Banner:        "",
+		Protocol:      "tcp",
+		ResponseClass: "proxy_only",
+		ProxyResponse: true,
+		Evidence: []engine.ProbeObservation{
+			{
+				Response:      "HTTP/1.1 502 Bad Gateway\r\nVia: HTTP/1.1 forward.http.proxy:3128\r\n\r\n",
+				Protocol:      "http",
+				ProbeID:       "http-get",
+				ResponseClass: "proxy_only",
+				ProxyResponse: true,
+			},
+			{
+				Response:      "HTTP/1.1 200 OK\r\nServer: OriginTest/1.0\r\n\r\n",
+				Protocol:      "http",
+				ProbeID:       "http-get-origin",
+				ResponseClass: "origin",
+			},
+		},
+	}
+
+	candidates := gatherBannerCandidates(banner)
+	if len(candidates) != 1 {
+		t.Fatalf("expected only origin candidate, got %d", len(candidates))
+	}
+	if candidates[0].ProbeID != "http-get-origin" {
+		t.Fatalf("expected origin retry candidate, got %q", candidates[0].ProbeID)
+	}
+}
+
 func TestFingerprintParserModule_AttributionPrefersActiveProbe(t *testing.T) {
 	originalGetResolver := getResolver
 	defer func() { getResolver = originalGetResolver }()

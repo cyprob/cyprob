@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"os"
 	"slices"
 	"strconv"
@@ -44,16 +45,20 @@ type BannerGrabConfig struct {
 // BannerGrabResult holds the banner information for a specific port.
 // This will be the 'Data' in ModuleOutput with DataKey "service.banner.raw".
 type BannerGrabResult struct {
-	IP            string                    `json:"ip"`
-	ResolvedIP    string                    `json:"resolved_ip,omitempty"`
-	ProbeHost     string                    `json:"probe_host,omitempty"`
-	SNIServerName string                    `json:"sni_server_name,omitempty"`
-	Port          int                       `json:"port"`
-	Protocol      string                    `json:"protocol"`
-	Banner        string                    `json:"banner"`
-	IsTLS         bool                      `json:"is_tls"`
-	Error         string                    `json:"error,omitempty"`
-	Evidence      []engine.ProbeObservation `json:"evidence,omitempty"`
+	IP                   string                    `json:"ip"`
+	ResolvedIP           string                    `json:"resolved_ip,omitempty"`
+	ProbeHost            string                    `json:"probe_host,omitempty"`
+	SNIServerName        string                    `json:"sni_server_name,omitempty"`
+	Port                 int                       `json:"port"`
+	Protocol             string                    `json:"protocol"`
+	Banner               string                    `json:"banner"`
+	IsTLS                bool                      `json:"is_tls"`
+	Error                string                    `json:"error,omitempty"`
+	ResponseClass        string                    `json:"response_class,omitempty"`
+	ProxyResponse        bool                      `json:"proxy_response,omitempty"`
+	OriginRetryAttempted bool                      `json:"origin_retry_attempted,omitempty"`
+	OriginRetrySuccess   bool                      `json:"origin_retry_success,omitempty"`
+	Evidence             []engine.ProbeObservation `json:"evidence,omitempty"`
 }
 
 type commandProbeSpec struct {
@@ -191,9 +196,10 @@ func (m *BannerGrabModule) Init(instanceID string, configMap map[string]any) err
 
 // TargetPortData represents a target IP and a port to scan.
 type TargetPortData struct {
-	Target    string
-	ProbeHost string
-	Port      int
+	Target     string
+	ProbeHost  string
+	OriginHost string
+	Port       int
 }
 
 // Execute attempts to grab banners from open ports.
@@ -204,21 +210,28 @@ func (m *BannerGrabModule) Execute(ctx context.Context, inputs map[string]any, o
 	m.logger.Debug().Interface("received_inputs", inputs).Msg("Executing module")
 
 	var scanTasks []TargetPortData
+	originalTargets := readOriginalTargets(inputs)
+	originHostOverride := resolveProbeHostOverride(originalTargets)
 
 	if rawOpenTCPPorts, ok := inputs["discovery.open_tcp_ports"]; ok {
 		m.logger.Debug().Type("type", rawOpenTCPPorts).Msg("Found 'discovery.open_tcp_ports' in inputs")
 		if openTCPPortsList, listOk := rawOpenTCPPorts.([]any); listOk {
 			for _, item := range openTCPPortsList {
 				if portResult, castOk := item.(discovery.TCPPortDiscoveryResult); castOk {
-					probeHost := strings.TrimSpace(portResult.Hostname)
-					if probeHost == "" {
-						probeHost = portResult.Target
+					originHost := normalizeNonIPHostname(portResult.Hostname)
+					if originHost == "" {
+						originHost = originHostOverride
+					}
+					probeHost := portResult.Target
+					if originHost != "" {
+						probeHost = originHost
 					}
 					for _, port := range portResult.OpenPorts {
 						scanTasks = append(scanTasks, TargetPortData{
-							Target:    portResult.Target,
-							ProbeHost: probeHost,
-							Port:      port,
+							Target:     portResult.Target,
+							ProbeHost:  probeHost,
+							OriginHost: originHost,
+							Port:       port,
 						})
 					}
 				} else {
@@ -251,13 +264,6 @@ func (m *BannerGrabModule) Execute(ctx context.Context, inputs map[string]any, o
 
 	m.logger.Info().Int("tasks", len(scanTasks)).Int("concurrency", m.config.Concurrency).Msg("Starting banner grabbing")
 
-	originalTargets := readOriginalTargets(inputs)
-	if overrideHost := resolveProbeHostOverride(originalTargets); overrideHost != "" {
-		for i := range scanTasks {
-			scanTasks[i].ProbeHost = overrideHost
-		}
-	}
-
 	for _, task := range scanTasks {
 		select {
 		case <-ctx.Done():
@@ -269,11 +275,11 @@ func (m *BannerGrabModule) Execute(ctx context.Context, inputs map[string]any, o
 		wg.Add(1)
 		sem <- struct{}{}
 
-		go func(currentTarget string, currentProbeHost string, currentPort int) {
+		go func(currentTarget string, currentProbeHost string, currentOriginHost string, currentPort int) {
 			defer wg.Done()
 			defer func() { <-sem }()
 
-			result := m.runProbes(ctx, currentTarget, currentProbeHost, currentPort)
+			result := m.runProbes(ctx, currentTarget, currentProbeHost, currentOriginHost, currentPort)
 
 			// Real-time output: Emit banner grab result to user
 			if out, ok := ctx.Value(output.OutputKey).(output.Output); ok && result.Banner != "" {
@@ -305,7 +311,7 @@ func (m *BannerGrabModule) Execute(ctx context.Context, inputs map[string]any, o
 			case <-ctx.Done():
 				return
 			}
-		}(task.Target, task.ProbeHost, task.Port)
+		}(task.Target, task.ProbeHost, task.OriginHost, task.Port)
 	}
 
 endLoop:
@@ -321,19 +327,19 @@ func (m *BannerGrabModule) runActiveProbes(
 	ctx context.Context,
 	target string,
 	probeHost string,
+	originHost string,
 	port int,
 	catalog *fingerprint.ProbeCatalog,
 	observations *[]engine.ProbeObservation,
-	bestBanner *string,
-	bestIsTLS *bool,
 	lastError *string,
 	hintAcc *hintAccumulator,
 ) {
 	candidateProbes := catalog.ProbesFor(port, hintAcc.slice())
 
 	// Phase 1.5: Probe Fallback for non-standard ports
-	// If no port-specific probes matched AND passive banner is empty, try fallback probes
-	if len(candidateProbes) == 0 && *bestBanner == "" {
+	// If no port-specific probes matched AND we still do not have a usable primary banner,
+	// try fallback probes for non-standard ports.
+	if len(candidateProbes) == 0 && selectPrimaryBannerObservation(*observations).Banner == "" {
 		candidateProbes = catalog.FallbackProbes()
 		if len(candidateProbes) > 0 {
 			m.logger.Debug().
@@ -344,6 +350,8 @@ func (m *BannerGrabModule) runActiveProbes(
 	}
 
 	seen := make(map[string]struct{}, len(candidateProbes))
+	originRetryDone := false
+	connectRetryDone := false
 
 	for _, spec := range candidateProbes {
 		if ctx.Err() != nil {
@@ -358,11 +366,66 @@ func (m *BannerGrabModule) runActiveProbes(
 		if respHint := protocolHintFromBanner(obs.Response); respHint != "" {
 			hintAcc.add(respHint)
 		}
-		m.collectObservation(observations, obs, bestBanner, bestIsTLS, lastError)
+		classifyHTTPProbeObservation(&obs)
+
+		if !originRetryDone && shouldAttemptOriginRetry(spec, obs, originHost, port) {
+			obs.OriginRetryAttempted = true
+			retryObs := m.runOriginRetry(ctx, target, originHost, port, spec)
+			retryObs.OriginRetryAttempted = true
+			if respHint := protocolHintFromBanner(retryObs.Response); respHint != "" {
+				hintAcc.add(respHint)
+			}
+			classifyHTTPProbeObservation(&retryObs)
+			if retryObs.Response != "" && !retryObs.ProxyResponse {
+				obs.OriginRetrySuccess = true
+				retryObs.OriginRetrySuccess = true
+				obs.ResponseClass = "proxy"
+				if retryObs.ProxyResponse {
+					retryObs.ResponseClass = "proxy"
+				}
+				m.collectObservation(observations, obs, lastError)
+				m.collectObservation(observations, retryObs, lastError)
+			} else if !connectRetryDone && shouldAttemptConnectTunnelRetry(spec, obs, retryObs, originHost, port) {
+				connectObs := m.runConnectTunnelOriginRetry(ctx, target, originHost, port)
+				connectObs.OriginRetryAttempted = true
+				if respHint := protocolHintFromBanner(connectObs.Response); respHint != "" {
+					hintAcc.add(respHint)
+				}
+				classifyHTTPProbeObservation(&connectObs)
+				if connectObs.Response != "" && !connectObs.ProxyResponse && connectObs.Error == "" {
+					obs.OriginRetrySuccess = true
+					retryObs.OriginRetrySuccess = true
+					connectObs.OriginRetrySuccess = true
+					obs.ResponseClass = "proxy"
+					if retryObs.ProxyResponse {
+						retryObs.ResponseClass = "proxy"
+					}
+				} else {
+					obs.ResponseClass = "proxy_only"
+					if retryObs.ProxyResponse {
+						retryObs.ResponseClass = "proxy_only"
+					}
+				}
+				m.collectObservation(observations, obs, lastError)
+				m.collectObservation(observations, retryObs, lastError)
+				m.collectObservation(observations, connectObs, lastError)
+				connectRetryDone = true
+			} else {
+				obs.ResponseClass = "proxy_only"
+				if retryObs.ProxyResponse {
+					retryObs.ResponseClass = "proxy_only"
+				}
+				m.collectObservation(observations, obs, lastError)
+				m.collectObservation(observations, retryObs, lastError)
+			}
+			originRetryDone = true
+		} else {
+			m.collectObservation(observations, obs, lastError)
+		}
 
 		// Phase 1.9: Early exit optimization
 		// If we got a usable banner with no error, stop probing
-		if *bestBanner != "" && *lastError == "" {
+		if selection := selectPrimaryBannerObservation(*observations); selection.Banner != "" && *lastError == "" && !shouldKeepTLSFallbackProbing(port, selection) {
 			m.logger.Debug().
 				Str("probe_id", obs.ProbeID).
 				Int("port", port).
@@ -373,10 +436,8 @@ func (m *BannerGrabModule) runActiveProbes(
 	}
 }
 
-func (m *BannerGrabModule) runProbes(ctx context.Context, target string, probeHost string, port int) BannerGrabResult {
+func (m *BannerGrabModule) runProbes(ctx context.Context, target string, probeHost string, originHost string, port int) BannerGrabResult {
 	observations := make([]engine.ProbeObservation, 0, 8)
-	bestBanner := ""
-	bestIsTLS := false
 	var lastError string
 
 	passive := m.runPassiveProbe(ctx, target, port)
@@ -393,24 +454,30 @@ func (m *BannerGrabModule) runProbes(ctx context.Context, target string, probeHo
 		hintAcc.add(respHint)
 	}
 
-	m.collectObservation(&observations, passive, &bestBanner, &bestIsTLS, &lastError)
+	classifyHTTPProbeObservation(&passive)
+	m.collectObservation(&observations, passive, &lastError)
 
 	if m.config.SendProbes && ctx.Err() == nil && catalogErr == nil {
-		m.runActiveProbes(ctx, target, probeHost, port, catalog, &observations, &bestBanner, &bestIsTLS, &lastError, &hintAcc)
+		m.runActiveProbes(ctx, target, probeHost, originHost, port, catalog, &observations, &lastError, &hintAcc)
 	}
+	selection := selectPrimaryBannerObservation(observations)
 
 	result := BannerGrabResult{
-		IP:         target,
-		ResolvedIP: target,
-		ProbeHost:  probeHost,
-		Port:       port,
-		Protocol:   "tcp",
-		Banner:     strings.TrimSpace(bestBanner),
-		IsTLS:      bestIsTLS,
-		Evidence:   observations,
+		IP:                   target,
+		ResolvedIP:           target,
+		ProbeHost:            probeHost,
+		Port:                 port,
+		Protocol:             "tcp",
+		Banner:               strings.TrimSpace(selection.Banner),
+		IsTLS:                selection.IsTLS,
+		ResponseClass:        selection.ResponseClass,
+		ProxyResponse:        selection.ProxyResponse,
+		OriginRetryAttempted: selection.OriginRetryAttempted,
+		OriginRetrySuccess:   selection.OriginRetrySuccess,
+		Evidence:             observations,
 	}
 	if shouldExposeSNI(observations) {
-		result.SNIServerName = chooseTLSServerName(probeHost, target)
+		result.SNIServerName = chooseTLSServerName(resolvePreferredHost(originHost, probeHost), target)
 	}
 
 	if result.Banner == "" && lastError != "" {
@@ -420,7 +487,7 @@ func (m *BannerGrabModule) runProbes(ctx context.Context, target string, probeHo
 	return result
 }
 
-func (m *BannerGrabModule) collectObservation(observations *[]engine.ProbeObservation, obs engine.ProbeObservation, bestBanner *string, bestIsTLS *bool, lastError *string) {
+func (m *BannerGrabModule) collectObservation(observations *[]engine.ProbeObservation, obs engine.ProbeObservation, lastError *string) {
 	if obs.ProbeID == "" {
 		return
 	}
@@ -429,10 +496,6 @@ func (m *BannerGrabModule) collectObservation(observations *[]engine.ProbeObserv
 		trimmed := strings.TrimSpace(obs.Response)
 		obs.Response = trimmed
 		if trimmed != "" {
-			if *bestBanner == "" || strings.HasPrefix(obs.ProbeID, "http") || strings.HasPrefix(obs.ProbeID, "https") {
-				*bestBanner = trimmed
-				*bestIsTLS = obs.IsTLS
-			}
 			if obs.Error == "" {
 				*lastError = ""
 			}
@@ -444,6 +507,447 @@ func (m *BannerGrabModule) collectObservation(observations *[]engine.ProbeObserv
 	}
 
 	*observations = append(*observations, obs)
+}
+
+type bufferedConn struct {
+	net.Conn
+	reader *bufio.Reader
+}
+
+func (c *bufferedConn) Read(p []byte) (int, error) {
+	return c.reader.Read(p)
+}
+
+func (m *BannerGrabModule) runOriginRetry(ctx context.Context, dialHost string, originHost string, port int, spec fingerprint.ProbeSpec) engine.ProbeObservation {
+	commands := prepareProbeCommands(spec, originHost, port)
+	return m.runCommandProbe(ctx, dialHost, originHost, port, commandProbeSpec{
+		ProbeID:         spec.ID + "-origin",
+		Description:     strings.TrimSpace(spec.Description + " (origin retry)"),
+		Protocol:        spec.Protocol,
+		Commands:        commands,
+		UseTLS:          spec.UseTLS,
+		SkipInitialRead: spec.SkipInitialRead,
+	})
+}
+
+func (m *BannerGrabModule) runConnectTunnelOriginRetry(ctx context.Context, dialHost string, originHost string, port int) engine.ProbeObservation {
+	obs := engine.ProbeObservation{
+		ProbeID:     "https-connect-origin",
+		Description: "HTTP CONNECT tunnel origin retry",
+		Protocol:    "https",
+		IsTLS:       true,
+	}
+
+	address := net.JoinHostPort(dialHost, strconv.Itoa(port))
+	dialer := &net.Dialer{Timeout: m.config.ConnectTimeout}
+	start := time.Now()
+
+	conn, err := dialer.DialContext(ctx, "tcp", address)
+	if err != nil {
+		obs.Duration = time.Since(start)
+		obs.Error = classifyConnectTunnelError(err)
+		return obs
+	}
+	defer func() { _ = conn.Close() }()
+
+	reader := bufio.NewReader(conn)
+	if err := conn.SetWriteDeadline(time.Now().Add(m.config.ConnectTimeout)); err != nil {
+		obs.Duration = time.Since(start)
+		obs.Error = classifyConnectTunnelError(err)
+		return obs
+	}
+
+	if _, err := conn.Write([]byte(buildConnectRequest(originHost, port))); err != nil {
+		obs.Duration = time.Since(start)
+		obs.Error = classifyConnectTunnelError(err)
+		return obs
+	}
+
+	connectResp, analysis, err := m.readHTTPHeaderBlock(ctx, conn, reader)
+	if err != nil {
+		if connectResp != "" {
+			obs.Response = strings.TrimSpace(connectResp)
+		}
+		obs.Duration = time.Since(start)
+		obs.Error = classifyConnectTunnelError(err)
+		return obs
+	}
+	if !analysis.IsHTTP {
+		if connectResp != "" {
+			obs.Response = strings.TrimSpace(connectResp)
+		}
+		obs.Duration = time.Since(start)
+		obs.Error = "connect_tunnel_failed"
+		return obs
+	}
+	if analysis.StatusCode != http.StatusOK {
+		if connectResp != "" {
+			obs.Response = strings.TrimSpace(connectResp)
+		}
+		obs.Duration = time.Since(start)
+		obs.Error = classifyConnectTunnelStatus(analysis.StatusCode)
+		return obs
+	}
+
+	serverName := chooseTLSServerName(originHost, dialHost)
+	tlsConn := tls.Client(&bufferedConn{Conn: conn, reader: reader}, &tls.Config{
+		InsecureSkipVerify: m.config.TLSInsecureSkipVerify,
+		ServerName:         serverName,
+	})
+	if err := tlsConn.SetDeadline(time.Now().Add(m.config.ReadTimeout)); err != nil {
+		obs.Duration = time.Since(start)
+		obs.Error = classifyConnectTunnelError(err)
+		return obs
+	}
+	if err := tlsConn.HandshakeContext(ctx); err != nil {
+		obs.Duration = time.Since(start)
+		obs.Error = classifyConnectTunnelError(err)
+		return obs
+	}
+	obs.TLS = extractTLSObservation(tlsConn.ConnectionState())
+
+	if _, err := tlsConn.Write([]byte(buildCanonicalGETRequest(originHost))); err != nil {
+		obs.Duration = time.Since(start)
+		obs.Error = classifyConnectTunnelError(err)
+		return obs
+	}
+	resp, err := m.readProbeResponse(ctx, tlsConn)
+	obs.Duration = time.Since(start)
+	if resp != "" {
+		obs.Response = strings.TrimSpace(resp)
+	}
+	if err != nil && err != io.EOF {
+		obs.Error = classifyConnectTunnelError(err)
+		return obs
+	}
+	if obs.Response == "" {
+		obs.Error = "connect_tunnel_failed"
+	}
+	return obs
+}
+
+func shouldAttemptOriginRetry(spec fingerprint.ProbeSpec, obs engine.ProbeObservation, originHost string, port int) bool {
+	if strings.TrimSpace(originHost) == "" || net.ParseIP(strings.TrimSpace(originHost)) != nil {
+		return false
+	}
+	if !obs.ProxyResponse {
+		return false
+	}
+	if port != 80 && port != 443 && !strings.EqualFold(spec.Protocol, "http") && !strings.EqualFold(spec.Protocol, "https") {
+		return false
+	}
+	switch spec.ID {
+	case "http-get", "https-get":
+		return true
+	}
+	return strings.EqualFold(spec.Protocol, "http") || strings.EqualFold(spec.Protocol, "https")
+}
+
+func shouldAttemptConnectTunnelRetry(spec fingerprint.ProbeSpec, initialObs engine.ProbeObservation, retryObs engine.ProbeObservation, originHost string, port int) bool {
+	if strings.TrimSpace(originHost) == "" || net.ParseIP(strings.TrimSpace(originHost)) != nil {
+		return false
+	}
+	if !isLikelyTLSPort(port) {
+		return false
+	}
+	switch spec.ID {
+	case "http-get", "https-get":
+	default:
+		if !strings.EqualFold(spec.Protocol, "http") && !strings.EqualFold(spec.Protocol, "https") {
+			return false
+		}
+	}
+	if retryObs.Response != "" && !retryObs.ProxyResponse {
+		return false
+	}
+	return initialObs.ProxyResponse || retryObs.ProxyResponse
+}
+
+func classifyHTTPProbeObservation(obs *engine.ProbeObservation) {
+	if obs == nil {
+		return
+	}
+	analysis := analyzeHTTPResponse(obs.Response)
+	if !analysis.IsHTTP {
+		return
+	}
+	if isHTTPProxyResponse(analysis) {
+		obs.ProxyResponse = true
+		if obs.ResponseClass == "" {
+			obs.ResponseClass = "proxy_only"
+		}
+		return
+	}
+	obs.ProxyResponse = false
+	if obs.ResponseClass == "" {
+		obs.ResponseClass = "origin"
+	}
+}
+
+type bannerSelection struct {
+	ProbeID              string
+	Banner               string
+	IsTLS                bool
+	ResponseClass        string
+	ProxyResponse        bool
+	OriginRetryAttempted bool
+	OriginRetrySuccess   bool
+}
+
+func selectPrimaryBannerObservation(observations []engine.ProbeObservation) bannerSelection {
+	selection := bannerSelection{}
+	bestScore := -1
+	sawProxy := false
+
+	for _, obs := range observations {
+		if obs.OriginRetryAttempted {
+			selection.OriginRetryAttempted = true
+		}
+		if obs.OriginRetrySuccess {
+			selection.OriginRetrySuccess = true
+		}
+
+		response := strings.TrimSpace(obs.Response)
+		if response == "" {
+			continue
+		}
+
+		if obs.ProxyResponse || obs.ResponseClass == "proxy" || obs.ResponseClass == "proxy_only" {
+			sawProxy = true
+			continue
+		}
+
+		score := bannerObservationScore(obs)
+		if score < bestScore {
+			continue
+		}
+
+		bestScore = score
+		selection.ProbeID = obs.ProbeID
+		selection.Banner = response
+		selection.IsTLS = obs.IsTLS
+		selection.ResponseClass = obs.ResponseClass
+		selection.ProxyResponse = false
+	}
+
+	if selection.Banner == "" && sawProxy {
+		selection.ResponseClass = "proxy_only"
+		selection.ProxyResponse = true
+	}
+
+	return selection
+}
+
+func shouldKeepTLSFallbackProbing(port int, selection bannerSelection) bool {
+	if selection.Banner == "" {
+		return false
+	}
+	if !isLikelyTLSPort(port) {
+		return false
+	}
+	return strings.HasPrefix(selection.ProbeID, "http-get")
+}
+
+func bannerObservationScore(obs engine.ProbeObservation) int {
+	score := 0
+	if obs.ResponseClass == "origin" {
+		score += 100
+	}
+	switch {
+	case strings.HasPrefix(obs.ProbeID, "https"):
+		score += 40
+	case strings.HasPrefix(obs.ProbeID, "http"):
+		score += 30
+	case obs.ProbeID != "tcp-passive":
+		score += 10
+	}
+	if obs.IsTLS {
+		score += 5
+	}
+	return score
+}
+
+func isLikelyTLSPort(port int) bool {
+	switch port {
+	case 443, 8443, 9443, 10443:
+		return true
+	default:
+		return false
+	}
+}
+
+type httpResponseAnalysis struct {
+	IsHTTP     bool
+	StatusCode int
+	Headers    map[string]string
+	Body       string
+}
+
+func analyzeHTTPResponse(response string) httpResponseAnalysis {
+	response = strings.TrimSpace(response)
+	if response == "" {
+		return httpResponseAnalysis{}
+	}
+
+	headerBlock := response
+	body := ""
+	switch {
+	case strings.Contains(response, "\r\n\r\n"):
+		parts := strings.SplitN(response, "\r\n\r\n", 2)
+		headerBlock, body = parts[0], parts[1]
+	case strings.Contains(response, "\n\n"):
+		parts := strings.SplitN(response, "\n\n", 2)
+		headerBlock, body = parts[0], parts[1]
+	}
+
+	lines := strings.Split(headerBlock, "\n")
+	if len(lines) == 0 {
+		return httpResponseAnalysis{}
+	}
+
+	statusLine := strings.TrimSpace(lines[0])
+	if !strings.HasPrefix(strings.ToUpper(statusLine), "HTTP/") {
+		return httpResponseAnalysis{}
+	}
+
+	analysis := httpResponseAnalysis{
+		IsHTTP:  true,
+		Headers: make(map[string]string, len(lines)),
+		Body:    strings.ToLower(body),
+	}
+
+	fields := strings.Fields(statusLine)
+	if len(fields) >= 2 {
+		if code, err := strconv.Atoi(fields[1]); err == nil {
+			analysis.StatusCode = code
+		}
+	}
+
+	for _, line := range lines[1:] {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		idx := strings.Index(line, ":")
+		if idx <= 0 {
+			continue
+		}
+		key := strings.ToLower(strings.TrimSpace(line[:idx]))
+		value := strings.ToLower(strings.TrimSpace(line[idx+1:]))
+		if key == "" || value == "" {
+			continue
+		}
+		analysis.Headers[key] = value
+	}
+
+	return analysis
+}
+
+func isHTTPProxyResponse(analysis httpResponseAnalysis) bool {
+	if !analysis.IsHTTP {
+		return false
+	}
+
+	if via := analysis.Headers["via"]; via != "" && (strings.Contains(via, "proxy") || strings.Contains(via, "forward")) {
+		return true
+	}
+
+	for _, key := range []string{"proxy-agent", "proxy-connection", "proxy-authenticate", "x-squid-error"} {
+		if analysis.Headers[key] != "" {
+			return true
+		}
+	}
+
+	combined := strings.Join([]string{
+		analysis.Headers["server"],
+		analysis.Headers["via"],
+		analysis.Headers["warning"],
+		analysis.Body,
+	}, "\n")
+
+	for _, needle := range []string{
+		"forward.http.proxy",
+		"forward proxy",
+		"proxy-generated",
+		"this is a proxy server",
+		"generated by proxy",
+	} {
+		if strings.Contains(combined, needle) {
+			return true
+		}
+	}
+
+	if analysis.StatusCode == 407 {
+		return true
+	}
+
+	return analysis.StatusCode >= 500 && strings.Contains(combined, "proxy")
+}
+
+func (m *BannerGrabModule) readHTTPHeaderBlock(ctx context.Context, conn net.Conn, reader *bufio.Reader) (string, httpResponseAnalysis, error) {
+	var builder strings.Builder
+
+	for builder.Len() < m.config.BufferSize {
+		if ctx.Err() != nil {
+			return builder.String(), httpResponseAnalysis{}, ctx.Err()
+		}
+		if err := conn.SetReadDeadline(time.Now().Add(m.config.ReadTimeout)); err != nil {
+			return builder.String(), httpResponseAnalysis{}, err
+		}
+
+		b, err := reader.ReadByte()
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			return builder.String(), httpResponseAnalysis{}, err
+		}
+		builder.WriteByte(b)
+
+		data := builder.String()
+		if strings.Contains(data, "\r\n\r\n") || strings.Contains(data, "\n\n") {
+			break
+		}
+	}
+
+	header := builder.String()
+	return header, analyzeHTTPResponse(header), nil
+}
+
+func buildConnectRequest(host string, port int) string {
+	target := net.JoinHostPort(host, strconv.Itoa(port))
+	return strings.Join([]string{
+		fmt.Sprintf("CONNECT %s HTTP/1.1", target),
+		fmt.Sprintf("Host: %s", target),
+		"User-Agent: vulntor-probe/1.0",
+		"Proxy-Connection: keep-alive",
+		"",
+		"",
+	}, "\r\n")
+}
+
+func classifyConnectTunnelError(err error) string {
+	if err == nil {
+		return ""
+	}
+	msg := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(msg, "timeout"), strings.Contains(msg, "deadline exceeded"):
+		return "connect_timeout"
+	case strings.Contains(msg, "connection refused"):
+		return "connect_refused"
+	default:
+		return "connect_tunnel_failed"
+	}
+}
+
+func classifyConnectTunnelStatus(statusCode int) string {
+	switch statusCode {
+	case http.StatusForbidden, http.StatusMethodNotAllowed, http.StatusProxyAuthRequired:
+		return "connect_refused"
+	default:
+		return "connect_tunnel_failed"
+	}
 }
 
 func (m *BannerGrabModule) runPassiveProbe(ctx context.Context, target string, port int) engine.ProbeObservation {
@@ -726,6 +1230,13 @@ func normalizeNonIPHostname(target string) string {
 		return ""
 	}
 	return target
+}
+
+func resolvePreferredHost(originHost, probeHost string) string {
+	if host := normalizeNonIPHostname(originHost); host != "" {
+		return host
+	}
+	return strings.TrimSpace(probeHost)
 }
 
 func chooseTLSServerName(probeHost, dialHost string) string {

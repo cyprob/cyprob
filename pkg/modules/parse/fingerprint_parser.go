@@ -412,6 +412,9 @@ func gatherBannerCandidates(banner scan.BannerGrabResult) []bannerCandidate {
 			if !passiveOnly && obs.ProbeID == "tcp-passive" {
 				continue
 			}
+			if obs.ProxyResponse || obs.ResponseClass == "proxy" || obs.ResponseClass == "proxy_only" {
+				continue
+			}
 			resp := strings.TrimSpace(obs.Response)
 			if resp == "" {
 				continue
@@ -433,13 +436,15 @@ func gatherBannerCandidates(banner scan.BannerGrabResult) []bannerCandidate {
 	appendEvidence(true)
 
 	if len(candidates) == 0 {
-		if trimmed := strings.TrimSpace(banner.Banner); trimmed != "" {
-			candidates = append(candidates, bannerCandidate{
-				Response: trimmed,
-				Protocol: banner.Protocol,
-				ProbeID:  "tcp-passive",
-				TLS:      nil, // Passive banner doesn't have TLS metadata
-			})
+		if !banner.ProxyResponse && banner.ResponseClass != "proxy" && banner.ResponseClass != "proxy_only" {
+			if trimmed := strings.TrimSpace(banner.Banner); trimmed != "" {
+				candidates = append(candidates, bannerCandidate{
+					Response: trimmed,
+					Protocol: banner.Protocol,
+					ProbeID:  "tcp-passive",
+					TLS:      nil, // Passive banner doesn't have TLS metadata
+				})
+			}
 		}
 	}
 
