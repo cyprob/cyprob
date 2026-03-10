@@ -9,6 +9,7 @@ import (
 
 	"github.com/cyprob/cyprob/pkg/engine"
 	scanpkg "github.com/cyprob/cyprob/pkg/modules/scan"
+	"github.com/rs/zerolog/log"
 )
 
 const (
@@ -18,15 +19,16 @@ const (
 )
 
 const (
-	sourceSMBNative      = "smb_native_enum"
-	sourceSMBCorrelation = "smb_correlation"
-	sourceRDPNative      = "rdp_native_probe"
-	sourceRPCNative      = "rpc_native_probe"
-	sourceTLSNative      = "tls_native_probe"
-	sourceSSHNative      = "ssh_native_probe"
-	sourceFingerprint    = "fingerprint"
-	sourceHeuristic      = "heuristic"
-	sourceBanner         = "banner"
+	sourceSMBNative        = "smb_native_enum"
+	sourceSMBCorrelation   = "smb_correlation"
+	sourceRDPNative        = "rdp_native_probe"
+	sourceRPCNative        = "rpc_native_probe"
+	sourceTLSNative        = "tls_native_probe"
+	sourceSSHNative        = "ssh_native_probe"
+	sourceHTTPIdentityHint = "http_identity_hint"
+	sourceFingerprint      = "fingerprint"
+	sourceHeuristic        = "heuristic"
+	sourceBanner           = "banner"
 )
 
 // ServiceOSHints contains canonical OS hint fields.
@@ -61,6 +63,69 @@ type serviceIdentityNormalizerModule struct {
 type smbHostEvidence struct {
 	Vendor  string
 	Version string
+}
+
+type httpIdentityDecision struct {
+	Rule       string
+	Signals    []string
+	Product    string
+	Vendor     string
+	Confidence float64
+}
+
+var httpIdentityDecisionTable = []httpIdentityDecision{
+	{
+		Rule: httpIdentitySignalGitHubHost,
+		Signals: []string{
+			httpIdentitySignalGitHubHost,
+			httpIdentitySignalGitHubTitle,
+			httpIdentitySignalGitHubBody,
+			httpIdentitySignalGitHubCookie,
+		},
+		Product:    "GitHub Web",
+		Vendor:     "GitHub",
+		Confidence: httpIdentityConfidenceGitHub,
+	},
+	{
+		Rule: httpIdentitySignalSmarterMailRoute,
+		Signals: []string{
+			httpIdentitySignalSmarterMailRoute,
+			httpIdentitySignalSmarterMailTitle,
+			httpIdentitySignalSmarterMailBody,
+		},
+		Product:    "SmarterMail",
+		Vendor:     "SmarterTools",
+		Confidence: httpIdentityConfidenceSmarterMail,
+	},
+	{
+		Rule: httpIdentitySignalWordPressContent,
+		Signals: []string{
+			httpIdentitySignalWordPressContent,
+			httpIdentitySignalWordPressBody,
+			httpIdentitySignalWordPressTitle,
+		},
+		Product:    "WordPress",
+		Confidence: httpIdentityConfidenceCMS,
+	},
+	{
+		Rule: httpIdentitySignalDrupalBody,
+		Signals: []string{
+			httpIdentitySignalDrupalBody,
+			httpIdentitySignalDrupalSitesDefault,
+			httpIdentitySignalDrupalSitesAll,
+		},
+		Product:    "Drupal",
+		Confidence: httpIdentityConfidenceCMS,
+	},
+	{
+		Rule: httpIdentitySignalJoomlaBody,
+		Signals: []string{
+			httpIdentitySignalJoomlaBody,
+			httpIdentitySignalJoomlaContent,
+		},
+		Product:    "Joomla",
+		Confidence: httpIdentityConfidenceCMS,
+	},
 }
 
 func newServiceIdentityNormalizerModule() *serviceIdentityNormalizerModule {
@@ -127,6 +192,7 @@ func (m *serviceIdentityNormalizerModule) Execute(ctx context.Context, inputs ma
 	m.ingestRPCDetails(inputs, getEntry)
 	m.ingestTLSDetails(inputs, getEntry)
 	m.ingestSSHDetails(inputs, getEntry)
+	m.ingestHTTPIdentityHints(inputs, getEntry)
 	m.applyHeuristics(entries)
 
 	keys := make([]string, 0, len(entries))
@@ -446,6 +512,97 @@ func (m *serviceIdentityNormalizerModule) ingestSSHDetails(inputs map[string]any
 		}
 		entry.TechTags = NormalizeTechTags(append(entry.TechTags, "ssh"))
 	}
+}
+
+func (m *serviceIdentityNormalizerModule) ingestHTTPIdentityHints(inputs map[string]any, getEntry func(target string, port int) *ServiceIdentityInfo) {
+	raw, ok := inputs["service.banner.tcp"]
+	if !ok {
+		return
+	}
+	items := toAnyList(raw)
+	for _, item := range items {
+		banner, ok := item.(scanpkg.BannerGrabResult)
+		if !ok {
+			continue
+		}
+		if banner.IP == "" || banner.Port <= 0 {
+			continue
+		}
+		entry := getEntry(banner.IP, banner.Port)
+		applyHTTPIdentitySignals(entry, banner)
+	}
+}
+
+func applyHTTPIdentitySignals(entry *ServiceIdentityInfo, banner scanpkg.BannerGrabResult) {
+	if entry == nil || !shouldEvaluateHTTPIdentity(entry, banner) {
+		return
+	}
+
+	signals, skipReason := detectHTTPIdentitySignals(banner)
+	if skipReason != "" {
+		log.Debug().
+			Str("target", entry.Target).
+			Int("port", entry.Port).
+			Str("http_identity_hint_skipped_reason", skipReason).
+			Msg("http_identity_hint_skipped")
+		return
+	}
+
+	decision, ok := resolveHTTPIdentityDecision(signals)
+	if !ok {
+		log.Debug().
+			Str("target", entry.Target).
+			Int("port", entry.Port).
+			Str("http_identity_hint_skipped_reason", httpIdentitySkipNoSignature).
+			Msg("http_identity_hint_skipped")
+		return
+	}
+
+	applied := false
+	if strings.TrimSpace(entry.Product) == "" && decision.Product != "" {
+		setIdentityField(entry, "product", decision.Product, sourceHTTPIdentityHint, decision.Confidence)
+		applied = true
+	}
+	if strings.TrimSpace(entry.Vendor) == "" && decision.Vendor != "" {
+		setIdentityField(entry, "vendor", decision.Vendor, sourceHTTPIdentityHint, decision.Confidence)
+		applied = true
+	}
+
+	if !applied {
+		log.Debug().
+			Str("target", entry.Target).
+			Int("port", entry.Port).
+			Str("http_identity_hint_rule", decision.Rule).
+			Float64("http_identity_hint_confidence", decision.Confidence).
+			Str("http_identity_hint_skipped_reason", httpIdentitySkipStrongerSource).
+			Msg("http_identity_hint_skipped")
+		return
+	}
+
+	log.Debug().
+		Str("target", entry.Target).
+		Int("port", entry.Port).
+		Str("http_identity_hint_rule", decision.Rule).
+		Float64("http_identity_hint_confidence", decision.Confidence).
+		Msg("http_identity_hint_applied")
+}
+
+func resolveHTTPIdentityDecision(signals []httpIdentitySignal) (httpIdentityDecision, bool) {
+	if len(signals) == 0 {
+		return httpIdentityDecision{}, false
+	}
+	tokenSet := make(map[string]struct{}, len(signals))
+	for _, signal := range signals {
+		tokenSet[strings.TrimSpace(signal.Token)] = struct{}{}
+	}
+	for _, decision := range httpIdentityDecisionTable {
+		for _, signal := range decision.Signals {
+			if _, ok := tokenSet[signal]; ok {
+				return decision, true
+			}
+		}
+	}
+	return httpIdentityDecision{}, false
 }
 
 func collectSMBHostEvidence(inputs map[string]any) map[string]smbHostEvidence {

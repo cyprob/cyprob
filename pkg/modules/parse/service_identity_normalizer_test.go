@@ -814,3 +814,294 @@ func TestServiceIdentityNormalizer_SSHDoesNotOverwriteFingerprint(t *testing.T) 
 		t.Fatalf("expected fingerprint version source, got %q", identity.FieldSources["version"])
 	}
 }
+
+func TestServiceIdentityNormalizer_HTTPIdentityHintFillsGitHubProductVendor(t *testing.T) {
+	module := newServiceIdentityNormalizerModule()
+	if err := module.Init("test-service-identity-http-hint", map[string]any{}); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+
+	inputs := map[string]any{
+		"service.banner.tcp": []any{
+			scanpkg.BannerGrabResult{
+				IP:            "140.82.121.4",
+				Port:          443,
+				Protocol:      "tcp",
+				ProbeHost:     "github.com",
+				SNIServerName: "github.com",
+				ResponseClass: bannerResponseClassOrigin,
+				Banner: "HTTP/1.1 200 OK\r\nSet-Cookie: _octo=GH1.1.1234\r\nContent-Type: text/html\r\n\r\n" +
+					"<html><head><title>GitHub · Build software better, together</title></head><body>GitHub</body></html>",
+			},
+		},
+		"service.tls.details": []any{
+			scanpkg.TLSServiceInfo{
+				Target:      "140.82.121.4",
+				Port:        443,
+				TLSProbe:    true,
+				TLSVersion:  "TLS1.3",
+				CipherSuite: "TLS_AES_128_GCM_SHA256",
+			},
+		},
+	}
+
+	out := make(chan engine.ModuleOutput, 8)
+	if err := module.Execute(context.Background(), inputs, out); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	close(out)
+
+	var identity ServiceIdentityInfo
+	found := false
+	for item := range out {
+		candidate, ok := item.Data.(ServiceIdentityInfo)
+		if !ok {
+			continue
+		}
+		if candidate.Target == "140.82.121.4" && candidate.Port == 443 {
+			identity = candidate
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected github identity output")
+	}
+	if identity.Product != "GitHub Web" || identity.Vendor != "GitHub" {
+		t.Fatalf("expected github hint output, got product=%q vendor=%q", identity.Product, identity.Vendor)
+	}
+	if identity.FieldSources["product"] != sourceHTTPIdentityHint || identity.FieldSources["vendor"] != sourceHTTPIdentityHint {
+		t.Fatalf("expected http identity hint field sources, got %+v", identity.FieldSources)
+	}
+	if identity.FieldConfidence["product"] != httpIdentityConfidenceGitHub || identity.FieldConfidence["vendor"] != httpIdentityConfidenceGitHub {
+		t.Fatalf("expected github hint confidence %.2f, got product=%f vendor=%f",
+			httpIdentityConfidenceGitHub,
+			identity.FieldConfidence["product"],
+			identity.FieldConfidence["vendor"],
+		)
+	}
+}
+
+func TestServiceIdentityNormalizer_HTTPIdentityHintDoesNotOverwriteStrongerSource(t *testing.T) {
+	module := newServiceIdentityNormalizerModule()
+	if err := module.Init("test-service-identity-http-no-overwrite", map[string]any{}); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+
+	inputs := map[string]any{
+		"service.banner.tcp": []any{
+			scanpkg.BannerGrabResult{
+				IP:            "185.67.204.138",
+				Port:          443,
+				Protocol:      "tcp",
+				ProbeHost:     "mail.netkedi.com",
+				SNIServerName: "mail.netkedi.com",
+				ResponseClass: bannerResponseClassOrigin,
+				Banner: "HTTP/1.1 302 Found\r\nLocation: /interface/root\r\nX-Powered-By: ASP.NET\r\n\r\n" +
+					"<html><head><title>SmarterMail</title></head></html>",
+			},
+		},
+		"service.fingerprint.details": []any{
+			FingerprintParsedInfo{
+				Target:     "185.67.204.138",
+				Port:       443,
+				Protocol:   "http",
+				Product:    "SmarterMail",
+				Vendor:     "SmarterTools",
+				Confidence: 0.90,
+			},
+		},
+	}
+
+	out := make(chan engine.ModuleOutput, 8)
+	if err := module.Execute(context.Background(), inputs, out); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	close(out)
+
+	var identity ServiceIdentityInfo
+	found := false
+	for item := range out {
+		candidate, ok := item.Data.(ServiceIdentityInfo)
+		if !ok {
+			continue
+		}
+		if candidate.Target == "185.67.204.138" && candidate.Port == 443 {
+			identity = candidate
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected smartermail identity output")
+	}
+	if identity.Product != "SmarterMail" || identity.Vendor != "SmarterTools" {
+		t.Fatalf("expected fingerprint identity preserved, got product=%q vendor=%q", identity.Product, identity.Vendor)
+	}
+	if identity.FieldSources["product"] != sourceFingerprint || identity.FieldSources["vendor"] != sourceFingerprint {
+		t.Fatalf("expected fingerprint sources preserved, got %+v", identity.FieldSources)
+	}
+}
+
+func TestServiceIdentityNormalizer_HTTPIdentityHintFillsSmarterMailProductVendor(t *testing.T) {
+	module := newServiceIdentityNormalizerModule()
+	if err := module.Init("test-service-identity-http-smartermail", map[string]any{}); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+
+	inputs := map[string]any{
+		"service.banner.tcp": []any{
+			scanpkg.BannerGrabResult{
+				IP:            "185.67.204.138",
+				Port:          443,
+				Protocol:      "tcp",
+				ProbeHost:     "mail.netkedi.com",
+				SNIServerName: "mail.netkedi.com",
+				ResponseClass: bannerResponseClassOrigin,
+				Banner: "HTTP/1.1 302 Found\r\nLocation: /interface/root\r\nX-Powered-By: ASP.NET\r\n\r\n" +
+					"<html><head><title>SmarterMail</title></head></html>",
+			},
+		},
+		"service.tls.details": []any{
+			scanpkg.TLSServiceInfo{
+				Target:      "185.67.204.138",
+				Port:        443,
+				TLSProbe:    true,
+				TLSVersion:  "TLS1.2",
+				CipherSuite: "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384",
+			},
+		},
+	}
+
+	out := make(chan engine.ModuleOutput, 8)
+	if err := module.Execute(context.Background(), inputs, out); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	close(out)
+
+	var identity ServiceIdentityInfo
+	found := false
+	for item := range out {
+		candidate, ok := item.Data.(ServiceIdentityInfo)
+		if !ok {
+			continue
+		}
+		if candidate.Target == "185.67.204.138" && candidate.Port == 443 {
+			identity = candidate
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected smartermail identity output")
+	}
+	if identity.Product != "SmarterMail" || identity.Vendor != "SmarterTools" {
+		t.Fatalf("expected http hint smartermail output, got product=%q vendor=%q", identity.Product, identity.Vendor)
+	}
+	if identity.FieldSources["product"] != sourceHTTPIdentityHint || identity.FieldSources["vendor"] != sourceHTTPIdentityHint {
+		t.Fatalf("expected http identity hint field sources, got %+v", identity.FieldSources)
+	}
+}
+
+func TestServiceIdentityNormalizer_HTTPIdentityHintDoesNotUseHeaderOnlySignals(t *testing.T) {
+	module := newServiceIdentityNormalizerModule()
+	if err := module.Init("test-service-identity-http-header-only", map[string]any{}); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+
+	inputs := map[string]any{
+		"service.banner.tcp": []any{
+			scanpkg.BannerGrabResult{
+				IP:            "198.51.100.50",
+				Port:          443,
+				Protocol:      "tcp",
+				ProbeHost:     "www.example.com",
+				SNIServerName: "www.example.com",
+				ResponseClass: bannerResponseClassOrigin,
+				Banner:        "HTTP/1.1 200 OK\r\nServer: Microsoft-IIS/10.0\r\nX-Powered-By: ASP.NET\r\n\r\n<html><title>Welcome</title></html>",
+			},
+		},
+		"service.tls.details": []any{
+			scanpkg.TLSServiceInfo{
+				Target:      "198.51.100.50",
+				Port:        443,
+				TLSProbe:    true,
+				TLSVersion:  "TLS1.3",
+				CipherSuite: "TLS_AES_128_GCM_SHA256",
+			},
+		},
+	}
+
+	out := make(chan engine.ModuleOutput, 8)
+	if err := module.Execute(context.Background(), inputs, out); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	close(out)
+
+	var identity ServiceIdentityInfo
+	found := false
+	for item := range out {
+		candidate, ok := item.Data.(ServiceIdentityInfo)
+		if !ok {
+			continue
+		}
+		if candidate.Target == "198.51.100.50" && candidate.Port == 443 {
+			identity = candidate
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected header-only identity output")
+	}
+	if identity.Product != "" || identity.Vendor != "" {
+		t.Fatalf("expected no product/vendor from header-only signals, got %+v", identity)
+	}
+}
+
+func TestServiceIdentityNormalizer_HTTPIdentityHintSkipsProxyOnly(t *testing.T) {
+	module := newServiceIdentityNormalizerModule()
+	if err := module.Init("test-service-identity-http-proxy-skip", map[string]any{}); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+
+	inputs := map[string]any{
+		"service.banner.tcp": []any{
+			scanpkg.BannerGrabResult{
+				IP:            "198.51.100.77",
+				Port:          443,
+				Protocol:      "tcp",
+				ProbeHost:     "proxy-only.test",
+				ResponseClass: bannerResponseClassProxyOnly,
+				ProxyResponse: true,
+				Banner:        "HTTP/1.1 502 Bad Gateway\r\nVia: HTTP/1.1 forward.http.proxy:3128\r\n\r\ngenerated by forward proxy",
+			},
+		},
+	}
+
+	out := make(chan engine.ModuleOutput, 8)
+	if err := module.Execute(context.Background(), inputs, out); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	close(out)
+
+	var identity ServiceIdentityInfo
+	found := false
+	for item := range out {
+		candidate, ok := item.Data.(ServiceIdentityInfo)
+		if !ok {
+			continue
+		}
+		if candidate.Target == "198.51.100.77" && candidate.Port == 443 {
+			identity = candidate
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected proxy-only identity output")
+	}
+	if identity.Product != "" || identity.Vendor != "" {
+		t.Fatalf("expected no product/vendor from proxy-only banner, got %+v", identity)
+	}
+}
