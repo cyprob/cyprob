@@ -584,6 +584,174 @@ func TestFingerprintParserModule_TLSMetadataEmission(t *testing.T) {
 	}
 }
 
+func TestFingerprintParserModule_HTTPSResolverProtocolNormalization(t *testing.T) {
+	originalGetResolver := getResolver
+	defer func() { getResolver = originalGetResolver }()
+
+	calledInputs := make([]fingerprint.Input, 0, 1)
+	getResolver = func() fingerprint.Resolver {
+		return mockResolver{
+			resolveFn: func(ctx context.Context, input fingerprint.Input) (fingerprint.Result, error) {
+				calledInputs = append(calledInputs, input)
+				return fingerprint.Result{
+					Product:    "SmarterMail",
+					Vendor:     "SmarterTools",
+					Confidence: 0.91,
+				}, nil
+			},
+		}
+	}
+
+	m := newFingerprintParserModule()
+	_ = m.Init("test-https-normalize", nil)
+
+	banner := scan.BannerGrabResult{
+		IP:       "192.168.1.101",
+		Port:     443,
+		Protocol: "tcp",
+		Evidence: []engine.ProbeObservation{
+			{
+				Response: "HTTP/1.1 302 Found\r\nLocation: /interface/root\r\nX-Frame-Options: SAMEORIGIN\r\n\r\n",
+				Protocol: "https",
+				ProbeID:  "https-get",
+			},
+		},
+	}
+
+	outputChan := make(chan engine.ModuleOutput, 4)
+	err := m.Execute(context.Background(), map[string]any{
+		"service.banner.tcp": []any{banner},
+	}, outputChan)
+	close(outputChan)
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+
+	if len(calledInputs) != 1 {
+		t.Fatalf("expected 1 resolver call, got %d", len(calledInputs))
+	}
+	if calledInputs[0].Protocol != "http" {
+		t.Fatalf("expected resolver protocol http, got %q", calledInputs[0].Protocol)
+	}
+
+	found := false
+	for out := range outputChan {
+		fp, ok := out.Data.(FingerprintParsedInfo)
+		if !ok || out.DataKey != "service.fingerprint.details" {
+			continue
+		}
+		found = true
+		if fp.Protocol != "https" {
+			t.Fatalf("expected emitted protocol https, got %q", fp.Protocol)
+		}
+		if fp.SourceProbe != "https-get" {
+			t.Fatalf("expected source probe https-get, got %q", fp.SourceProbe)
+		}
+	}
+	if !found {
+		t.Fatal("expected fingerprint output")
+	}
+}
+
+func TestFingerprintParserModule_HTTPSResolverProtocolNotNormalizedForNonHTTPResponse(t *testing.T) {
+	originalGetResolver := getResolver
+	defer func() { getResolver = originalGetResolver }()
+
+	calledInputs := make([]fingerprint.Input, 0, 1)
+	getResolver = func() fingerprint.Resolver {
+		return mockResolver{
+			resolveFn: func(ctx context.Context, input fingerprint.Input) (fingerprint.Result, error) {
+				calledInputs = append(calledInputs, input)
+				return fingerprint.Result{}, nil
+			},
+		}
+	}
+
+	m := newFingerprintParserModule()
+	_ = m.Init("test-https-no-normalize", nil)
+
+	banner := scan.BannerGrabResult{
+		IP:       "192.168.1.102",
+		Port:     443,
+		Protocol: "tcp",
+		Evidence: []engine.ProbeObservation{
+			{
+				Response: "220 cluster02.ihost-dns.com",
+				Protocol: "https",
+				ProbeID:  "tls-hello",
+			},
+		},
+	}
+
+	outputChan := make(chan engine.ModuleOutput, 2)
+	err := m.Execute(context.Background(), map[string]any{
+		"service.banner.tcp": []any{banner},
+	}, outputChan)
+	close(outputChan)
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+
+	if len(calledInputs) != 1 {
+		t.Fatalf("expected 1 resolver call, got %d", len(calledInputs))
+	}
+	if calledInputs[0].Protocol != "https" {
+		t.Fatalf("expected resolver protocol https, got %q", calledInputs[0].Protocol)
+	}
+}
+
+func TestFingerprintParserModule_HTTPSBuiltinSmarterMailWebUI(t *testing.T) {
+	originalGetResolver := getResolver
+	defer func() { getResolver = originalGetResolver }()
+	getResolver = fingerprint.GetFingerprintResolver
+
+	m := newFingerprintParserModule()
+	_ = m.Init("test-https-smartermail", nil)
+
+	banner := scan.BannerGrabResult{
+		IP:       "185.67.204.70",
+		Port:     443,
+		Protocol: "tcp",
+		Evidence: []engine.ProbeObservation{
+			{
+				Response: "HTTP/1.1 302 Found\r\nLocation: /interface/root\r\nContent-Security-Policy: default-src 'self';frame-src 'self' *.youtube.com youtu.be *.smartertools.com docs.google.com;\r\nX-Frame-Options: SAMEORIGIN\r\nX-Powered-By: ARR/3.0\r\nX-Powered-By: ASP.NET\r\n\r\n",
+				Protocol: "https",
+				ProbeID:  "https-get",
+			},
+		},
+	}
+
+	outputChan := make(chan engine.ModuleOutput, 4)
+	err := m.Execute(context.Background(), map[string]any{
+		"service.banner.tcp": []any{banner},
+	}, outputChan)
+	close(outputChan)
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+
+	found := false
+	for out := range outputChan {
+		fp, ok := out.Data.(FingerprintParsedInfo)
+		if !ok || out.DataKey != "service.fingerprint.details" {
+			continue
+		}
+		found = true
+		if fp.Product != "SmarterMail" {
+			t.Fatalf("expected product SmarterMail, got %q", fp.Product)
+		}
+		if fp.Vendor != "SmarterTools" {
+			t.Fatalf("expected vendor SmarterTools, got %q", fp.Vendor)
+		}
+		if fp.Protocol != "https" {
+			t.Fatalf("expected emitted protocol https, got %q", fp.Protocol)
+		}
+	}
+	if !found {
+		t.Fatal("expected SmarterMail fingerprint output")
+	}
+}
+
 // TestFingerprintParserModule_NoTLSMetadata tests that no TLS keys are emitted
 // when TLS metadata is not present.
 func TestFingerprintParserModule_NoTLSMetadata(t *testing.T) {

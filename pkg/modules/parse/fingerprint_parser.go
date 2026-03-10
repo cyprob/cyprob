@@ -234,9 +234,10 @@ func (m *FingerprintParserModule) processBannerCandidates(ctx context.Context, b
 				protocolHint = "" // Empty triggers fallback mode
 			}
 		}
+		resolverProtocolHint := normalizeResolverProtocol(protocolHint, response, candidate.ProbeID)
 
 		result, err := resolver.Resolve(ctx, fingerprint.Input{
-			Protocol:    protocolHint,
+			Protocol:    resolverProtocolHint,
 			Banner:      response,
 			Port:        banner.Port,
 			ServiceHint: "",
@@ -455,6 +456,52 @@ func fingerprintProtocolHint(port int, banner string) string {
 
 	// Fallback to port number detection
 	return detectProtocolFromPort(port)
+}
+
+func normalizeResolverProtocol(protocolHint, response, probeID string) string {
+	protocolHint = strings.ToLower(strings.TrimSpace(protocolHint))
+	if protocolHint != "https" {
+		return protocolHint
+	}
+	if !looksLikeHTTPResponse(response, probeID) {
+		return protocolHint
+	}
+	return "http"
+}
+
+func looksLikeHTTPResponse(response, probeID string) bool {
+	normalizedResponse := strings.ToLower(strings.TrimSpace(response))
+	if normalizedResponse == "" {
+		return false
+	}
+	if strings.HasPrefix(normalizedResponse, "http/") {
+		return true
+	}
+
+	headerHits := 0
+	for _, marker := range []string{
+		"\r\nserver:",
+		"\nserver:",
+		"\r\nlocation:",
+		"\nlocation:",
+		"\r\ncontent-type:",
+		"\ncontent-type:",
+		"\r\nset-cookie:",
+		"\nset-cookie:",
+		"\r\nx-frame-options:",
+		"\nx-frame-options:",
+	} {
+		if strings.Contains(normalizedResponse, marker) {
+			headerHits++
+		}
+	}
+
+	normalizedProbeID := strings.ToLower(strings.TrimSpace(probeID))
+	if strings.HasPrefix(normalizedProbeID, "https-") || strings.HasPrefix(normalizedProbeID, "http-") {
+		return headerHits >= 1
+	}
+
+	return headerHits >= 2
 }
 
 func detectProtocolFromBanner(banner string) string {

@@ -1605,6 +1605,132 @@ func TestResolve_BuiltinSMTP_Sophos(t *testing.T) {
 	})
 }
 
+func TestResolve_BuiltinMySQL_HostNotAllowedBanner(t *testing.T) {
+	rb := NewRuleBasedResolver(loadBuiltinRules())
+
+	res, err := rb.Resolve(context.Background(), Input{
+		Protocol: "mysql",
+		Banner:   "GjHost '78.180.252.102' is not allowed to connect to this MySQL server",
+		Port:     3306,
+	})
+	if err != nil {
+		t.Fatalf("expected mysql text banner match, got error: %v", err)
+	}
+	if res.Product != "MySQL" {
+		t.Fatalf("expected MySQL, got %s", res.Product)
+	}
+	if res.Vendor != "Oracle" {
+		t.Fatalf("expected Oracle, got %s", res.Vendor)
+	}
+	if res.Version != "" {
+		t.Fatalf("expected empty version, got %s", res.Version)
+	}
+	if res.CPE != "cpe:2.3:a:oracle:mysql:*:*:*:*:*:*:*:*" {
+		t.Fatalf("unexpected cpe: %s", res.CPE)
+	}
+}
+
+func TestResolve_BuiltinSmarterMail(t *testing.T) {
+	rb := NewRuleBasedResolver(loadBuiltinRules())
+
+	testCases := []struct {
+		name     string
+		input    Input
+		product  string
+		vendor   string
+		version  string
+		wantErr  bool
+	}{
+		{
+			name: "imap direct banner",
+			input: Input{
+				Protocol: "imap",
+				Banner:   "* OK IMAP4rev1 SmarterMail",
+				Port:     143,
+			},
+			product: "SmarterMail",
+			vendor:  "SmarterTools",
+		},
+		{
+			name: "imaps capability banner",
+			input: Input{
+				Protocol: "imap",
+				Banner:   "* OK IMAP4rev1 SmarterMail * CAPABILITY IMAP4rev1 AUTH=CRAM-MD5 AUTH=NTLM AUTH=PLAIN SASL-IR UTF8=ACCEPT UIDPLUS QUOTA MOVE XLIST CHILDREN ENABLE CONDSTORE X-SM-TAGS",
+				Port:     993,
+			},
+			product: "SmarterMail",
+			vendor:  "SmarterTools",
+		},
+		{
+			name: "pop3 implementation banner",
+			input: Input{
+				Protocol: "pop3",
+				Banner:   "+OK POP3 server ready ?6d62-d391-4fe2-87e9-f45af0315e9f@cluster02.ihost-dns.com? +OK Capability list follows SASL NTLM PLAIN TOP UIDL USER UTF8 USER IMPLEMENTATION Smartertools_SmarterMail .",
+				Port:     995,
+			},
+			product: "SmarterMail",
+			vendor:  "SmarterTools",
+		},
+		{
+			name: "http web ui banner",
+			input: Input{
+				Protocol: "http",
+				Banner:   "HTTP/1.1 302 Found Location: /interface/root Content-Security-Policy: default-src 'self';frame-src 'self' *.youtube.com youtu.be *.smartertools.com docs.google.com; X-Powered-By: ARR/3.0 X-Powered-By: ASP.NET",
+				Port:     443,
+			},
+			product: "SmarterMail",
+			vendor:  "SmarterTools",
+		},
+		{
+			name: "smtp explicit token banner",
+			input: Input{
+				Protocol: "smtp",
+				Banner:   "220 mx.example.local ESMTP\r\n250-X-SmarterMail 17.2.1\r\n250 AUTH PLAIN LOGIN",
+				Port:     587,
+			},
+			product: "SmarterMail",
+			vendor:  "SmarterTools",
+			version: "17.2.1",
+		},
+		{
+			name: "smtp host-only banner stays unmatched",
+			input: Input{
+				Protocol: "smtp",
+				Banner:   "220 cluster02.ihost-dns.com",
+				Port:     25,
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			res, err := rb.Resolve(context.Background(), tc.input)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("expected no match, got %+v", res)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("expected match, got error: %v", err)
+			}
+			if res.Product != tc.product {
+				t.Fatalf("expected product %s, got %s", tc.product, res.Product)
+			}
+			if res.Vendor != tc.vendor {
+				t.Fatalf("expected vendor %s, got %s", tc.vendor, res.Vendor)
+			}
+			if res.Version != tc.version {
+				t.Fatalf("expected version %q, got %q", tc.version, res.Version)
+			}
+			if res.CPE != "cpe:2.3:a:smartertools:smartermail:*:*:*:*:*:*:*:*" {
+				t.Fatalf("unexpected cpe: %s", res.CPE)
+			}
+		})
+	}
+}
+
 // FTP Servers Tests (Phase 4)
 
 func TestResolve_PureFTPd(t *testing.T) {

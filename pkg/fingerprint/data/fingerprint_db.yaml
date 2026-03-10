@@ -112,6 +112,27 @@ rules:
     pattern_strength: 0.85
     port_bonuses: [8080, 8443, 8009]
 
+  - id: 'http.smartermail_webui'
+    protocol: 'http'
+    description: 'SmarterMail web interface'
+    product: 'SmarterMail'
+    vendor: 'SmarterTools'
+    cpe: 'cpe:2.3:a:smartertools:smartermail:*:*:*:*:*:*:*:*'
+    match: '(?is)(?:location:\s*/interface/root.*smartertools\.com|x-smartermail|smartermail)'
+    version_extraction: '(?i)x-smartermail[:\s]+([\w\.\-]+)'
+
+    exclude_patterns:
+      - "apache"
+      - "nginx"
+
+    soft_exclude_patterns:
+      - "error"
+      - "forbidden"
+      - "unavailable"
+
+    pattern_strength: 0.92
+    port_bonuses: [80, 443]
+
   # FTP Servers
   - id: 'ftp.pureftpd'
     protocol: 'ftp'
@@ -274,6 +295,20 @@ rules:
     binary_min_length: 10
     binary_magic: ["\\x00\\x00\\x00\\x0a"]
 
+  - id: 'mysql.host_not_allowed'
+    protocol: 'mysql'
+    description: 'MySQL host-based access denied banner'
+    product: 'MySQL'
+    vendor: 'Oracle'
+    cpe: 'cpe:2.3:a:oracle:mysql:*:*:*:*:*:*:*:*'
+    match: "host\\s+'[^']+'\\s+is\\s+not\\s+allowed\\s+to\\s+connect\\s+to\\s+this\\s+mysql\\s+server"
+
+    exclude_patterns:
+      - "mariadb\\s+server"
+
+    pattern_strength: 0.82
+    port_bonuses: [3306, 33060]
+
   # Database Services
   - id: 'db.postgresql'
     protocol: 'postgresql'
@@ -396,6 +431,23 @@ rules:
     port_bonuses: [9200, 9300]
 
   # Mail Servers
+  - id: 'smtp.smartermail'
+    protocol: 'smtp'
+    description: 'SmarterMail SMTP service'
+    product: 'SmarterMail'
+    vendor: 'SmarterTools'
+    cpe: 'cpe:2.3:a:smartertools:smartermail:*:*:*:*:*:*:*:*'
+    match: '(?i)(?:x-smartermail|smartermail)'
+    version_extraction: '(?i)x-smartermail[:\s]+([\w\.\-]+)'
+
+    exclude_patterns:
+      - "postfix"
+      - "exim"
+      - "sendmail"
+
+    pattern_strength: 0.90
+    port_bonuses: [25, 465, 587]
+
   - id: 'smtp.sophos'
     protocol: 'smtp'
     description: 'Sophos ESMTP banner'
@@ -495,6 +547,27 @@ rules:
     port_bonuses: [143, 993, 110, 995]
 
   # IMAP Servers
+  - id: 'imap.smartermail'
+    protocol: 'imap'
+    description: 'SmarterMail IMAP server'
+    product: 'SmarterMail'
+    vendor: 'SmarterTools'
+    cpe: 'cpe:2.3:a:smartertools:smartermail:*:*:*:*:*:*:*:*'
+    match: '(?i)(?:\*\s+ok\s+imap4rev1\s+smartermail|x-sm-tags|smartermail)'
+
+    exclude_patterns:
+      - "dovecot"
+      - "courier"
+      - "cyrus"
+
+    soft_exclude_patterns:
+      - "error"
+      - "denied"
+      - "unavailable"
+
+    pattern_strength: 0.95
+    port_bonuses: [143, 993]
+
   - id: 'imap.generic'
     protocol: 'imap'
     description: 'Generic IMAP server (Dovecot, Courier, Cyrus, Gmail, etc.)'
@@ -536,6 +609,26 @@ rules:
     port_bonuses: [143, 993, 110, 995]
 
   # POP3 Servers
+  - id: 'pop3.smartermail'
+    protocol: 'pop3'
+    description: 'SmarterMail POP3 server'
+    product: 'SmarterMail'
+    vendor: 'SmarterTools'
+    cpe: 'cpe:2.3:a:smartertools:smartermail:*:*:*:*:*:*:*:*'
+    match: '(?i)(?:implementation\s+smartertools_smartermail|smartermail)'
+
+    exclude_patterns:
+      - "dovecot"
+      - "courier"
+
+    soft_exclude_patterns:
+      - "error"
+      - "denied"
+      - "unavailable"
+
+    pattern_strength: 0.94
+    port_bonuses: [110, 995]
+
   - id: 'pop3.dovecot'
     protocol: 'pop3'
     description: 'Dovecot POP3 server'
