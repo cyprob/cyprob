@@ -83,7 +83,7 @@ func newUDPPortDiscoveryModule() *UDPPortDiscoveryModule {
 					Key:          "discovery.live_hosts",
 					DataTypeName: "discovery.ICMPPingDiscoveryResult",
 					Cardinality:  engine.CardinalityList,
-					IsOptional:   false,
+					IsOptional:   true,
 					Description:  "List of live hosts from ICMP ping module.",
 				},
 				{
@@ -252,8 +252,8 @@ func (m *UDPPortDiscoveryModule) Execute(ctx context.Context, inputs map[string]
 	logger := log.With().Str("module", m.meta.Name).Str("instance_id", m.meta.ID).Logger()
 
 	// Determine targets
-	if liveHosts, ok := inputs["discovery.live_hosts"].(ICMPPingDiscoveryResult); ok && len(liveHosts.LiveHosts) > 0 {
-		targetsToScan = append(targetsToScan, liveHosts.LiveHosts...)
+	if liveHosts := extractLiveHostsInput(inputs["discovery.live_hosts"]); len(liveHosts) > 0 {
+		targetsToScan = append(targetsToScan, liveHosts...)
 		logger.Debug().Msgf("Using %d live hosts from input", len(targetsToScan))
 	} else if configTargets, ok := inputs["config.targets"].([]string); ok && len(configTargets) > 0 {
 		targetsToScan = netutil.ParseAndExpandTargets(configTargets)

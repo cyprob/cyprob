@@ -253,7 +253,7 @@ func TestPlanner_selectModulesByProfile_SkipDiscovery(t *testing.T) {
 	}
 }
 
-// Test initializeDataKeys injects discovery.live_hosts when SkipDiscovery=true
+// Test initializeDataKeys keeps only explicit initial inputs.
 func TestPlanner_initializeDataKeys_SkipDiscovery(t *testing.T) {
 	planner, _ := NewDAGPlanner(nil, nil)
 
@@ -275,8 +275,50 @@ func TestPlanner_initializeDataKeys_SkipDiscovery(t *testing.T) {
 	if _, found := keysSkip["config.targets"]; !found {
 		t.Fatal("expected config.targets to be initialized")
 	}
-	if _, found := keysSkip["discovery.live_hosts"]; !found {
-		t.Fatal("discovery.live_hosts should be initialized when SkipDiscovery=true")
+	if _, found := keysSkip["discovery.live_hosts"]; found {
+		t.Fatal("discovery.live_hosts should not be initialized when SkipDiscovery=true")
+	}
+}
+
+func TestPlanner_selectModulesByProfile_PingDisabled(t *testing.T) {
+	icmpMeta := ModuleMetadata{Name: "icmp-ping-discovery", Type: DiscoveryModuleType}
+	tcpPortMeta := ModuleMetadata{Name: "tcp-port-discovery", Type: DiscoveryModuleType}
+	udpPortMeta := ModuleMetadata{Name: "udp-port-discovery", Type: DiscoveryModuleType}
+
+	registry := map[string]ModuleFactory{
+		icmpMeta.Name:    fakeFactory(icmpMeta),
+		tcpPortMeta.Name: fakeFactory(tcpPortMeta),
+		udpPortMeta.Name: fakeFactory(udpPortMeta),
+	}
+
+	planner, _ := NewDAGPlanner(registry, nil)
+	selected := planner.selectModulesForIntent(ScanIntent{
+		Targets:    []string{"127.0.0.1"},
+		EnablePing: false,
+	})
+
+	hasICMP := false
+	hasTCP := false
+	hasUDP := false
+	for _, factory := range selected {
+		switch factory().Metadata().Name {
+		case "icmp-ping-discovery":
+			hasICMP = true
+		case "tcp-port-discovery":
+			hasTCP = true
+		case "udp-port-discovery":
+			hasUDP = true
+		}
+	}
+
+	if hasICMP {
+		t.Fatal("icmp-ping-discovery should be filtered when EnablePing=false")
+	}
+	if !hasTCP {
+		t.Fatal("tcp-port-discovery should remain when EnablePing=false")
+	}
+	if !hasUDP {
+		t.Fatal("udp-port-discovery should remain when EnablePing=false")
 	}
 }
 

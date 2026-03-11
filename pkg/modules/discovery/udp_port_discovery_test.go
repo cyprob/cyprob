@@ -20,6 +20,8 @@ func TestUDPPortDiscoveryModule_Metadata(t *testing.T) {
 	assert.Equal(t, engine.DiscoveryModuleType, meta.Type)
 	assert.NotEmpty(t, meta.Produces)
 	assert.Equal(t, "discovery.open_udp_ports", meta.Produces[0].Key)
+	require.Len(t, meta.Consumes, 3)
+	assert.True(t, meta.Consumes[1].IsOptional)
 }
 
 func TestUDPPortDiscoveryModule_Init(t *testing.T) {
@@ -129,6 +131,37 @@ func TestUDPPortDiscoveryModule_Execute_EmptyTargets(t *testing.T) {
 	err = module.Execute(ctx, inputs, outputChan)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "no targets specified")
+}
+
+func TestUDPPortDiscoveryModule_Execute_UsesLiveHostsListInput(t *testing.T) {
+	module := newUDPPortDiscoveryModule()
+	err := module.Init("test-live-hosts-list", map[string]any{
+		"ports":   []string{"53"},
+		"timeout": "50ms",
+	})
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	outputChan := make(chan engine.ModuleOutput, 10)
+
+	err = module.Execute(ctx, map[string]any{
+		"config.targets": []string{"198.51.100.60"},
+		"discovery.live_hosts": []any{
+			ICMPPingDiscoveryResult{LiveHosts: []string{"127.0.0.1"}},
+		},
+	}, outputChan)
+	assert.NoError(t, err)
+
+	close(outputChan)
+
+	for output := range outputChan {
+		result, ok := output.Data.(UDPPortDiscoveryResult)
+		if !ok {
+			continue
+		}
+		assert.Equal(t, "127.0.0.1", result.Target)
+		return
+	}
 }
 
 func TestUDPPortDiscoveryModule_Execute_Localhost(t *testing.T) {

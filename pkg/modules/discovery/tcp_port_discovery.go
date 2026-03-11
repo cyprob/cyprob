@@ -89,7 +89,7 @@ func newTCPPortDiscoveryModule() *TCPPortDiscoveryModule {
 					// Cardinality: engine.CardinalityList, // Expects a list of ICMPPingDiscoveryResult from DataContext
 					DataTypeName: "discovery.ICMPPingDiscoveryResult", // The type of each item in the list
 					Cardinality:  engine.CardinalityList,              // Expects a list of these items
-					IsOptional:   false,
+					IsOptional:   true,
 					Description:  "List of live hosts (as ICMPPingDiscoveryResult) from ICMP ping module.",
 				},
 				{
@@ -212,8 +212,8 @@ func (m *TCPPortDiscoveryModule) Execute(ctx context.Context, inputs map[string]
 	logger := log.With().Str("module", m.meta.Name).Str("instance_id", m.meta.ID).Logger()
 
 	// Determine targets: prefer 'discovery.live_hosts' from input, then 'config.targets' from input, then module's own config.
-	if liveHosts, ok := inputs["discovery.live_hosts"].(ICMPPingDiscoveryResult); ok && len(liveHosts.LiveHosts) > 0 {
-		targetsToScan = append(targetsToScan, liveHosts.LiveHosts...) // Assuming LiveHosts contains IP addresses
+	if liveHosts := extractLiveHostsInput(inputs["discovery.live_hosts"]); len(liveHosts) > 0 {
+		targetsToScan = append(targetsToScan, liveHosts...)
 		logger.Debug().Msgf("Using %d live hosts from input 'discovery.live_hosts'.", len(targetsToScan))
 	} else if configTargets, ok := inputs["config.targets"].([]string); ok && len(configTargets) > 0 {
 		targetsToScan = netutil.ParseAndExpandTargets(configTargets)

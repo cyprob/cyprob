@@ -87,8 +87,8 @@ func TestNewTCPPortDiscoveryModule_Defaults(t *testing.T) {
 		}
 	}
 
-	if !reflect.DeepEqual(gotConsumeKeys, []string{"discovery.live_hosts"}) {
-		t.Errorf("expected Consumes ['config.targets', 'discovery.live_hosts'], got %v", gotConsumeKeys)
+	if len(gotConsumeKeys) != 0 {
+		t.Errorf("expected all consumes optional by default, got required keys %v", gotConsumeKeys)
 	}
 
 	if len(meta.ConfigSchema) == 0 {
@@ -107,6 +107,54 @@ func TestNewTCPPortDiscoveryModule_Defaults(t *testing.T) {
 	}
 	if len(cfg.Targets) != 0 {
 		t.Errorf("expected Targets to be empty by default, got %v", cfg.Targets)
+	}
+}
+
+func TestTCPPortDiscoveryModule_Execute_UsesLiveHostsListInput(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer listener.Close()
+
+	host, portString, err := net.SplitHostPort(listener.Addr().String())
+	if err != nil {
+		t.Fatalf("split host port: %v", err)
+	}
+
+	module := newTCPPortDiscoveryModule()
+	if err := module.Init("test-live-hosts-list", map[string]any{
+		"ports":   []string{portString},
+		"timeout": "200ms",
+	}); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+
+	outputs := make(chan engine.ModuleOutput, 4)
+	err = module.Execute(context.Background(), map[string]any{
+		"config.targets": []string{"198.51.100.50"},
+		"discovery.live_hosts": []any{
+			ICMPPingDiscoveryResult{LiveHosts: []string{host}},
+		},
+	}, outputs)
+	if err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	close(outputs)
+
+	found := false
+	port, _ := strconv.Atoi(portString)
+	for out := range outputs {
+		result, ok := out.Data.(TCPPortDiscoveryResult)
+		if !ok {
+			continue
+		}
+		if result.Target == host && reflect.DeepEqual(result.OpenPorts, []int{port}) {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected live host result for %s:%d", host, port)
 	}
 }
 
