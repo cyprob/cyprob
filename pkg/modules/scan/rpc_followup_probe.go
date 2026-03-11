@@ -41,21 +41,21 @@ type rpcFollowupProbeModule struct {
 
 var probeRPCFollowupDetailsFunc = probeRPCFollowupDetails
 
-func newRPCFollowupProbeModule() *rpcFollowupProbeModule {
+func newRPCFollowupProbeModuleWithSpec(moduleID string, moduleName string, description string, consumeKey string, outputKey string, tags []string) *rpcFollowupProbeModule {
 	return &rpcFollowupProbeModule{
 		meta: engine.ModuleMetadata{
-			ID:          rpcFollowupProbeModuleID,
-			Name:        rpcFollowupProbeModuleName,
-			Description: rpcFollowupProbeModuleDescription,
+			ID:          moduleID,
+			Name:        moduleName,
+			Description: description,
 			Version:     "0.1.0",
 			Type:        engine.ScanModuleType,
 			Author:      "Vulntor Team",
-			Tags:        []string{"scan", "rpc", "enrichment", "native_probe"},
+			Tags:        tags,
 			Consumes: []engine.DataContractEntry{
-				{Key: "service.rpc.epmapper", DataTypeName: "scan.RPCEpmapperInfo", Cardinality: engine.CardinalityList, IsOptional: true},
+				{Key: consumeKey, DataTypeName: "scan.RPCEpmapperInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 			},
 			Produces: []engine.DataContractEntry{
-				{Key: "service.rpc.details", DataTypeName: "scan.RPCServiceInfo", Cardinality: engine.CardinalityList},
+				{Key: outputKey, DataTypeName: "scan.RPCServiceInfo", Cardinality: engine.CardinalityList},
 			},
 			ConfigSchema: map[string]engine.ParameterDefinition{
 				"rpc_followup_enabled": {
@@ -122,6 +122,17 @@ func newRPCFollowupProbeModule() *rpcFollowupProbeModule {
 		},
 		options: defaultRPCFollowupProbeOptions(),
 	}
+}
+
+func newRPCFollowupProbeModule() *rpcFollowupProbeModule {
+	return newRPCFollowupProbeModuleWithSpec(
+		rpcFollowupProbeModuleID,
+		rpcFollowupProbeModuleName,
+		rpcFollowupProbeModuleDescription,
+		"service.rpc.epmapper",
+		"service.rpc.details",
+		[]string{"scan", "rpc", "enrichment", "native_probe"},
+	)
 }
 
 func defaultRPCFollowupProbeOptions() RPCFollowupProbeOptions {
@@ -199,7 +210,7 @@ func (m *rpcFollowupProbeModule) Execute(ctx context.Context, inputs map[string]
 		return nil
 	}
 
-	rawEpmapper, ok := inputs["service.rpc.epmapper"]
+	rawEpmapper, ok := inputs[m.meta.Consumes[0].Key]
 	if !ok {
 		return nil
 	}
@@ -252,7 +263,7 @@ func (m *rpcFollowupProbeModule) Execute(ctx context.Context, inputs map[string]
 			}
 			outputChan <- engine.ModuleOutput{
 				FromModuleName: m.meta.ID,
-				DataKey:        "service.rpc.details",
+				DataKey:        m.meta.Produces[0].Key,
 				Data:           base,
 				Timestamp:      time.Now(),
 				Target:         entry.Target,
@@ -276,7 +287,7 @@ func (m *rpcFollowupProbeModule) Execute(ctx context.Context, inputs map[string]
 
 			outputChan <- engine.ModuleOutput{
 				FromModuleName: m.meta.ID,
-				DataKey:        "service.rpc.details",
+				DataKey:        m.meta.Produces[0].Key,
 				Data:           result,
 				Timestamp:      time.Now(),
 				Target:         host,

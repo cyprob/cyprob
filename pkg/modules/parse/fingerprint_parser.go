@@ -43,109 +43,130 @@ type FingerprintParsedInfo struct {
 
 // FingerprintParserModule consumes banner results and produces fingerprint matches.
 type FingerprintParserModule struct {
-	meta engine.ModuleMetadata
+	meta               engine.ModuleMetadata
+	bannerInputKey     string
+	fingerprintOutKey  string
+	emitTLSMetadataOut bool
 }
 
 func newFingerprintParserModule() *FingerprintParserModule {
+	return newFingerprintParserModuleWithSpec(
+		fingerprintParserModuleID,
+		fingerprintParserModuleName,
+		fingerprintParserModuleDescription,
+		"service.banner.tcp",
+		"service.fingerprint.details",
+		[]string{"parser", "fingerprint"},
+		true,
+	)
+}
+
+func newFingerprintParserModuleWithSpec(moduleID string, moduleName string, description string, bannerInputKey string, fingerprintOutKey string, tags []string, emitTLSMetadata bool) *FingerprintParserModule {
+	produces := []engine.DataContractEntry{
+		{
+			Key:          fingerprintOutKey,
+			DataTypeName: "parse.FingerprintParsedInfo",
+			Cardinality:  engine.CardinalityList,
+			Description:  "Fingerprint matches derived from service banners.",
+		},
+	}
+	if emitTLSMetadata {
+		produces = append(produces,
+			engine.DataContractEntry{
+				Key:          "tls.version",
+				DataTypeName: "string",
+				Cardinality:  engine.CardinalitySingle,
+				IsOptional:   true,
+				Description:  "TLS protocol version (e.g., TLS1.3, TLS1.2)",
+			},
+			engine.DataContractEntry{
+				Key:          "tls.cipher_suite",
+				DataTypeName: "string",
+				Cardinality:  engine.CardinalitySingle,
+				IsOptional:   true,
+				Description:  "TLS cipher suite name",
+			},
+			engine.DataContractEntry{
+				Key:          "tls.server_name",
+				DataTypeName: "string",
+				Cardinality:  engine.CardinalitySingle,
+				IsOptional:   true,
+				Description:  "TLS SNI server name",
+			},
+			engine.DataContractEntry{
+				Key:          "tls.certificate.issuer",
+				DataTypeName: "string",
+				Cardinality:  engine.CardinalitySingle,
+				IsOptional:   true,
+				Description:  "TLS certificate issuer DN",
+			},
+			engine.DataContractEntry{
+				Key:          "tls.certificate.common_name",
+				DataTypeName: "string",
+				Cardinality:  engine.CardinalitySingle,
+				IsOptional:   true,
+				Description:  "TLS certificate common name (CN)",
+			},
+			engine.DataContractEntry{
+				Key:          "tls.certificate.dns_names",
+				DataTypeName: "[]string",
+				Cardinality:  engine.CardinalityList,
+				IsOptional:   true,
+				Description:  "TLS certificate Subject Alternative Names (DNS names)",
+			},
+			engine.DataContractEntry{
+				Key:          "tls.certificate.not_before",
+				DataTypeName: "time.Time",
+				Cardinality:  engine.CardinalitySingle,
+				IsOptional:   true,
+				Description:  "TLS certificate validity start time",
+			},
+			engine.DataContractEntry{
+				Key:          "tls.certificate.not_after",
+				DataTypeName: "time.Time",
+				Cardinality:  engine.CardinalitySingle,
+				IsOptional:   true,
+				Description:  "TLS certificate validity end time (expiration)",
+			},
+			engine.DataContractEntry{
+				Key:          "tls.certificate.is_expired",
+				DataTypeName: "bool",
+				Cardinality:  engine.CardinalitySingle,
+				IsOptional:   true,
+				Description:  "Whether the TLS certificate is expired",
+			},
+			engine.DataContractEntry{
+				Key:          "tls.certificate.is_self_signed",
+				DataTypeName: "bool",
+				Cardinality:  engine.CardinalitySingle,
+				IsOptional:   true,
+				Description:  "Whether the TLS certificate is self-signed",
+			},
+		)
+	}
 	return &FingerprintParserModule{
 		meta: engine.ModuleMetadata{
-			ID:          fingerprintParserModuleID,
-			Name:        fingerprintParserModuleName,
-			Description: fingerprintParserModuleDescription,
+			ID:          moduleID,
+			Name:        moduleName,
+			Description: description,
 			Version:     fingerprintParserModuleVersion,
 			Type:        engine.ParseModuleType,
 			Author:      fingerprintParserModuleAuthor,
-			Tags:        []string{"parser", "fingerprint"},
+			Tags:        tags,
 			Consumes: []engine.DataContractEntry{
 				{
-					Key:          "service.banner.tcp",
+					Key:          bannerInputKey,
 					DataTypeName: "scan.BannerGrabResult",
 					Cardinality:  engine.CardinalityList,
 					IsOptional:   true,
 					Description:  "List of raw TCP banners captured from the service-banner module.",
 				},
 			},
-			Produces: []engine.DataContractEntry{
-				{
-					Key:          "service.fingerprint.details",
-					DataTypeName: "parse.FingerprintParsedInfo",
-					Cardinality:  engine.CardinalityList,
-					Description:  "Fingerprint matches derived from service banners.",
-				},
-				// Phase 1.8: TLS metadata keys (protocol-level)
-				{
-					Key:          "tls.version",
-					DataTypeName: "string",
-					Cardinality:  engine.CardinalitySingle,
-					IsOptional:   true,
-					Description:  "TLS protocol version (e.g., TLS1.3, TLS1.2)",
-				},
-				{
-					Key:          "tls.cipher_suite",
-					DataTypeName: "string",
-					Cardinality:  engine.CardinalitySingle,
-					IsOptional:   true,
-					Description:  "TLS cipher suite name",
-				},
-				{
-					Key:          "tls.server_name",
-					DataTypeName: "string",
-					Cardinality:  engine.CardinalitySingle,
-					IsOptional:   true,
-					Description:  "TLS SNI server name",
-				},
-				// Phase 1.8: TLS certificate metadata keys
-				{
-					Key:          "tls.certificate.issuer",
-					DataTypeName: "string",
-					Cardinality:  engine.CardinalitySingle,
-					IsOptional:   true,
-					Description:  "TLS certificate issuer DN",
-				},
-				{
-					Key:          "tls.certificate.common_name",
-					DataTypeName: "string",
-					Cardinality:  engine.CardinalitySingle,
-					IsOptional:   true,
-					Description:  "TLS certificate common name (CN)",
-				},
-				{
-					Key:          "tls.certificate.dns_names",
-					DataTypeName: "[]string",
-					Cardinality:  engine.CardinalityList,
-					IsOptional:   true,
-					Description:  "TLS certificate Subject Alternative Names (DNS names)",
-				},
-				{
-					Key:          "tls.certificate.not_before",
-					DataTypeName: "time.Time",
-					Cardinality:  engine.CardinalitySingle,
-					IsOptional:   true,
-					Description:  "TLS certificate validity start time",
-				},
-				{
-					Key:          "tls.certificate.not_after",
-					DataTypeName: "time.Time",
-					Cardinality:  engine.CardinalitySingle,
-					IsOptional:   true,
-					Description:  "TLS certificate validity end time (expiration)",
-				},
-				{
-					Key:          "tls.certificate.is_expired",
-					DataTypeName: "bool",
-					Cardinality:  engine.CardinalitySingle,
-					IsOptional:   true,
-					Description:  "Whether the TLS certificate is expired",
-				},
-				{
-					Key:          "tls.certificate.is_self_signed",
-					DataTypeName: "bool",
-					Cardinality:  engine.CardinalitySingle,
-					IsOptional:   true,
-					Description:  "Whether the TLS certificate is self-signed",
-				},
-			},
+			Produces: produces,
 		},
+		bannerInputKey:     bannerInputKey,
+		fingerprintOutKey:  fingerprintOutKey,
+		emitTLSMetadataOut: emitTLSMetadata,
 	}
 }
 
@@ -163,7 +184,7 @@ func (m *FingerprintParserModule) Init(instanceID string, _ map[string]any) erro
 func (m *FingerprintParserModule) Execute(ctx context.Context, inputs map[string]any, outputChan chan<- engine.ModuleOutput) error {
 	logger := log.With().Str("module", m.meta.Name).Str("instance_id", m.meta.ID).Logger()
 
-	raw, ok := inputs["service.banner.tcp"]
+	raw, ok := inputs[m.bannerInputKey]
 	if !ok {
 		return nil
 	}
@@ -248,7 +269,7 @@ func (m *FingerprintParserModule) processBannerCandidates(ctx context.Context, b
 
 		// Phase 1.8: Emit TLS metadata BEFORE deduplication
 		// This ensures TLS metadata is emitted even if the fingerprint match is duplicate
-		if candidate.TLS != nil {
+		if candidate.TLS != nil && m.emitTLSMetadataOut {
 			logger.Debug().
 				Str("target", banner.IP).
 				Int("port", banner.Port).
@@ -279,7 +300,7 @@ func (m *FingerprintParserModule) processBannerCandidates(ctx context.Context, b
 
 		outputChan <- engine.ModuleOutput{
 			FromModuleName: m.meta.ID,
-			DataKey:        m.meta.Produces[0].Key,
+			DataKey:        m.fingerprintOutKey,
 			Data:           parsed,
 			Timestamp:      time.Now(),
 			Target:         banner.IP,

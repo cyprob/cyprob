@@ -1229,3 +1229,16 @@ func TestServiceIdentityNormalizer_HTTPIdentityHintSkipsProxyOnly(t *testing.T) 
 		t.Fatalf("expected no product/vendor from proxy-only banner, got %+v", identity)
 	}
 }
+
+func collectIdentityOutputsByDataKey(t *testing.T, out <-chan engine.ModuleOutput) map[string][]ServiceIdentityInfo {
+	t.Helper()
+	results := make(map[string][]ServiceIdentityInfo)
+	for item := range out {
+		identity, ok := item.Data.(ServiceIdentityInfo)
+		if !ok {
+			continue
+		}
+		results[item.DataKey] = append(results[item.DataKey], identity)
+	}
+	return results
+}

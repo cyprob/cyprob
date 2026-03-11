@@ -93,16 +93,16 @@ type sshKEXOutcome struct {
 
 var probeSSHDetailsFunc = probeSSHDetails
 
-func newSSHNativeProbeModule() *sshNativeProbeModule {
+func newSSHNativeProbeModuleWithSpec(moduleID string, moduleName string, description string, outputKey string, tags []string) *sshNativeProbeModule {
 	return &sshNativeProbeModule{
 		meta: engine.ModuleMetadata{
-			ID:          sshNativeProbeModuleID,
-			Name:        sshNativeProbeModuleName,
-			Description: sshNativeProbeModuleDescription,
+			ID:          moduleID,
+			Name:        moduleName,
+			Description: description,
 			Version:     "0.1.0",
 			Type:        engine.ScanModuleType,
 			Author:      "Vulntor Team",
-			Tags:        []string{"scan", "ssh", "enrichment", "native_probe"},
+			Tags:        tags,
 			Consumes: []engine.DataContractEntry{
 				{
 					Key:          "discovery.open_tcp_ports",
@@ -121,7 +121,7 @@ func newSSHNativeProbeModule() *sshNativeProbeModule {
 			},
 			Produces: []engine.DataContractEntry{
 				{
-					Key:          "service.ssh.details",
+					Key:          outputKey,
 					DataTypeName: "scan.SSHServiceInfo",
 					Cardinality:  engine.CardinalityList,
 					Description:  "Structured SSH native probe output per target and port.",
@@ -161,6 +161,16 @@ func newSSHNativeProbeModule() *sshNativeProbeModule {
 		},
 		options: defaultSSHProbeOptions(),
 	}
+}
+
+func newSSHNativeProbeModule() *sshNativeProbeModule {
+	return newSSHNativeProbeModuleWithSpec(
+		sshNativeProbeModuleID,
+		sshNativeProbeModuleName,
+		sshNativeProbeModuleDescription,
+		"service.ssh.details",
+		[]string{"scan", "ssh", "enrichment", "native_probe"},
+	)
 }
 
 func (m *sshNativeProbeModule) Metadata() engine.ModuleMetadata {

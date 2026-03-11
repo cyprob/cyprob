@@ -8,7 +8,6 @@ import (
 	"net"
 	"slices"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -42,6 +41,7 @@ type scanDebugPayload struct {
 	ResolvedTargets []scanDebugResolvedTarget          `json:"resolved_targets"`
 	OpenPorts       []discovery.TCPPortDiscoveryResult `json:"open_ports"`
 	Banners         []scanpkg.BannerGrabResult         `json:"banners"`
+	HTTPDetails     []parsepkg.HTTPParsedInfo          `json:"http_details,omitempty"`
 	Fingerprints    []parsepkg.FingerprintParsedInfo   `json:"fingerprints"`
 	TechTags        []parsepkg.TechTagResult           `json:"tech_tags"`
 	SMTPDetails     []scanpkg.SMTPServiceInfo          `json:"smtp_details"`
@@ -51,6 +51,7 @@ type scanDebugPayload struct {
 	RDPDetails      []scanpkg.RDPServiceInfo           `json:"rdp_details"`
 	TLSDetails      []scanpkg.TLSServiceInfo           `json:"tls_details"`
 	SMBDetails      []scanpkg.SMBServiceInfo           `json:"smb_details"`
+	AssetProfiles   []engine.AssetProfile              `json:"asset_profiles,omitempty"`
 	ServiceIdentity []parsepkg.ServiceIdentityInfo     `json:"service_identity"`
 	Steps           []scanDebugStep                    `json:"steps"`
 }
@@ -108,9 +109,11 @@ func runScanDebugTarget(cmd *cobra.Command, target string, opts scanDebugTargetO
 		"rdp-native-probe",
 		"tls-native-probe",
 		"smb-native-probe",
+		"http-parser",
 		"fingerprint-parser",
 		"tech-tagger",
 		"service-identity-normalizer",
+		"asset-profile-builder",
 	)
 
 	resolved, resolveErr := resolveDebugTargets(target)
@@ -136,59 +139,72 @@ func runScanDebugTarget(cmd *cobra.Command, target string, opts scanDebugTargetO
 	if err != nil {
 		return err
 	}
-	banners, err := runDebugBannerGrabStage(ctx, target, opts, steps, openPorts)
+	banners, err := runDebugBannerGrabStageWithModule(ctx, target, opts, steps, openPorts, "scan_debug_banner_grabber", "banner-grabber", "banner-grabber")
 	if err != nil {
 		return err
 	}
-	smtpDetails, err := runDebugSMTPNativeProbeStage(ctx, opts, steps, openPorts, banners)
+	smtpDetails, err := runDebugSMTPNativeProbeStageWithModule(ctx, opts, steps, openPorts, banners, "scan_debug_smtp_native_probe", "smtp-native-probe", "smtp-native-probe")
 	if err != nil {
 		return err
 	}
-	sshDetails, err := runDebugSSHNativeProbeStage(ctx, opts, steps, openPorts, banners)
+	sshDetails, err := runDebugSSHNativeProbeStageWithModule(ctx, opts, steps, openPorts, banners, "scan_debug_ssh_native_probe", "ssh-native-probe", "ssh-native-probe")
 	if err != nil {
 		return err
 	}
-	rpcEpmapper, err := runDebugRPCEpmapperStage(ctx, opts, steps, openPorts)
+	rpcEpmapper, err := runDebugRPCEpmapperStageWithModule(ctx, opts, steps, openPorts, "scan_debug_rpc_epmapper_probe", "rpc-epmapper-probe", "rpc-epmapper-probe")
 	if err != nil {
 		return err
 	}
-	rpcDetails, err := runDebugRPCFollowupStage(ctx, opts, steps, rpcEpmapper)
+	rpcDetails, err := runDebugRPCFollowupStageWithModule(ctx, opts, steps, rpcEpmapper, "scan_debug_rpc_followup_probe", "rpc-followup-probe", "rpc-followup-probe")
 	if err != nil {
 		return err
 	}
-	rdpDetails, err := runDebugRDPNativeProbeStage(ctx, opts, steps, openPorts, nil)
+	rdpDetails, err := runDebugRDPNativeProbeStageWithModule(ctx, opts, steps, openPorts, nil, "scan_debug_rdp_native_probe", "rdp-native-probe", "rdp-native-probe")
 	if err != nil {
 		return err
 	}
-	tlsDetails, err := runDebugTLSNativeProbeStage(ctx, opts, steps, openPorts)
+	tlsDetails, err := runDebugTLSNativeProbeStageWithModule(ctx, opts, steps, openPorts, banners, "scan_debug_tls_native_probe", "tls-native-probe", "tls-native-probe")
 	if err != nil {
 		return err
 	}
-	smbDetails, err := runDebugSMBNativeProbeStage(ctx, opts, steps, openPorts, nil)
+	smbDetails, err := runDebugSMBNativeProbeStageWithModule(ctx, opts, steps, openPorts, nil, "scan_debug_smb_native_probe", "smb-native-probe", "smb-native-probe")
 	if err != nil {
 		return err
 	}
-	fingerprints, err := runDebugFingerprintStage(ctx, steps, banners)
+	httpDetails, err := runDebugHTTPStageWithModule(ctx, steps, banners, "scan_debug_http_parser", "http-parser", "http-parser")
 	if err != nil {
 		return err
 	}
-	techTags, err := runDebugTechTagStage(ctx, steps, banners, fingerprints)
+	fingerprints, err := runDebugFingerprintStageWithModule(ctx, steps, banners, "scan_debug_fingerprint_parser", "fingerprint-parser", "fingerprint-parser")
 	if err != nil {
 		return err
 	}
-	serviceIdentity, err := runDebugServiceIdentityStage(
-		ctx,
-		steps,
-		banners,
-		fingerprints,
-		techTags,
-		smtpDetails,
-		sshDetails,
-		smbDetails,
-		rdpDetails,
-		rpcDetails,
-		tlsDetails,
-	)
+	techTags, err := runDebugTechTagStageWithModule(ctx, steps, banners, httpDetails, fingerprints, "scan_debug_tech_tagger", "tech-tagger", "tech-tagger")
+	if err != nil {
+		return err
+	}
+	pipelineInputs := map[string]any{
+		"config.targets":              []string{target},
+		"discovery.open_tcp_ports":    toAnySlice(openPorts),
+		"service.banner.tcp":          toAnySlice(banners),
+		"service.http.details":        toAnySlice(httpDetails),
+		"service.fingerprint.details": toAnySlice(fingerprints),
+		"service.tech.tags":           toAnySlice(techTags),
+		"service.smtp.details":        toAnySlice(smtpDetails),
+		"service.ssh.details":         toAnySlice(sshDetails),
+		"service.rpc.epmapper":        toAnySlice(rpcEpmapper),
+		"service.rpc.details":         toAnySlice(rpcDetails),
+		"service.rdp.details":         toAnySlice(rdpDetails),
+		"service.tls.details":         toAnySlice(tlsDetails),
+		"service.smb.details":         toAnySlice(smbDetails),
+	}
+
+	serviceIdentity, err := runDebugServiceIdentityStage(ctx, steps, pipelineInputs)
+	if err != nil {
+		return err
+	}
+	pipelineInputs["service.identity.details"] = toAnySlice(serviceIdentity)
+	assetProfiles, err := runDebugAssetProfileStage(ctx, steps, pipelineInputs)
 	if err != nil {
 		return err
 	}
@@ -198,6 +214,7 @@ func runScanDebugTarget(cmd *cobra.Command, target string, opts scanDebugTargetO
 		ResolvedTargets: resolved,
 		OpenPorts:       openPorts,
 		Banners:         banners,
+		HTTPDetails:     httpDetails,
 		Fingerprints:    fingerprints,
 		TechTags:        techTags,
 		SMTPDetails:     smtpDetails,
@@ -207,6 +224,7 @@ func runScanDebugTarget(cmd *cobra.Command, target string, opts scanDebugTargetO
 		RDPDetails:      rdpDetails,
 		TLSDetails:      tlsDetails,
 		SMBDetails:      smbDetails,
+		AssetProfiles:   assetProfiles,
 		ServiceIdentity: serviceIdentity,
 		Steps:           steps.values(),
 	}
@@ -268,15 +286,28 @@ func runDebugBannerGrabStage(
 	steps *scanDebugStepCollection,
 	openPorts []discovery.TCPPortDiscoveryResult,
 ) ([]scanpkg.BannerGrabResult, error) {
+	return runDebugBannerGrabStageWithModule(ctx, target, opts, steps, openPorts, "scan_debug_banner_grabber", "banner-grabber", "banner-grabber")
+}
+
+func runDebugBannerGrabStageWithModule(
+	ctx context.Context,
+	target string,
+	opts scanDebugTargetOptions,
+	steps *scanDebugStepCollection,
+	openPorts []discovery.TCPPortDiscoveryResult,
+	instanceID string,
+	moduleType string,
+	stepName string,
+) ([]scanpkg.BannerGrabResult, error) {
 	bannerCfg := map[string]any{}
 	if opts.Timeout != "" {
 		bannerCfg["read_timeout"] = opts.Timeout
 		bannerCfg["connect_timeout"] = opts.Timeout
 	}
 
-	bannerModule, err := engine.GetModuleInstance("scan_debug_banner_grabber", "banner-grabber", bannerCfg)
+	bannerModule, err := engine.GetModuleInstance(instanceID, moduleType, bannerCfg)
 	if err != nil {
-		return nil, fmt.Errorf("create banner-grabber module: %w", err)
+		return nil, fmt.Errorf("create %s module: %w", moduleType, err)
 	}
 
 	bannerInputs := map[string]any{
@@ -285,14 +316,14 @@ func runDebugBannerGrabStage(
 	}
 	bannerOutputs, bannerExecErr := executeDebugModule(ctx, bannerModule, bannerInputs)
 	if bannerExecErr != nil {
-		steps.addError("banner-grabber", bannerExecErr.Error())
+		steps.addError(stepName, bannerExecErr.Error())
 	}
-	steps.addErrors("banner-grabber", collectOutputErrors(bannerOutputs))
+	steps.addErrors(stepName, collectOutputErrors(bannerOutputs))
 	banners := collectBannerResults(bannerOutputs)
 	if len(banners) == 0 {
-		steps.addWarning("banner-grabber", "no banners captured")
+		steps.addWarning(stepName, "no banners captured")
 	}
-	steps.addWarnings("banner-grabber", bannerWarnings(banners))
+	steps.addWarnings(stepName, bannerWarnings(banners))
 	return banners, nil
 }
 
@@ -302,6 +333,18 @@ func runDebugRPCEpmapperStage(
 	steps *scanDebugStepCollection,
 	openPorts []discovery.TCPPortDiscoveryResult,
 ) ([]scanpkg.RPCEpmapperInfo, error) {
+	return runDebugRPCEpmapperStageWithModule(ctx, opts, steps, openPorts, "scan_debug_rpc_epmapper_probe", "rpc-epmapper-probe", "rpc-epmapper-probe")
+}
+
+func runDebugRPCEpmapperStageWithModule(
+	ctx context.Context,
+	opts scanDebugTargetOptions,
+	steps *scanDebugStepCollection,
+	openPorts []discovery.TCPPortDiscoveryResult,
+	instanceID string,
+	moduleType string,
+	stepName string,
+) ([]scanpkg.RPCEpmapperInfo, error) {
 	rpcConfig := map[string]any{}
 	if opts.Timeout != "" {
 		rpcConfig["timeout"] = opts.Timeout
@@ -309,21 +352,21 @@ func runDebugRPCEpmapperStage(
 		rpcConfig["io_timeout"] = opts.Timeout
 	}
 
-	rpcModule, err := engine.GetModuleInstance("scan_debug_rpc_epmapper_probe", "rpc-epmapper-probe", rpcConfig)
+	rpcModule, err := engine.GetModuleInstance(instanceID, moduleType, rpcConfig)
 	if err != nil {
-		return nil, fmt.Errorf("create rpc-epmapper-probe module: %w", err)
+		return nil, fmt.Errorf("create %s module: %w", moduleType, err)
 	}
 
 	rpcOutputs, rpcExecErr := executeDebugModule(ctx, rpcModule, map[string]any{
 		"discovery.open_tcp_ports": toAnySlice(openPorts),
 	})
 	if rpcExecErr != nil {
-		steps.addError("rpc-epmapper-probe", rpcExecErr.Error())
+		steps.addError(stepName, rpcExecErr.Error())
 	}
-	steps.addErrors("rpc-epmapper-probe", collectOutputErrors(rpcOutputs))
+	steps.addErrors(stepName, collectOutputErrors(rpcOutputs))
 	results := collectRPCEpmapperResults(rpcOutputs)
 	if len(results) == 0 {
-		steps.addWarning("rpc-epmapper-probe", "no rpc epmapper metadata generated")
+		steps.addWarning(stepName, "no rpc epmapper metadata generated")
 	}
 	return results, nil
 }
@@ -335,6 +378,19 @@ func runDebugSMTPNativeProbeStage(
 	openPorts []discovery.TCPPortDiscoveryResult,
 	banners []scanpkg.BannerGrabResult,
 ) ([]scanpkg.SMTPServiceInfo, error) {
+	return runDebugSMTPNativeProbeStageWithModule(ctx, opts, steps, openPorts, banners, "scan_debug_smtp_native_probe", "smtp-native-probe", "smtp-native-probe")
+}
+
+func runDebugSMTPNativeProbeStageWithModule(
+	ctx context.Context,
+	opts scanDebugTargetOptions,
+	steps *scanDebugStepCollection,
+	openPorts []discovery.TCPPortDiscoveryResult,
+	banners []scanpkg.BannerGrabResult,
+	instanceID string,
+	moduleType string,
+	stepName string,
+) ([]scanpkg.SMTPServiceInfo, error) {
 	smtpConfig := map[string]any{}
 	if opts.Timeout != "" {
 		smtpConfig["timeout"] = opts.Timeout
@@ -342,23 +398,10 @@ func runDebugSMTPNativeProbeStage(
 		smtpConfig["io_timeout"] = opts.Timeout
 		smtpConfig["retries"] = 0
 	}
-	if strings.TrimSpace(opts.Ports) != "" {
-		candidatePorts := make([]int, 0, 4)
-		for _, item := range splitAndTrim(opts.Ports) {
-			port, convErr := strconv.Atoi(item)
-			if convErr != nil || port <= 0 || port > 65535 {
-				continue
-			}
-			candidatePorts = append(candidatePorts, port)
-		}
-		if len(candidatePorts) > 0 {
-			smtpConfig["candidate_ports"] = candidatePorts
-		}
-	}
 
-	smtpModule, err := engine.GetModuleInstance("scan_debug_smtp_native_probe", "smtp-native-probe", smtpConfig)
+	smtpModule, err := engine.GetModuleInstance(instanceID, moduleType, smtpConfig)
 	if err != nil {
-		return nil, fmt.Errorf("create smtp-native-probe module: %w", err)
+		return nil, fmt.Errorf("create %s module: %w", moduleType, err)
 	}
 
 	smtpOutputs, smtpExecErr := executeDebugModule(ctx, smtpModule, map[string]any{
@@ -366,12 +409,16 @@ func runDebugSMTPNativeProbeStage(
 		"service.banner.tcp":       toAnySlice(banners),
 	})
 	if smtpExecErr != nil {
-		steps.addError("smtp-native-probe", smtpExecErr.Error())
+		steps.addError(stepName, smtpExecErr.Error())
 	}
-	steps.addErrors("smtp-native-probe", collectOutputErrors(smtpOutputs))
+	steps.addErrors(stepName, collectOutputErrors(smtpOutputs))
 	results := collectSMTPDetailsResults(smtpOutputs)
 	if len(results) == 0 {
-		steps.addWarning("smtp-native-probe", "no smtp metadata generated")
+		if reason := debugSMTPCandidateWarning(openPorts, banners); reason != "" {
+			steps.addWarning(stepName, reason)
+		} else {
+			steps.addWarning(stepName, "no smtp metadata generated")
+		}
 	}
 	return results, nil
 }
@@ -383,6 +430,19 @@ func runDebugSSHNativeProbeStage(
 	openPorts []discovery.TCPPortDiscoveryResult,
 	banners []scanpkg.BannerGrabResult,
 ) ([]scanpkg.SSHServiceInfo, error) {
+	return runDebugSSHNativeProbeStageWithModule(ctx, opts, steps, openPorts, banners, "scan_debug_ssh_native_probe", "ssh-native-probe", "ssh-native-probe")
+}
+
+func runDebugSSHNativeProbeStageWithModule(
+	ctx context.Context,
+	opts scanDebugTargetOptions,
+	steps *scanDebugStepCollection,
+	openPorts []discovery.TCPPortDiscoveryResult,
+	banners []scanpkg.BannerGrabResult,
+	instanceID string,
+	moduleType string,
+	stepName string,
+) ([]scanpkg.SSHServiceInfo, error) {
 	sshConfig := map[string]any{}
 	if opts.Timeout != "" {
 		sshConfig["timeout"] = opts.Timeout
@@ -390,23 +450,10 @@ func runDebugSSHNativeProbeStage(
 		sshConfig["io_timeout"] = opts.Timeout
 		sshConfig["retries"] = 0
 	}
-	if strings.TrimSpace(opts.Ports) != "" {
-		candidatePorts := make([]int, 0, 4)
-		for _, item := range splitAndTrim(opts.Ports) {
-			port, convErr := strconv.Atoi(item)
-			if convErr != nil || port <= 0 || port > 65535 {
-				continue
-			}
-			candidatePorts = append(candidatePorts, port)
-		}
-		if len(candidatePorts) > 0 {
-			sshConfig["candidate_ports"] = candidatePorts
-		}
-	}
 
-	sshModule, err := engine.GetModuleInstance("scan_debug_ssh_native_probe", "ssh-native-probe", sshConfig)
+	sshModule, err := engine.GetModuleInstance(instanceID, moduleType, sshConfig)
 	if err != nil {
-		return nil, fmt.Errorf("create ssh-native-probe module: %w", err)
+		return nil, fmt.Errorf("create %s module: %w", moduleType, err)
 	}
 
 	sshOutputs, sshExecErr := executeDebugModule(ctx, sshModule, map[string]any{
@@ -414,12 +461,16 @@ func runDebugSSHNativeProbeStage(
 		"service.banner.tcp":       toAnySlice(banners),
 	})
 	if sshExecErr != nil {
-		steps.addError("ssh-native-probe", sshExecErr.Error())
+		steps.addError(stepName, sshExecErr.Error())
 	}
-	steps.addErrors("ssh-native-probe", collectOutputErrors(sshOutputs))
+	steps.addErrors(stepName, collectOutputErrors(sshOutputs))
 	results := collectSSHDetailsResults(sshOutputs)
 	if len(results) == 0 {
-		steps.addWarning("ssh-native-probe", "no ssh metadata generated")
+		if reason := debugSSHCandidateWarning(openPorts, banners); reason != "" {
+			steps.addWarning(stepName, reason)
+		} else {
+			steps.addWarning(stepName, "no ssh metadata generated")
+		}
 	}
 	return results, nil
 }
@@ -430,6 +481,18 @@ func runDebugRPCFollowupStage(
 	steps *scanDebugStepCollection,
 	rpcEpmapper []scanpkg.RPCEpmapperInfo,
 ) ([]scanpkg.RPCServiceInfo, error) {
+	return runDebugRPCFollowupStageWithModule(ctx, opts, steps, rpcEpmapper, "scan_debug_rpc_followup_probe", "rpc-followup-probe", "rpc-followup-probe")
+}
+
+func runDebugRPCFollowupStageWithModule(
+	ctx context.Context,
+	opts scanDebugTargetOptions,
+	steps *scanDebugStepCollection,
+	rpcEpmapper []scanpkg.RPCEpmapperInfo,
+	instanceID string,
+	moduleType string,
+	stepName string,
+) ([]scanpkg.RPCServiceInfo, error) {
 	rpcConfig := map[string]any{}
 	if opts.Timeout != "" {
 		rpcConfig["host_total_timeout"] = opts.Timeout
@@ -438,23 +501,66 @@ func runDebugRPCFollowupStage(
 		rpcConfig["io_timeout"] = opts.Timeout
 	}
 
-	rpcModule, err := engine.GetModuleInstance("scan_debug_rpc_followup_probe", "rpc-followup-probe", rpcConfig)
+	rpcModule, err := engine.GetModuleInstance(instanceID, moduleType, rpcConfig)
 	if err != nil {
-		return nil, fmt.Errorf("create rpc-followup-probe module: %w", err)
+		return nil, fmt.Errorf("create %s module: %w", moduleType, err)
 	}
 
+	consumeKey := "service.rpc.epmapper"
+	if consumes := rpcModule.Metadata().Consumes; len(consumes) > 0 && strings.TrimSpace(consumes[0].Key) != "" {
+		consumeKey = consumes[0].Key
+	}
 	rpcOutputs, rpcExecErr := executeDebugModule(ctx, rpcModule, map[string]any{
-		"service.rpc.epmapper": toAnySlice(rpcEpmapper),
+		consumeKey: toAnySlice(rpcEpmapper),
 	})
 	if rpcExecErr != nil {
-		steps.addError("rpc-followup-probe", rpcExecErr.Error())
+		steps.addError(stepName, rpcExecErr.Error())
 	}
-	steps.addErrors("rpc-followup-probe", collectOutputErrors(rpcOutputs))
+	steps.addErrors(stepName, collectOutputErrors(rpcOutputs))
 	results := collectRPCDetailsResults(rpcOutputs)
 	if len(results) == 0 {
-		steps.addWarning("rpc-followup-probe", "no rpc follow-up metadata generated")
+		steps.addWarning(stepName, "no rpc follow-up metadata generated")
 	}
 	return results, nil
+}
+
+func runDebugHTTPStage(
+	ctx context.Context,
+	steps *scanDebugStepCollection,
+	banners []scanpkg.BannerGrabResult,
+) ([]parsepkg.HTTPParsedInfo, error) {
+	return runDebugHTTPStageWithModule(ctx, steps, banners, "scan_debug_http_parser", "http-parser", "http-parser")
+}
+
+func runDebugHTTPStageWithModule(
+	ctx context.Context,
+	steps *scanDebugStepCollection,
+	banners []scanpkg.BannerGrabResult,
+	instanceID string,
+	moduleType string,
+	stepName string,
+) ([]parsepkg.HTTPParsedInfo, error) {
+	httpModule, err := engine.GetModuleInstance(instanceID, moduleType, map[string]any{})
+	if err != nil {
+		return nil, fmt.Errorf("create %s module: %w", moduleType, err)
+	}
+
+	inputKey := "service.banner.tcp"
+	if consumes := httpModule.Metadata().Consumes; len(consumes) > 0 && strings.TrimSpace(consumes[0].Key) != "" {
+		inputKey = consumes[0].Key
+	}
+	httpOutputs, httpExecErr := executeDebugModule(ctx, httpModule, map[string]any{
+		inputKey: toAnySlice(banners),
+	})
+	if httpExecErr != nil {
+		steps.addError(stepName, httpExecErr.Error())
+	}
+	steps.addErrors(stepName, collectOutputErrors(httpOutputs))
+	httpDetails := collectHTTPDetailsResults(httpOutputs)
+	if len(httpDetails) == 0 {
+		steps.addWarning(stepName, "no http details generated")
+	}
+	return httpDetails, nil
 }
 
 func runDebugFingerprintStage(
@@ -462,21 +568,36 @@ func runDebugFingerprintStage(
 	steps *scanDebugStepCollection,
 	banners []scanpkg.BannerGrabResult,
 ) ([]parsepkg.FingerprintParsedInfo, error) {
-	fingerprintModule, err := engine.GetModuleInstance("scan_debug_fingerprint_parser", "fingerprint-parser", map[string]any{})
+	return runDebugFingerprintStageWithModule(ctx, steps, banners, "scan_debug_fingerprint_parser", "fingerprint-parser", "fingerprint-parser")
+}
+
+func runDebugFingerprintStageWithModule(
+	ctx context.Context,
+	steps *scanDebugStepCollection,
+	banners []scanpkg.BannerGrabResult,
+	instanceID string,
+	moduleType string,
+	stepName string,
+) ([]parsepkg.FingerprintParsedInfo, error) {
+	fingerprintModule, err := engine.GetModuleInstance(instanceID, moduleType, map[string]any{})
 	if err != nil {
-		return nil, fmt.Errorf("create fingerprint-parser module: %w", err)
+		return nil, fmt.Errorf("create %s module: %w", moduleType, err)
 	}
 
+	inputKey := "service.banner.tcp"
+	if consumes := fingerprintModule.Metadata().Consumes; len(consumes) > 0 && strings.TrimSpace(consumes[0].Key) != "" {
+		inputKey = consumes[0].Key
+	}
 	fingerprintOutputs, fingerprintExecErr := executeDebugModule(ctx, fingerprintModule, map[string]any{
-		"service.banner.tcp": toAnySlice(banners),
+		inputKey: toAnySlice(banners),
 	})
 	if fingerprintExecErr != nil {
-		steps.addError("fingerprint-parser", fingerprintExecErr.Error())
+		steps.addError(stepName, fingerprintExecErr.Error())
 	}
-	steps.addErrors("fingerprint-parser", collectOutputErrors(fingerprintOutputs))
+	steps.addErrors(stepName, collectOutputErrors(fingerprintOutputs))
 	fingerprints := collectFingerprintResults(fingerprintOutputs)
 	if len(fingerprints) == 0 {
-		steps.addWarning("fingerprint-parser", "no fingerprint matches")
+		steps.addWarning(stepName, "no fingerprint matches")
 	}
 	return fingerprints, nil
 }
@@ -485,24 +606,45 @@ func runDebugTechTagStage(
 	ctx context.Context,
 	steps *scanDebugStepCollection,
 	banners []scanpkg.BannerGrabResult,
+	httpDetails []parsepkg.HTTPParsedInfo,
 	fingerprints []parsepkg.FingerprintParsedInfo,
 ) ([]parsepkg.TechTagResult, error) {
-	techModule, err := engine.GetModuleInstance("scan_debug_tech_tagger", "tech-tagger", map[string]any{})
+	return runDebugTechTagStageWithModule(ctx, steps, banners, httpDetails, fingerprints, "scan_debug_tech_tagger", "tech-tagger", "tech-tagger")
+}
+
+func runDebugTechTagStageWithModule(
+	ctx context.Context,
+	steps *scanDebugStepCollection,
+	banners []scanpkg.BannerGrabResult,
+	httpDetails []parsepkg.HTTPParsedInfo,
+	fingerprints []parsepkg.FingerprintParsedInfo,
+	instanceID string,
+	moduleType string,
+	stepName string,
+) ([]parsepkg.TechTagResult, error) {
+	techModule, err := engine.GetModuleInstance(instanceID, moduleType, map[string]any{})
 	if err != nil {
-		return nil, fmt.Errorf("create tech-tagger module: %w", err)
+		return nil, fmt.Errorf("create %s module: %w", moduleType, err)
 	}
 
-	techOutputs, techExecErr := executeDebugModule(ctx, techModule, map[string]any{
-		"service.banner.tcp":          toAnySlice(banners),
-		"service.fingerprint.details": toAnySlice(fingerprints),
-	})
-	if techExecErr != nil {
-		steps.addError("tech-tagger", techExecErr.Error())
+	inputs := map[string]any{}
+	if consumes := techModule.Metadata().Consumes; len(consumes) >= 3 {
+		inputs[consumes[0].Key] = toAnySlice(fingerprints)
+		inputs[consumes[1].Key] = toAnySlice(httpDetails)
+		inputs[consumes[2].Key] = toAnySlice(banners)
+	} else {
+		inputs["service.banner.tcp"] = toAnySlice(banners)
+		inputs["service.http.details"] = toAnySlice(httpDetails)
+		inputs["service.fingerprint.details"] = toAnySlice(fingerprints)
 	}
-	steps.addErrors("tech-tagger", collectOutputErrors(techOutputs))
+	techOutputs, techExecErr := executeDebugModule(ctx, techModule, inputs)
+	if techExecErr != nil {
+		steps.addError(stepName, techExecErr.Error())
+	}
+	steps.addErrors(stepName, collectOutputErrors(techOutputs))
 	techTags := collectTechTagResults(techOutputs)
 	if len(techTags) == 0 {
-		steps.addWarning("tech-tagger", "no tech tags generated")
+		steps.addWarning(stepName, "no tech tags generated")
 	}
 	return techTags, nil
 }
@@ -514,6 +656,19 @@ func runDebugSMBNativeProbeStage(
 	openPorts []discovery.TCPPortDiscoveryResult,
 	banners []scanpkg.BannerGrabResult,
 ) ([]scanpkg.SMBServiceInfo, error) {
+	return runDebugSMBNativeProbeStageWithModule(ctx, opts, steps, openPorts, banners, "scan_debug_smb_native_probe", "smb-native-probe", "smb-native-probe")
+}
+
+func runDebugSMBNativeProbeStageWithModule(
+	ctx context.Context,
+	opts scanDebugTargetOptions,
+	steps *scanDebugStepCollection,
+	openPorts []discovery.TCPPortDiscoveryResult,
+	banners []scanpkg.BannerGrabResult,
+	instanceID string,
+	moduleType string,
+	stepName string,
+) ([]scanpkg.SMBServiceInfo, error) {
 	smbConfig := map[string]any{}
 	if opts.Timeout != "" {
 		smbConfig["timeout"] = opts.Timeout
@@ -522,9 +677,9 @@ func runDebugSMBNativeProbeStage(
 		smbConfig["retries"] = 1
 	}
 
-	smbModule, err := engine.GetModuleInstance("scan_debug_smb_native_probe", "smb-native-probe", smbConfig)
+	smbModule, err := engine.GetModuleInstance(instanceID, moduleType, smbConfig)
 	if err != nil {
-		return nil, fmt.Errorf("create smb-native-probe module: %w", err)
+		return nil, fmt.Errorf("create %s module: %w", moduleType, err)
 	}
 
 	smbOutputs, smbExecErr := executeDebugModule(ctx, smbModule, map[string]any{
@@ -532,12 +687,12 @@ func runDebugSMBNativeProbeStage(
 		"service.banner.tcp":       toAnySlice(banners),
 	})
 	if smbExecErr != nil {
-		steps.addError("smb-native-probe", smbExecErr.Error())
+		steps.addError(stepName, smbExecErr.Error())
 	}
-	steps.addErrors("smb-native-probe", collectOutputErrors(smbOutputs))
+	steps.addErrors(stepName, collectOutputErrors(smbOutputs))
 	smbDetails := collectSMBDetailsResults(smbOutputs)
 	if len(smbDetails) == 0 {
-		steps.addWarning("smb-native-probe", "no smb metadata generated")
+		steps.addWarning(stepName, "no smb metadata generated")
 	}
 	return smbDetails, nil
 }
@@ -549,6 +704,19 @@ func runDebugRDPNativeProbeStage(
 	openPorts []discovery.TCPPortDiscoveryResult,
 	banners []scanpkg.BannerGrabResult,
 ) ([]scanpkg.RDPServiceInfo, error) {
+	return runDebugRDPNativeProbeStageWithModule(ctx, opts, steps, openPorts, banners, "scan_debug_rdp_native_probe", "rdp-native-probe", "rdp-native-probe")
+}
+
+func runDebugRDPNativeProbeStageWithModule(
+	ctx context.Context,
+	opts scanDebugTargetOptions,
+	steps *scanDebugStepCollection,
+	openPorts []discovery.TCPPortDiscoveryResult,
+	banners []scanpkg.BannerGrabResult,
+	instanceID string,
+	moduleType string,
+	stepName string,
+) ([]scanpkg.RDPServiceInfo, error) {
 	rdpConfig := map[string]any{}
 	if opts.Timeout != "" {
 		rdpConfig["timeout"] = opts.Timeout
@@ -557,9 +725,9 @@ func runDebugRDPNativeProbeStage(
 		rdpConfig["retries"] = 0
 	}
 
-	rdpModule, err := engine.GetModuleInstance("scan_debug_rdp_native_probe", "rdp-native-probe", rdpConfig)
+	rdpModule, err := engine.GetModuleInstance(instanceID, moduleType, rdpConfig)
 	if err != nil {
-		return nil, fmt.Errorf("create rdp-native-probe module: %w", err)
+		return nil, fmt.Errorf("create %s module: %w", moduleType, err)
 	}
 
 	rdpOutputs, rdpExecErr := executeDebugModule(ctx, rdpModule, map[string]any{
@@ -567,12 +735,12 @@ func runDebugRDPNativeProbeStage(
 		"service.banner.tcp":       toAnySlice(banners),
 	})
 	if rdpExecErr != nil {
-		steps.addError("rdp-native-probe", rdpExecErr.Error())
+		steps.addError(stepName, rdpExecErr.Error())
 	}
-	steps.addErrors("rdp-native-probe", collectOutputErrors(rdpOutputs))
+	steps.addErrors(stepName, collectOutputErrors(rdpOutputs))
 	rdpDetails := collectRDPDetailsResults(rdpOutputs)
 	if len(rdpDetails) == 0 {
-		steps.addWarning("rdp-native-probe", "no rdp metadata generated")
+		steps.addWarning(stepName, "no rdp metadata generated")
 	}
 	return rdpDetails, nil
 }
@@ -582,6 +750,20 @@ func runDebugTLSNativeProbeStage(
 	opts scanDebugTargetOptions,
 	steps *scanDebugStepCollection,
 	openPorts []discovery.TCPPortDiscoveryResult,
+	banners []scanpkg.BannerGrabResult,
+) ([]scanpkg.TLSServiceInfo, error) {
+	return runDebugTLSNativeProbeStageWithModule(ctx, opts, steps, openPorts, banners, "scan_debug_tls_native_probe", "tls-native-probe", "tls-native-probe")
+}
+
+func runDebugTLSNativeProbeStageWithModule(
+	ctx context.Context,
+	opts scanDebugTargetOptions,
+	steps *scanDebugStepCollection,
+	openPorts []discovery.TCPPortDiscoveryResult,
+	banners []scanpkg.BannerGrabResult,
+	instanceID string,
+	moduleType string,
+	stepName string,
 ) ([]scanpkg.TLSServiceInfo, error) {
 	tlsConfig := map[string]any{}
 	if opts.Timeout != "" {
@@ -590,35 +772,29 @@ func runDebugTLSNativeProbeStage(
 		tlsConfig["io_timeout"] = opts.Timeout
 		tlsConfig["retries"] = 0
 	}
-	if strings.TrimSpace(opts.Ports) != "" {
-		ports := splitAndTrim(opts.Ports)
-		extraPorts := make([]int, 0, len(ports))
-		for _, portText := range ports {
-			port, convErr := strconv.Atoi(strings.TrimSpace(portText))
-			if convErr == nil && port > 0 && port <= 65535 {
-				extraPorts = append(extraPorts, port)
-			}
-		}
-		if len(extraPorts) > 0 {
-			tlsConfig["extra_ports"] = extraPorts
-		}
+	if extraPorts := debugTLSExtraPortsFromBanners(banners); len(extraPorts) > 0 {
+		tlsConfig["extra_ports"] = extraPorts
 	}
 
-	tlsModule, err := engine.GetModuleInstance("scan_debug_tls_native_probe", "tls-native-probe", tlsConfig)
+	tlsModule, err := engine.GetModuleInstance(instanceID, moduleType, tlsConfig)
 	if err != nil {
-		return nil, fmt.Errorf("create tls-native-probe module: %w", err)
+		return nil, fmt.Errorf("create %s module: %w", moduleType, err)
 	}
 
 	tlsOutputs, tlsExecErr := executeDebugModule(ctx, tlsModule, map[string]any{
 		"discovery.open_tcp_ports": toAnySlice(openPorts),
 	})
 	if tlsExecErr != nil {
-		steps.addError("tls-native-probe", tlsExecErr.Error())
+		steps.addError(stepName, tlsExecErr.Error())
 	}
-	steps.addErrors("tls-native-probe", collectOutputErrors(tlsOutputs))
+	steps.addErrors(stepName, collectOutputErrors(tlsOutputs))
 	tlsDetails := collectTLSDetailsResults(tlsOutputs)
 	if len(tlsDetails) == 0 {
-		steps.addWarning("tls-native-probe", "no tls metadata generated")
+		if reason := debugTLSCandidateWarning(openPorts, banners); reason != "" {
+			steps.addWarning(stepName, reason)
+		} else {
+			steps.addWarning(stepName, "no tls metadata generated")
+		}
 	}
 	return tlsDetails, nil
 }
@@ -626,41 +802,209 @@ func runDebugTLSNativeProbeStage(
 func runDebugServiceIdentityStage(
 	ctx context.Context,
 	steps *scanDebugStepCollection,
-	banners []scanpkg.BannerGrabResult,
-	fingerprints []parsepkg.FingerprintParsedInfo,
-	techTags []parsepkg.TechTagResult,
-	smtpDetails []scanpkg.SMTPServiceInfo,
-	sshDetails []scanpkg.SSHServiceInfo,
-	smbDetails []scanpkg.SMBServiceInfo,
-	rdpDetails []scanpkg.RDPServiceInfo,
-	rpcDetails []scanpkg.RPCServiceInfo,
-	tlsDetails []scanpkg.TLSServiceInfo,
+	inputs map[string]any,
 ) ([]parsepkg.ServiceIdentityInfo, error) {
 	normalizerModule, err := engine.GetModuleInstance("scan_debug_service_identity_normalizer", "service-identity-normalizer", map[string]any{})
 	if err != nil {
 		return nil, fmt.Errorf("create service-identity-normalizer module: %w", err)
 	}
 
-	normalizerOutputs, normalizerExecErr := executeDebugModule(ctx, normalizerModule, map[string]any{
-		"service.banner.tcp":          toAnySlice(banners),
-		"service.fingerprint.details": toAnySlice(fingerprints),
-		"service.tech.tags":           toAnySlice(techTags),
-		"service.smtp.details":        toAnySlice(smtpDetails),
-		"service.ssh.details":         toAnySlice(sshDetails),
-		"service.smb.details":         toAnySlice(smbDetails),
-		"service.rdp.details":         toAnySlice(rdpDetails),
-		"service.rpc.details":         toAnySlice(rpcDetails),
-		"service.tls.details":         toAnySlice(tlsDetails),
-	})
+	normalizerOutputs, normalizerExecErr := executeDebugModule(ctx, normalizerModule, inputs)
 	if normalizerExecErr != nil {
 		steps.addError("service-identity-normalizer", normalizerExecErr.Error())
 	}
 	steps.addErrors("service-identity-normalizer", collectOutputErrors(normalizerOutputs))
-	serviceIdentity := collectServiceIdentityResults(normalizerOutputs)
+	serviceIdentity := collectServiceIdentityResultsByDataKey(normalizerOutputs, "service.identity.details")
 	if len(serviceIdentity) == 0 {
 		steps.addWarning("service-identity-normalizer", "no canonical service identity generated")
 	}
 	return serviceIdentity, nil
+}
+
+func runDebugAssetProfileStage(
+	ctx context.Context,
+	steps *scanDebugStepCollection,
+	inputs map[string]any,
+) ([]engine.AssetProfile, error) {
+	builderModule, err := engine.GetModuleInstance("scan_debug_asset_profile_builder", "asset-profile-builder", map[string]any{})
+	if err != nil {
+		return nil, fmt.Errorf("create asset-profile-builder module: %w", err)
+	}
+
+	builderOutputs, builderExecErr := executeDebugModule(ctx, builderModule, inputs)
+	if builderExecErr != nil {
+		steps.addError("asset-profile-builder", builderExecErr.Error())
+	}
+	steps.addErrors("asset-profile-builder", collectOutputErrors(builderOutputs))
+	profiles := collectAssetProfilesResultsByDataKey(builderOutputs, "asset.profiles")
+	if len(profiles) == 0 {
+		steps.addWarning("asset-profile-builder", "no canonical asset profiles generated")
+	}
+	return profiles, nil
+}
+
+func debugSSHCandidateWarning(openPorts []discovery.TCPPortDiscoveryResult, banners []scanpkg.BannerGrabResult) string {
+	if debugHasSSHCandidate(openPorts, banners) {
+		return ""
+	}
+	if debugHasOpenPorts(openPorts) {
+		return "non_family_port_without_banner_hint"
+	}
+	return "no_candidate"
+}
+
+func debugSMTPCandidateWarning(openPorts []discovery.TCPPortDiscoveryResult, banners []scanpkg.BannerGrabResult) string {
+	if debugHasSMTPCandidate(openPorts, banners) {
+		return ""
+	}
+	if debugHasOpenPorts(openPorts) {
+		return "non_family_port_without_banner_hint"
+	}
+	return "no_candidate"
+}
+
+func debugTLSCandidateWarning(openPorts []discovery.TCPPortDiscoveryResult, banners []scanpkg.BannerGrabResult) string {
+	if debugHasTLSCandidate(openPorts, banners) {
+		return ""
+	}
+	if debugHasOpenPorts(openPorts) {
+		return "non_family_port_without_banner_hint"
+	}
+	return "no_candidate"
+}
+
+func debugHasOpenPorts(openPorts []discovery.TCPPortDiscoveryResult) bool {
+	for _, result := range openPorts {
+		if len(result.OpenPorts) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func debugHasSSHCandidate(openPorts []discovery.TCPPortDiscoveryResult, banners []scanpkg.BannerGrabResult) bool {
+	for _, result := range openPorts {
+		if slices.Contains(result.OpenPorts, 22) {
+			return true
+		}
+	}
+	for _, banner := range banners {
+		if banner.Port == 22 || debugBannerLooksLikeSSH(banner) {
+			return true
+		}
+	}
+	return false
+}
+
+func debugHasSMTPCandidate(openPorts []discovery.TCPPortDiscoveryResult, banners []scanpkg.BannerGrabResult) bool {
+	for _, result := range openPorts {
+		for _, port := range result.OpenPorts {
+			if debugIsSMTPPort(port) {
+				return true
+			}
+		}
+	}
+	for _, banner := range banners {
+		if debugIsSMTPPort(banner.Port) || debugBannerLooksLikeSMTP(banner) {
+			return true
+		}
+	}
+	return false
+}
+
+func debugHasTLSCandidate(openPorts []discovery.TCPPortDiscoveryResult, banners []scanpkg.BannerGrabResult) bool {
+	for _, result := range openPorts {
+		for _, port := range result.OpenPorts {
+			if debugIsTLSPort(port) {
+				return true
+			}
+		}
+	}
+	return len(debugTLSExtraPortsFromBanners(banners)) > 0
+}
+
+func debugTLSExtraPortsFromBanners(banners []scanpkg.BannerGrabResult) []int {
+	seen := map[int]struct{}{}
+	ports := make([]int, 0)
+	for _, banner := range banners {
+		if banner.Port <= 0 || debugIsTLSPort(banner.Port) {
+			continue
+		}
+		if !debugBannerLooksLikeTLS(banner) {
+			continue
+		}
+		if _, ok := seen[banner.Port]; ok {
+			continue
+		}
+		seen[banner.Port] = struct{}{}
+		ports = append(ports, banner.Port)
+	}
+	sort.Ints(ports)
+	return ports
+}
+
+func debugIsSMTPPort(port int) bool {
+	switch port {
+	case 25, 465, 587, 2525:
+		return true
+	default:
+		return false
+	}
+}
+
+func debugIsTLSPort(port int) bool {
+	switch port {
+	case 443, 8443, 9443:
+		return true
+	default:
+		return false
+	}
+}
+
+func debugBannerLooksLikeSSH(banner scanpkg.BannerGrabResult) bool {
+	return debugContainsAnyHint(banner.Protocol, "ssh") ||
+		debugContainsAnyHint(banner.Banner, "ssh") ||
+		debugEvidenceLooksLike(banner.Evidence, []string{"ssh"})
+}
+
+func debugBannerLooksLikeSMTP(banner scanpkg.BannerGrabResult) bool {
+	return debugContainsAnyHint(banner.Protocol, "smtp", "esmtp", "submission") ||
+		debugContainsAnyHint(banner.Banner, "smtp", "esmtp", "submission") ||
+		debugEvidenceLooksLike(banner.Evidence, []string{"smtp", "esmtp", "submission"})
+}
+
+func debugBannerLooksLikeTLS(banner scanpkg.BannerGrabResult) bool {
+	if banner.IsTLS {
+		return true
+	}
+	if debugContainsAnyHint(banner.Protocol, "https", "tls", "ssl") || debugContainsAnyHint(banner.Banner, "http/", "https", "tls", "ssl", "starttls", "smtps") {
+		return true
+	}
+	return debugEvidenceLooksLike(banner.Evidence, []string{"https", "tls", "ssl", "starttls", "smtps", "http/"})
+}
+
+func debugContainsAnyHint(value string, hints ...string) bool {
+	clean := strings.ToLower(strings.TrimSpace(value))
+	if clean == "" {
+		return false
+	}
+	for _, hint := range hints {
+		if strings.Contains(clean, hint) {
+			return true
+		}
+	}
+	return false
+}
+
+func debugEvidenceLooksLike(evidence []engine.ProbeObservation, hints []string) bool {
+	for _, obs := range evidence {
+		for _, value := range []string{obs.Protocol, obs.ProbeID, obs.Description, obs.Response} {
+			if debugContainsAnyHint(value, hints...) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func executeDebugModule(ctx context.Context, module engine.Module, inputs map[string]any) ([]engine.ModuleOutput, error) {
@@ -723,6 +1067,25 @@ func collectBannerResults(outputs []engine.ModuleOutput) []scanpkg.BannerGrabRes
 			return results[i].Port < results[j].Port
 		}
 		return results[i].IP < results[j].IP
+	})
+	return results
+}
+
+func collectHTTPDetailsResults(outputs []engine.ModuleOutput) []parsepkg.HTTPParsedInfo {
+	results := make([]parsepkg.HTTPParsedInfo, 0)
+	for _, output := range outputs {
+		switch data := output.Data.(type) {
+		case parsepkg.HTTPParsedInfo:
+			results = append(results, data)
+		case []parsepkg.HTTPParsedInfo:
+			results = append(results, data...)
+		}
+	}
+	sort.Slice(results, func(i, j int) bool {
+		if results[i].Target == results[j].Target {
+			return results[i].Port < results[j].Port
+		}
+		return results[i].Target < results[j].Target
 	})
 	return results
 }
@@ -915,6 +1278,37 @@ func collectServiceIdentityResults(outputs []engine.ModuleOutput) []parsepkg.Ser
 		return results[i].Target < results[j].Target
 	})
 	return results
+}
+
+func collectServiceIdentityResultsByDataKey(outputs []engine.ModuleOutput, dataKey string) []parsepkg.ServiceIdentityInfo {
+	filtered := make([]engine.ModuleOutput, 0, len(outputs))
+	for _, output := range outputs {
+		if output.DataKey == dataKey {
+			filtered = append(filtered, output)
+		}
+	}
+	return collectServiceIdentityResults(filtered)
+}
+
+func collectAssetProfilesResultsByDataKey(outputs []engine.ModuleOutput, dataKey string) []engine.AssetProfile {
+	for _, output := range outputs {
+		if output.DataKey != dataKey {
+			continue
+		}
+		switch data := output.Data.(type) {
+		case []engine.AssetProfile:
+			return data
+		case []any:
+			results := make([]engine.AssetProfile, 0, len(data))
+			for _, item := range data {
+				if profile, ok := item.(engine.AssetProfile); ok {
+					results = append(results, profile)
+				}
+			}
+			return results
+		}
+	}
+	return nil
 }
 
 func resolveDebugTargets(target string) ([]scanDebugResolvedTarget, error) {

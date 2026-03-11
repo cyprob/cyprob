@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	scanpkg "github.com/cyprob/cyprob/pkg/modules/scan"
 	"github.com/stretchr/testify/require"
 )
 
@@ -41,6 +42,11 @@ type scanDebugTestOutput struct {
 			Error    string `json:"error"`
 		} `json:"evidence"`
 	} `json:"banners"`
+	HTTPDetails []struct {
+		Target     string `json:"target"`
+		Port       int    `json:"port"`
+		StatusCode int    `json:"status_code"`
+	} `json:"http_details"`
 	Fingerprints []struct {
 		Target  string `json:"target"`
 		Port    int    `json:"port"`
@@ -77,6 +83,9 @@ type scanDebugTestOutput struct {
 		Ciphers     []string `json:"ciphers"`
 		ProbeError  string   `json:"probe_error"`
 	} `json:"ssh_details"`
+	AssetProfiles []struct {
+		Target string `json:"target"`
+	} `json:"asset_profiles"`
 	ServiceIdentity []struct {
 		Target      string   `json:"target"`
 		Port        int      `json:"port"`
@@ -126,7 +135,9 @@ func TestScanDebugTargetJSONSmoke(t *testing.T) {
 	require.True(t, payload.SSHDetails[0].SSHProbe)
 	require.Equal(t, "2.0", payload.SSHDetails[0].SSHProtocol)
 	require.Equal(t, "OpenSSH", payload.SSHDetails[0].SSHSoftware)
+	require.Empty(t, payload.SMTPDetails)
 	require.NotEmpty(t, payload.ServiceIdentity)
+	require.NotEmpty(t, payload.AssetProfiles)
 	require.Equal(t, "ssh", payload.ServiceIdentity[0].ServiceName)
 	require.True(t, hasTag(payload.TechTags, "ssh"), "expected ssh tag in tech_tags")
 
@@ -199,6 +210,7 @@ func TestScanDebugTargetSMTPJSONSmoke(t *testing.T) {
 	var payload scanDebugTestOutput
 	require.NoError(t, json.Unmarshal(out.Bytes(), &payload))
 	require.NotEmpty(t, payload.SMTPDetails)
+	require.Empty(t, payload.SSHDetails)
 	require.True(t, payload.SMTPDetails[0].SMTPProbe)
 	require.Equal(t, "smtp", payload.SMTPDetails[0].SMTPProtocol)
 	require.True(t, payload.SMTPDetails[0].AuthSupported)
@@ -206,8 +218,19 @@ func TestScanDebugTargetSMTPJSONSmoke(t *testing.T) {
 	require.True(t, payload.SMTPDetails[0].SizeAdvertised)
 	require.Equal(t, "Postfix", payload.SMTPDetails[0].SoftwareHint)
 	require.NotEmpty(t, payload.ServiceIdentity)
+	require.NotEmpty(t, payload.AssetProfiles)
 	require.Equal(t, "smtp", payload.ServiceIdentity[0].ServiceName)
 	require.Equal(t, "Postfix", payload.ServiceIdentity[0].Product)
+}
+
+func TestDebugTLSExtraPortsFromBanners(t *testing.T) {
+	require.Empty(t, debugTLSExtraPortsFromBanners([]scanpkg.BannerGrabResult{
+		{IP: "127.0.0.1", Port: 10443, Protocol: "tcp", Banner: "HELLO"},
+	}))
+
+	require.Equal(t, []int{10443}, debugTLSExtraPortsFromBanners([]scanpkg.BannerGrabResult{
+		{IP: "127.0.0.1", Port: 10443, Protocol: "https", Banner: "HTTP/1.1 200 OK"},
+	}))
 }
 
 func startBannerTestServer(t *testing.T) (string, int, func()) {

@@ -77,16 +77,16 @@ type rdpProbeOutcome struct {
 
 var probeRDPDetailsFunc = probeRDPDetails
 
-func newRDPNativeProbeModule() *rdpNativeProbeModule {
+func newRDPNativeProbeModuleWithSpec(moduleID string, moduleName string, description string, outputKey string, tags []string) *rdpNativeProbeModule {
 	return &rdpNativeProbeModule{
 		meta: engine.ModuleMetadata{
-			ID:          rdpNativeProbeModuleID,
-			Name:        rdpNativeProbeModuleName,
-			Description: rdpNativeProbeModuleDescription,
+			ID:          moduleID,
+			Name:        moduleName,
+			Description: description,
 			Version:     "0.1.0",
 			Type:        engine.ScanModuleType,
 			Author:      "Vulntor Team",
-			Tags:        []string{"scan", "rdp", "enrichment", "native_probe"},
+			Tags:        tags,
 			Consumes: []engine.DataContractEntry{
 				{
 					Key:          "discovery.open_tcp_ports",
@@ -105,7 +105,7 @@ func newRDPNativeProbeModule() *rdpNativeProbeModule {
 			},
 			Produces: []engine.DataContractEntry{
 				{
-					Key:          "service.rdp.details",
+					Key:          outputKey,
 					DataTypeName: "scan.RDPServiceInfo",
 					Cardinality:  engine.CardinalityList,
 					Description:  "Structured RDP native probe output per target and port.",
@@ -140,6 +140,16 @@ func newRDPNativeProbeModule() *rdpNativeProbeModule {
 		},
 		options: defaultRDPProbeOptions(),
 	}
+}
+
+func newRDPNativeProbeModule() *rdpNativeProbeModule {
+	return newRDPNativeProbeModuleWithSpec(
+		rdpNativeProbeModuleID,
+		rdpNativeProbeModuleName,
+		rdpNativeProbeModuleDescription,
+		"service.rdp.details",
+		[]string{"scan", "rdp", "enrichment", "native_probe"},
+	)
 }
 
 func (m *rdpNativeProbeModule) Metadata() engine.ModuleMetadata {
@@ -214,7 +224,7 @@ func (m *rdpNativeProbeModule) Execute(ctx context.Context, inputs map[string]an
 		result := probeRDPDetailsFunc(ctx, candidate.target, candidate.port, m.options)
 		outputChan <- engine.ModuleOutput{
 			FromModuleName: m.meta.ID,
-			DataKey:        "service.rdp.details",
+			DataKey:        m.meta.Produces[0].Key,
 			Data:           result,
 			Timestamp:      time.Now(),
 			Target:         candidate.target,

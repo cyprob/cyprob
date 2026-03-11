@@ -14,6 +14,17 @@ func fakeFactory(meta ModuleMetadata) ModuleFactory {
 
 type fakeModule struct{ meta ModuleMetadata }
 
+type fakeConfigManager struct {
+	values map[string]any
+}
+
+func (f *fakeConfigManager) GetValue(key string) any {
+	if f == nil {
+		return nil
+	}
+	return f.values[key]
+}
+
 func (f *fakeModule) Metadata() ModuleMetadata          { return f.meta }
 func (f *fakeModule) Init(string, map[string]any) error { return nil }
 func (f *fakeModule) Execute(_ context.Context, _ map[string]any, _ chan<- ModuleOutput) error {

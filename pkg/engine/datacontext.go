@@ -73,7 +73,7 @@ func RegisterCommonSchema(dc *DataContext) {
 	// - discovery.open_tcp_ports (discovery.TCPPortDiscoveryResult)
 	// - service.banner.tcp (scan.BannerGrabResult)
 	// - service.http.details (parse.HTTPParsedInfo)
-	// - service.ssh.details (parse.SSHParsedInfo)
+	// - service.ssh.details (scan.SSHServiceInfo)
 	// - service.fingerprint.details (parse.FingerprintParsedInfo)
 	// - evaluation.vulnerabilities (evaluation.VulnerabilityResult)
 	// - asset.profiles ([]engine.AssetProfile)

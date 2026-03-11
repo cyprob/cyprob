@@ -88,16 +88,16 @@ type smbNativeProbeModule struct {
 
 var probeSMBDetailsFunc = probeSMBDetails
 
-func newSMBNativeProbeModule() *smbNativeProbeModule {
+func newSMBNativeProbeModuleWithSpec(moduleID string, moduleName string, description string, outputKey string, tags []string) *smbNativeProbeModule {
 	return &smbNativeProbeModule{
 		meta: engine.ModuleMetadata{
-			ID:          smbNativeProbeModuleID,
-			Name:        smbNativeProbeModuleName,
-			Description: smbNativeProbeModuleDescription,
+			ID:          moduleID,
+			Name:        moduleName,
+			Description: description,
 			Version:     "0.1.0",
 			Type:        engine.ScanModuleType,
 			Author:      "Vulntor Team",
-			Tags:        []string{"scan", "smb", "enrichment", "native_probe"},
+			Tags:        tags,
 			Consumes: []engine.DataContractEntry{
 				{
 					Key:          "discovery.open_tcp_ports",
@@ -116,7 +116,7 @@ func newSMBNativeProbeModule() *smbNativeProbeModule {
 			},
 			Produces: []engine.DataContractEntry{
 				{
-					Key:          "service.smb.details",
+					Key:          outputKey,
 					DataTypeName: "scan.SMBServiceInfo",
 					Cardinality:  engine.CardinalityList,
 					Description:  "Structured SMB native probe output per target and port.",
@@ -151,6 +151,16 @@ func newSMBNativeProbeModule() *smbNativeProbeModule {
 		},
 		options: defaultSMBProbeOptions(),
 	}
+}
+
+func newSMBNativeProbeModule() *smbNativeProbeModule {
+	return newSMBNativeProbeModuleWithSpec(
+		smbNativeProbeModuleID,
+		smbNativeProbeModuleName,
+		smbNativeProbeModuleDescription,
+		"service.smb.details",
+		[]string{"scan", "smb", "enrichment", "native_probe"},
+	)
 }
 
 func (m *smbNativeProbeModule) Metadata() engine.ModuleMetadata {
@@ -224,7 +234,7 @@ func (m *smbNativeProbeModule) Execute(ctx context.Context, inputs map[string]an
 		result := probeSMBDetailsFunc(ctx, c.target, c.port, m.options)
 		outputChan <- engine.ModuleOutput{
 			FromModuleName: m.meta.ID,
-			DataKey:        "service.smb.details",
+			DataKey:        m.meta.Produces[0].Key,
 			Data:           result,
 			Timestamp:      time.Now(),
 			Target:         c.target,

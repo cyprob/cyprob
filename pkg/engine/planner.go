@@ -75,6 +75,10 @@ func (p *DAGPlanner) initializeDataKeys(intent ScanIntent) map[string]string {
 	return availableDataKeys
 }
 
+func (p *DAGPlanner) moduleSelectedForIntent(meta ModuleMetadata, intent ScanIntent) bool {
+	return p.matchesTags(meta.Tags, intent.IncludeTags, intent.ExcludeTags)
+}
+
 // checkModuleDependencies checks if all required dependencies for a module are met.
 func (p *DAGPlanner) checkModuleDependencies(
 	meta ModuleMetadata,
@@ -271,7 +275,7 @@ func (p *DAGPlanner) selectModulesByType(
 	for name, factory := range p.moduleRegistry {
 		meta := factory().Metadata()
 		for _, mType := range moduleTypes {
-			if meta.Type == mType && p.matchesTags(meta.Tags, intent.IncludeTags, intent.ExcludeTags) {
+			if meta.Type == mType && p.moduleSelectedForIntent(meta, intent) {
 				selected = append(selected, factory)
 				p.logger.Debug().Str("module", name).Msg(logMessage)
 				break
@@ -297,7 +301,7 @@ func (p *DAGPlanner) selectQuickDiscoveryModules(intent ScanIntent) []ModuleFact
 		meta := factory().Metadata()
 		if (meta.Type == DiscoveryModuleType ||
 			(containsTag(meta.Tags, "quick") && meta.Type == ScanModuleType)) &&
-			p.matchesTags(meta.Tags, intent.IncludeTags, intent.ExcludeTags) {
+			p.moduleSelectedForIntent(meta, intent) {
 			selected = append(selected, factory)
 			p.logger.Debug().Str("module", name).Msg("Selected module for quick_discovery/light profile")
 		}
@@ -317,7 +321,7 @@ func (p *DAGPlanner) selectFullScanModules(intent ScanIntent) []ModuleFactory {
 			meta.Type == ReportingModuleType ||
 			(intent.EnableVulnChecks && meta.Type == EvaluationModuleType)
 
-		if includeModule && p.matchesTags(meta.Tags, intent.IncludeTags, intent.ExcludeTags) {
+		if includeModule && p.moduleSelectedForIntent(meta, intent) {
 			selected = append(selected, factory)
 			p.logger.Debug().Str("module", name).Msg("Selected module for full_scan/comprehensive profile")
 		}
@@ -334,7 +338,7 @@ func (p *DAGPlanner) selectDefaultModules(intent ScanIntent) []ModuleFactory {
 		meta := factory().Metadata()
 		if (meta.Type == DiscoveryModuleType || meta.Type == ScanModuleType) &&
 			!containsTag(meta.Tags, "intrusive") &&
-			p.matchesTags(meta.Tags, intent.IncludeTags, intent.ExcludeTags) {
+			p.moduleSelectedForIntent(meta, intent) {
 			selected = append(selected, factory)
 			p.logger.Debug().Str("module", name).Msg("Selected module for default profile")
 		}
@@ -345,7 +349,7 @@ func (p *DAGPlanner) selectDefaultModules(intent ScanIntent) []ModuleFactory {
 		for name, factory := range p.moduleRegistry {
 			meta := factory().Metadata()
 			if meta.Type == EvaluationModuleType &&
-				p.matchesTags(meta.Tags, intent.IncludeTags, intent.ExcludeTags) {
+				p.moduleSelectedForIntent(meta, intent) {
 				selected = append(selected, factory)
 				p.logger.Debug().Str("module", name).Msg("Selected evaluation module for vuln-enabled default profile")
 			}
@@ -392,7 +396,7 @@ func (p *DAGPlanner) addParseModules(selected []ModuleFactory, all map[string]Mo
 		if meta.Type != ParseModuleType {
 			continue
 		}
-		if !p.matchesTags(meta.Tags, intent.IncludeTags, intent.ExcludeTags) {
+		if !p.moduleSelectedForIntent(meta, intent) {
 			continue
 		}
 		selected = append(selected, factory)
@@ -416,10 +420,11 @@ func (p *DAGPlanner) ensureReporter(selected []ModuleFactory, intent ScanIntent)
 		return selected
 	}
 	for name, factory := range p.moduleRegistry {
-		if factory().Metadata().Type != ReportingModuleType {
+		meta := factory().Metadata()
+		if meta.Type != ReportingModuleType {
 			continue
 		}
-		if !p.matchesTags(factory().Metadata().Tags, intent.IncludeTags, intent.ExcludeTags) {
+		if !p.moduleSelectedForIntent(meta, intent) {
 			continue
 		}
 		selected = append(selected, factory)

@@ -110,16 +110,16 @@ type tlsProbeOutcome struct {
 
 var probeTLSDetailsFunc = probeTLSDetails
 
-func newTLSNativeProbeModule() *tlsNativeProbeModule {
+func newTLSNativeProbeModuleWithSpec(moduleID string, moduleName string, description string, outputKey string, tags []string) *tlsNativeProbeModule {
 	return &tlsNativeProbeModule{
 		meta: engine.ModuleMetadata{
-			ID:          tlsNativeProbeModuleID,
-			Name:        tlsNativeProbeModuleName,
-			Description: tlsNativeProbeModuleDescription,
+			ID:          moduleID,
+			Name:        moduleName,
+			Description: description,
 			Version:     "0.1.0",
 			Type:        engine.ScanModuleType,
 			Author:      "Vulntor Team",
-			Tags:        []string{"scan", "tls", "enrichment", "native_probe"},
+			Tags:        tags,
 			Consumes: []engine.DataContractEntry{
 				{
 					Key:          "discovery.open_tcp_ports",
@@ -138,7 +138,7 @@ func newTLSNativeProbeModule() *tlsNativeProbeModule {
 			},
 			Produces: []engine.DataContractEntry{
 				{
-					Key:          "service.tls.details",
+					Key:          outputKey,
 					DataTypeName: "scan.TLSServiceInfo",
 					Cardinality:  engine.CardinalityList,
 					Description:  "Structured TLS native probe output per target and port.",
@@ -178,6 +178,16 @@ func newTLSNativeProbeModule() *tlsNativeProbeModule {
 		},
 		options: defaultTLSProbeOptions(),
 	}
+}
+
+func newTLSNativeProbeModule() *tlsNativeProbeModule {
+	return newTLSNativeProbeModuleWithSpec(
+		tlsNativeProbeModuleID,
+		tlsNativeProbeModuleName,
+		tlsNativeProbeModuleDescription,
+		"service.tls.details",
+		[]string{"scan", "tls", "enrichment", "native_probe"},
+	)
 }
 
 func (m *tlsNativeProbeModule) Metadata() engine.ModuleMetadata {
@@ -263,7 +273,7 @@ func (m *tlsNativeProbeModule) Execute(ctx context.Context, inputs map[string]an
 		result := probeTLSDetailsFunc(ctx, c.target, c.hostname, c.port, m.options)
 		outputChan <- engine.ModuleOutput{
 			FromModuleName: m.meta.ID,
-			DataKey:        "service.tls.details",
+			DataKey:        m.meta.Produces[0].Key,
 			Data:           result,
 			Timestamp:      time.Now(),
 			Target:         c.target,

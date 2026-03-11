@@ -29,6 +29,10 @@ import (
 	"github.com/cyprob/cyprob/pkg/output"
 )
 
+const (
+	bannerGrabberModuleName = "banner-grabber"
+)
+
 // BannerGrabConfig holds configuration for the banner grabbing module.
 type BannerGrabConfig struct {
 	// Input will typically be PortStatusInfo from PortScanModule
@@ -84,7 +88,7 @@ type PortInfo struct {
 }
 
 // newBannerGrabModule is the internal constructor for the BannerGrabModule.
-func newBannerGrabModule() *BannerGrabModule {
+func newBannerGrabModuleWithSpec(moduleID string, moduleName string, description string, outputKey string, tags []string) *BannerGrabModule {
 	defaultConfig := BannerGrabConfig{
 		ReadTimeout:           10 * time.Second,
 		ConnectTimeout:        5 * time.Second,
@@ -97,13 +101,13 @@ func newBannerGrabModule() *BannerGrabModule {
 
 	return &BannerGrabModule{
 		meta: engine.ModuleMetadata{
-			ID:          "banner-grab-instance",
-			Name:        "banner-grabber",
+			ID:          moduleID,
+			Name:        moduleName,
 			Version:     "0.1.0",
-			Description: "Grabs banners from open TCP ports, attempting generic and protocol-aware probes.",
+			Description: description,
 			Type:        engine.ScanModuleType,
 			Author:      "Vulntor Team",
-			Tags:        []string{"scan", "banner", "fingerprint", "tcp"},
+			Tags:        tags,
 			Consumes: []engine.DataContractEntry{
 				{
 					Key:          "discovery.open_tcp_ports",
@@ -122,7 +126,7 @@ func newBannerGrabModule() *BannerGrabModule {
 			},
 			Produces: []engine.DataContractEntry{
 				{
-					Key:          "service.banner.tcp",
+					Key:          outputKey,
 					DataTypeName: "scan.BannerGrabResult",
 					Cardinality:  engine.CardinalityList,
 					Description:  "List of banners (or errors) captured from TCP services, one result per target/port.",
@@ -140,6 +144,16 @@ func newBannerGrabModule() *BannerGrabModule {
 		},
 		config: defaultConfig,
 	}
+}
+
+func newBannerGrabModule() *BannerGrabModule {
+	return newBannerGrabModuleWithSpec(
+		"banner-grab-instance",
+		bannerGrabberModuleName,
+		"Grabs banners from open TCP ports, attempting generic and protocol-aware probes.",
+		"service.banner.tcp",
+		[]string{"scan", "banner", "fingerprint", "tcp"},
+	)
 }
 
 // Metadata returns the module's descriptive metadata.
@@ -1791,5 +1805,5 @@ func BannerGrabModuleFactory() engine.Module {
 }
 
 func init() {
-	engine.RegisterModuleFactory("banner-grabber", BannerGrabModuleFactory)
+	engine.RegisterModuleFactory(bannerGrabberModuleName, BannerGrabModuleFactory)
 }

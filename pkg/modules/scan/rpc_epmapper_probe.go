@@ -38,21 +38,21 @@ type rpcEpmapperProbeModule struct {
 
 var probeRPCEpmapperDetailsFunc = probeRPCEpmapperDetails
 
-func newRPCEpmapperProbeModule() *rpcEpmapperProbeModule {
+func newRPCEpmapperProbeModuleWithSpec(moduleID string, moduleName string, description string, outputKey string, tags []string) *rpcEpmapperProbeModule {
 	return &rpcEpmapperProbeModule{
 		meta: engine.ModuleMetadata{
-			ID:          rpcEpmapperProbeModuleID,
-			Name:        rpcEpmapperProbeModuleName,
-			Description: rpcEpmapperProbeModuleDescription,
+			ID:          moduleID,
+			Name:        moduleName,
+			Description: description,
 			Version:     "0.1.0",
 			Type:        engine.ScanModuleType,
 			Author:      "Vulntor Team",
-			Tags:        []string{"scan", "rpc", "enrichment", "native_probe"},
+			Tags:        tags,
 			Consumes: []engine.DataContractEntry{
 				{Key: "discovery.open_tcp_ports", DataTypeName: "discovery.TCPPortDiscoveryResult", Cardinality: engine.CardinalityList, IsOptional: true},
 			},
 			Produces: []engine.DataContractEntry{
-				{Key: "service.rpc.epmapper", DataTypeName: "scan.RPCEpmapperInfo", Cardinality: engine.CardinalityList},
+				{Key: outputKey, DataTypeName: "scan.RPCEpmapperInfo", Cardinality: engine.CardinalityList},
 			},
 			ConfigSchema: map[string]engine.ParameterDefinition{
 				"rpc_epmapper_enabled": {
@@ -89,6 +89,16 @@ func newRPCEpmapperProbeModule() *rpcEpmapperProbeModule {
 		},
 		options: defaultRPCEpmapperProbeOptions(),
 	}
+}
+
+func newRPCEpmapperProbeModule() *rpcEpmapperProbeModule {
+	return newRPCEpmapperProbeModuleWithSpec(
+		rpcEpmapperProbeModuleID,
+		rpcEpmapperProbeModuleName,
+		rpcEpmapperProbeModuleDescription,
+		"service.rpc.epmapper",
+		[]string{"scan", "rpc", "enrichment", "native_probe"},
+	)
 }
 
 func defaultRPCEpmapperProbeOptions() RPCEpmapperProbeOptions {
@@ -175,7 +185,7 @@ func (m *rpcEpmapperProbeModule) Execute(ctx context.Context, inputs map[string]
 
 		outputChan <- engine.ModuleOutput{
 			FromModuleName: m.meta.ID,
-			DataKey:        "service.rpc.epmapper",
+			DataKey:        m.meta.Produces[0].Key,
 			Data:           result,
 			Timestamp:      time.Now(),
 			Target:         candidate.Target,

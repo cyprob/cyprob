@@ -86,10 +86,27 @@ var productToTags = map[string][]string{
 
 // TechTaggerModule implements the engine.Module interface.
 type TechTaggerModule struct {
-	meta engine.ModuleMetadata
+	meta           engine.ModuleMetadata
+	fingerprintKey string
+	httpKey        string
+	bannerKey      string
+	outputKey      string
 }
 
 func newTechTaggerModule() *TechTaggerModule {
+	return newTechTaggerModuleWithSpec(
+		techTaggerModuleID,
+		techTaggerModuleName,
+		techTaggerModuleDescription,
+		"service.fingerprint.details",
+		"service.http.details",
+		"service.banner.tcp",
+		"service.tech.tags",
+		[]string{"parser", "tagger", "enrichment"},
+	)
+}
+
+func newTechTaggerModuleWithSpec(moduleID string, moduleName string, description string, fingerprintKey string, httpKey string, bannerKey string, outputKey string, tags []string) *TechTaggerModule {
 	// Ensure rules are loaded once
 	techRulesOnce.Do(func() {
 		loadEmbeddedRules()
@@ -97,22 +114,26 @@ func newTechTaggerModule() *TechTaggerModule {
 
 	return &TechTaggerModule{
 		meta: engine.ModuleMetadata{
-			ID:          techTaggerModuleID,
-			Name:        techTaggerModuleName,
-			Description: techTaggerModuleDescription,
+			ID:          moduleID,
+			Name:        moduleName,
+			Description: description,
 			Version:     techTaggerModuleVersion,
 			Type:        engine.ParseModuleType,
 			Author:      techTaggerModuleAuthor,
-			Tags:        []string{"parser", "tagger", "enrichment"},
+			Tags:        tags,
 			Consumes: []engine.DataContractEntry{
-				{Key: "service.fingerprint.details", DataTypeName: "parse.FingerprintParsedInfo", Cardinality: engine.CardinalityList, IsOptional: true},
-				{Key: "service.http.details", DataTypeName: "parse.HTTPParsedInfo", Cardinality: engine.CardinalityList, IsOptional: true},
-				{Key: "service.banner.tcp", DataTypeName: "scan.BannerGrabResult", Cardinality: engine.CardinalityList, IsOptional: true},
+				{Key: fingerprintKey, DataTypeName: "parse.FingerprintParsedInfo", Cardinality: engine.CardinalityList, IsOptional: true},
+				{Key: httpKey, DataTypeName: "parse.HTTPParsedInfo", Cardinality: engine.CardinalityList, IsOptional: true},
+				{Key: bannerKey, DataTypeName: "scan.BannerGrabResult", Cardinality: engine.CardinalityList, IsOptional: true},
 			},
 			Produces: []engine.DataContractEntry{
-				{Key: "service.tech.tags", DataTypeName: "parse.TechTagResult", Cardinality: engine.CardinalityList},
+				{Key: outputKey, DataTypeName: "parse.TechTagResult", Cardinality: engine.CardinalityList},
 			},
 		},
+		fingerprintKey: fingerprintKey,
+		httpKey:        httpKey,
+		bannerKey:      bannerKey,
+		outputKey:      outputKey,
 	}
 }
 
@@ -180,7 +201,7 @@ func (m *TechTaggerModule) Execute(ctx context.Context, inputs map[string]any, o
 			if len(tags) > 0 {
 				outputChan <- engine.ModuleOutput{
 					FromModuleName: m.meta.ID,
-					DataKey:        "service.tech.tags",
+					DataKey:        m.outputKey,
 					Data:           TechTagResult{Target: data.Target, Port: data.Port, Tags: tags},
 					Timestamp:      time.Now(),
 					Target:         data.Target,
@@ -200,7 +221,7 @@ func (m *TechTaggerModule) Execute(ctx context.Context, inputs map[string]any, o
 
 // ingestFingerprints processes FingerprintParsedInfo from inputs
 func (m *TechTaggerModule) ingestFingerprints(inputs map[string]any, getData func(string, int) *targetData) {
-	if raw, ok := inputs["service.fingerprint.details"]; ok {
+	if raw, ok := inputs[m.fingerprintKey]; ok {
 		if list, ok := raw.([]any); ok {
 			for _, item := range list {
 				if fp, ok := item.(FingerprintParsedInfo); ok {
@@ -215,7 +236,7 @@ func (m *TechTaggerModule) ingestFingerprints(inputs map[string]any, getData fun
 
 // ingestHTTP processes HTTPParsedInfo from inputs
 func (m *TechTaggerModule) ingestHTTP(inputs map[string]any, getData func(string, int) *targetData) {
-	if raw, ok := inputs["service.http.details"]; ok {
+	if raw, ok := inputs[m.httpKey]; ok {
 		if list, ok := raw.([]any); ok {
 			for _, item := range list {
 				if httpInfo, ok := item.(HTTPParsedInfo); ok {
@@ -233,7 +254,7 @@ func (m *TechTaggerModule) ingestHTTP(inputs map[string]any, getData func(string
 
 // ingestBanners processes BannerGrabResult from inputs
 func (m *TechTaggerModule) ingestBanners(inputs map[string]any, getData func(string, int) *targetData) {
-	if raw, ok := inputs["service.banner.tcp"]; ok {
+	if raw, ok := inputs[m.bannerKey]; ok {
 		if list, ok := raw.([]any); ok {
 			for _, item := range list {
 				if b, ok := item.(scan.BannerGrabResult); ok {

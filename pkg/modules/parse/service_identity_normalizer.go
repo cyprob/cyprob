@@ -197,7 +197,6 @@ func (m *serviceIdentityNormalizerModule) Execute(ctx context.Context, inputs ma
 	m.ingestSSHDetails(inputs, getEntry)
 	m.ingestHTTPIdentityHints(inputs, getEntry)
 	m.applyHeuristics(entries)
-
 	keys := make([]string, 0, len(entries))
 	for key := range entries {
 		keys = append(keys, key)
@@ -219,7 +218,6 @@ func (m *serviceIdentityNormalizerModule) Execute(ctx context.Context, inputs ma
 			Target:         entry.Target,
 		}
 	}
-
 	return nil
 }
 

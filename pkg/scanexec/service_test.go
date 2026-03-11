@@ -61,11 +61,13 @@ func (m *mockPlanner) PlanDAG(intent engine.ScanIntent) (*engine.DAGDefinition, 
 }
 
 type mockOrch struct {
-	out map[string]any
-	err error
+	out        map[string]any
+	err        error
+	lastInputs map[string]any
 }
 
 func (m *mockOrch) Run(ctx context.Context, inputs map[string]any) (map[string]any, error) {
+	m.lastInputs = inputs
 	return m.out, m.err
 }
 

@@ -141,16 +141,16 @@ var (
 	smtpOpenSMTPD      = regexp.MustCompile(`(?i)\bopensmtpd(?:[ /_-]?v?([0-9][0-9a-z._-]*))?`)
 )
 
-func newSMTPNativeProbeModule() *smtpNativeProbeModule {
+func newSMTPNativeProbeModuleWithSpec(moduleID string, moduleName string, description string, outputKey string, tags []string) *smtpNativeProbeModule {
 	return &smtpNativeProbeModule{
 		meta: engine.ModuleMetadata{
-			ID:          smtpNativeProbeModuleID,
-			Name:        smtpNativeProbeModuleName,
-			Description: smtpNativeProbeModuleDescription,
+			ID:          moduleID,
+			Name:        moduleName,
+			Description: description,
 			Version:     "0.1.0",
 			Type:        engine.ScanModuleType,
 			Author:      "Vulntor Team",
-			Tags:        []string{"scan", "smtp", "mail", "enrichment", "native_probe"},
+			Tags:        tags,
 			Consumes: []engine.DataContractEntry{
 				{
 					Key:          "discovery.open_tcp_ports",
@@ -169,7 +169,7 @@ func newSMTPNativeProbeModule() *smtpNativeProbeModule {
 			},
 			Produces: []engine.DataContractEntry{
 				{
-					Key:          "service.smtp.details",
+					Key:          outputKey,
 					DataTypeName: "scan.SMTPServiceInfo",
 					Cardinality:  engine.CardinalityList,
 					Description:  "Structured SMTP native probe output per target and port.",
@@ -209,6 +209,16 @@ func newSMTPNativeProbeModule() *smtpNativeProbeModule {
 		},
 		options: defaultSMTPProbeOptions(),
 	}
+}
+
+func newSMTPNativeProbeModule() *smtpNativeProbeModule {
+	return newSMTPNativeProbeModuleWithSpec(
+		smtpNativeProbeModuleID,
+		smtpNativeProbeModuleName,
+		smtpNativeProbeModuleDescription,
+		"service.smtp.details",
+		[]string{"scan", "smtp", "mail", "enrichment", "native_probe"},
+	)
 }
 
 func (m *smtpNativeProbeModule) Metadata() engine.ModuleMetadata {
@@ -322,7 +332,7 @@ func (m *smtpNativeProbeModule) Execute(ctx context.Context, inputs map[string]a
 		result := probeSMTPDetailsFunc(targetCtx, candidate.target, candidate.hostname, candidate.port, m.options)
 		outputChan <- engine.ModuleOutput{
 			FromModuleName: m.meta.ID,
-			DataKey:        "service.smtp.details",
+			DataKey:        m.meta.Produces[0].Key,
 			Data:           result,
 			Timestamp:      time.Now(),
 			Target:         candidate.target,

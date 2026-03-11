@@ -84,25 +84,38 @@ type HTTPParserConfig struct {
 
 // HTTPParserModule implements the engine.Module interface.
 type HTTPParserModule struct {
-	meta   engine.ModuleMetadata
-	config HTTPParserConfig
+	meta      engine.ModuleMetadata
+	config    HTTPParserConfig
+	inputKey  string
+	outputKey string
 }
 
 // newHTTPParserModule is the internal constructor.
 func newHTTPParserModule() *HTTPParserModule {
+	return newHTTPParserModuleWithSpec(
+		httpParserModuleTypeName+"-default",
+		httpParserModuleTypeName,
+		"Parses raw HTTP response banners into structured data (status, headers, etc.).",
+		"service.banner.tcp",
+		"service.http.details",
+		[]string{"parser", "http", "banner"},
+	)
+}
+
+func newHTTPParserModuleWithSpec(moduleID string, moduleName string, description string, inputKey string, outputKey string, tags []string) *HTTPParserModule {
 	defaultConfig := HTTPParserConfig{}
 	return &HTTPParserModule{
 		meta: engine.ModuleMetadata{
-			ID:          httpParserModuleTypeName + "-default", // Default instance ID, can be overridden in Init
-			Name:        httpParserModuleTypeName,
+			ID:          moduleID, // Default instance ID, can be overridden in Init
+			Name:        moduleName,
 			Version:     "0.1.0",
-			Description: "Parses raw HTTP response banners into structured data (status, headers, etc.).",
+			Description: description,
 			Type:        engine.ParseModuleType,
 			Author:      "Vulntor Team",
-			Tags:        []string{"parser", "http", "banner"},
+			Tags:        tags,
 			Consumes: []engine.DataContractEntry{
 				{
-					Key: "service.banner.tcp", // Expects output from service-banner-scanner
+					Key: inputKey, // Expects output from service-banner-scanner
 					// DataTypeName is the type of *each item* within the []interface{} list
 					// that DataContext stores for "instance_id_of_banner_scanner.service.banner.tcp".
 					DataTypeName: "scan.BannerGrabResult",
@@ -116,7 +129,7 @@ func newHTTPParserModule() *HTTPParserModule {
 			},
 			Produces: []engine.DataContractEntry{
 				{
-					Key: "service.http.details",
+					Key: outputKey,
 					// This module will send multiple ModuleOutput messages if it parses multiple HTTP banners.
 					// Each ModuleOutput.Data will be a single parse.HTTPParsedInfo struct.
 					// DataContext will aggregate these into a list: []interface{}{HTTPParsedInfo1, HTTPParsedInfo2, ...}
@@ -130,7 +143,9 @@ func newHTTPParserModule() *HTTPParserModule {
 			},
 			EstimatedCost: 1, // Typically fast, CPU-bound for parsing.
 		},
-		config: defaultConfig,
+		config:    defaultConfig,
+		inputKey:  inputKey,
+		outputKey: outputKey,
 	}
 }
 
@@ -167,9 +182,9 @@ func (m *HTTPParserModule) Execute(ctx context.Context, inputs map[string]any, o
 	// Extract Output interface for real-time HTTP service detection
 	out, _ := ctx.Value(output.OutputKey).(output.Output)
 
-	rawBannerInput, ok := inputs["service.banner.tcp"]
+	rawBannerInput, ok := inputs[m.inputKey]
 	if !ok {
-		logger.Info().Msg("'service.banner.tcp' not found in inputs. Nothing to parse.")
+		logger.Info().Str("input_key", m.inputKey).Msg("HTTP parser input not found. Nothing to parse.")
 		return nil // Not an error, just no relevant input
 	}
 
@@ -180,8 +195,8 @@ func (m *HTTPParserModule) Execute(ctx context.Context, inputs map[string]any, o
 				bannerList = append(bannerList, item)
 			}
 		} else {
-			logger.Error().Type("input_type", rawBannerInput).Msg("'service.banner.tcp' input is not a list as expected.")
-			return fmt.Errorf("input 'service.banner.tcp' is not a list, type: %T", rawBannerInput)
+			logger.Error().Str("input_key", m.inputKey).Type("input_type", rawBannerInput).Msg("HTTP parser input is not a list as expected.")
+			return fmt.Errorf("input %q is not a list, type: %T", m.inputKey, rawBannerInput)
 		}
 	}
 
@@ -234,7 +249,7 @@ func (m *HTTPParserModule) Execute(ctx context.Context, inputs map[string]any, o
 		if err != nil {
 			parsedInfo.ParseError = fmt.Sprintf("Failed to read status line: %v", err)
 			logger.Warn().Str("target", bannerResult.IP).Int("port", bannerResult.Port).Err(err).Msg("HTTP status line parsing error")
-			outputChan <- engine.ModuleOutput{FromModuleName: m.meta.ID, DataKey: m.meta.Produces[0].Key, Data: parsedInfo, Timestamp: time.Now(), Target: bannerResult.IP}
+			outputChan <- engine.ModuleOutput{FromModuleName: m.meta.ID, DataKey: m.outputKey, Data: parsedInfo, Timestamp: time.Now(), Target: bannerResult.IP}
 			continue
 		}
 
@@ -242,7 +257,7 @@ func (m *HTTPParserModule) Execute(ctx context.Context, inputs map[string]any, o
 		if len(parts) < 2 { // HTTP version and status code are mandatory
 			parsedInfo.ParseError = fmt.Sprintf("Invalid status line format: %s", statusLine)
 			logger.Warn().Str("target", bannerResult.IP).Int("port", bannerResult.Port).Str("status_line", statusLine).Msg("Invalid HTTP status line")
-			outputChan <- engine.ModuleOutput{FromModuleName: m.meta.ID, DataKey: m.meta.Produces[0].Key, Data: parsedInfo, Timestamp: time.Now(), Target: bannerResult.IP}
+			outputChan <- engine.ModuleOutput{FromModuleName: m.meta.ID, DataKey: m.outputKey, Data: parsedInfo, Timestamp: time.Now(), Target: bannerResult.IP}
 			continue
 		}
 		parsedInfo.HTTPVersion = strings.TrimSpace(parts[0])
@@ -335,7 +350,7 @@ func (m *HTTPParserModule) Execute(ctx context.Context, inputs map[string]any, o
 			out.Diag(output.LevelNormal, message, nil)
 		}
 
-		outputChan <- engine.ModuleOutput{FromModuleName: m.meta.ID, DataKey: m.meta.Produces[0].Key, Data: parsedInfo, Timestamp: time.Now(), Target: bannerResult.IP}
+		outputChan <- engine.ModuleOutput{FromModuleName: m.meta.ID, DataKey: m.outputKey, Data: parsedInfo, Timestamp: time.Now(), Target: bannerResult.IP}
 	}
 
 	logger.Info().Msg("HTTP parsing completed for all relevant banners.")
