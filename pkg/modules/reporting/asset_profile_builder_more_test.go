@@ -8,6 +8,7 @@ import (
 	"github.com/cyprob/cyprob/pkg/engine"
 	"github.com/cyprob/cyprob/pkg/modules/discovery"
 	"github.com/cyprob/cyprob/pkg/modules/parse"
+	"github.com/cyprob/cyprob/pkg/modules/scan"
 	"github.com/stretchr/testify/require"
 )
 
@@ -46,7 +47,7 @@ func TestAssetProfileBuilderMergesParsedDetails(t *testing.T) {
 			parse.HTTPParsedInfo{Target: target, Port: port, ServerProduct: "nginx", ServerVersion: "1.21.6"},
 		},
 		"service.ssh.details": []any{
-			parse.SSHParsedInfo{Target: target, Port: 22, Software: "OpenSSH", SoftwareVersion: "9.3"},
+			scan.SSHServiceInfo{Target: target, Port: 22, SSHProbe: true, SSHSoftware: "OpenSSH", SSHVersion: "9.3"},
 		},
 	}
 	outCh := make(chan engine.ModuleOutput, 1)

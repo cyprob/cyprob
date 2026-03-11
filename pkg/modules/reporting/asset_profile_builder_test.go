@@ -241,6 +241,169 @@ func TestAssetProfileBuilder_Execute_InitialTargetsOnly(t *testing.T) {
 	}
 }
 
+func TestAssetProfileBuilder_Execute_EmptyICMPResultFallsBackToOpenPorts(t *testing.T) {
+	module := newAssetProfileBuilderModule()
+	if err := module.Init("test-open-port-fallback", map[string]any{}); err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
+
+	target := "185.67.204.138"
+	inputs := map[string]any{
+		"config.targets": []string{"mail.netkedi.com"},
+		"discovery.live_hosts": []any{
+			discovery.ICMPPingDiscoveryResult{LiveHosts: []string{}},
+		},
+		"discovery.open_tcp_ports": []any{
+			discovery.TCPPortDiscoveryResult{Target: target, Hostname: "mail.netkedi.com", OpenPorts: []int{465, 587}},
+		},
+	}
+
+	outCh := make(chan engine.ModuleOutput, 1)
+	if err := module.Execute(context.Background(), inputs, outCh); err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+
+	select {
+	case out := <-outCh:
+		profiles, ok := out.Data.([]engine.AssetProfile)
+		if !ok {
+			t.Fatalf("expected []engine.AssetProfile, got %T", out.Data)
+		}
+		if len(profiles) != 1 {
+			t.Fatalf("expected 1 profile, got %d", len(profiles))
+		}
+		profile := profiles[0]
+		if profile.Target != target {
+			t.Fatalf("expected target %q, got %q", target, profile.Target)
+		}
+		if profile.IsAlive {
+			t.Fatalf("expected IsAlive=false for open-port fallback")
+		}
+		if len(profile.OpenPorts[target]) != 2 {
+			t.Fatalf("expected 2 open ports, got %d", len(profile.OpenPorts[target]))
+		}
+		if len(profile.Hostnames) == 0 || profile.Hostnames[0] != "mail.netkedi.com" {
+			t.Fatalf("expected hostname hint from tcp discovery, got %+v", profile.Hostnames)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("no output emitted")
+	}
+}
+
+func TestAssetProfileBuilder_Execute_EmptyICMPResultFallsBackToConfigTargets(t *testing.T) {
+	module := newAssetProfileBuilderModule()
+	if err := module.Init("test-config-target-fallback", map[string]any{}); err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
+
+	target := "192.0.2.41"
+	inputs := map[string]any{
+		"config.targets": []string{target},
+		"discovery.live_hosts": []any{
+			discovery.ICMPPingDiscoveryResult{LiveHosts: []string{}},
+		},
+	}
+
+	outCh := make(chan engine.ModuleOutput, 1)
+	if err := module.Execute(context.Background(), inputs, outCh); err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+
+	select {
+	case out := <-outCh:
+		profiles, ok := out.Data.([]engine.AssetProfile)
+		if !ok {
+			t.Fatalf("expected []engine.AssetProfile, got %T", out.Data)
+		}
+		if len(profiles) != 1 {
+			t.Fatalf("expected 1 profile, got %d", len(profiles))
+		}
+		if profiles[0].Target != target {
+			t.Fatalf("expected target %q, got %q", target, profiles[0].Target)
+		}
+		if profiles[0].IsAlive {
+			t.Fatalf("expected IsAlive=false for config fallback")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("no output emitted")
+	}
+}
+
+func TestAssetProfileBuilder_Execute_LiveHostsRemainPrimary(t *testing.T) {
+	module := newAssetProfileBuilderModule()
+	if err := module.Init("test-live-priority", map[string]any{}); err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
+
+	target := "192.0.2.42"
+	inputs := map[string]any{
+		"config.targets": []string{target},
+		"discovery.live_hosts": []any{
+			discovery.ICMPPingDiscoveryResult{LiveHosts: []string{target}},
+		},
+		"discovery.open_tcp_ports": []any{
+			discovery.TCPPortDiscoveryResult{Target: target, OpenPorts: []int{443}},
+		},
+	}
+
+	outCh := make(chan engine.ModuleOutput, 1)
+	if err := module.Execute(context.Background(), inputs, outCh); err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+
+	select {
+	case out := <-outCh:
+		profiles, ok := out.Data.([]engine.AssetProfile)
+		if !ok {
+			t.Fatalf("expected []engine.AssetProfile, got %T", out.Data)
+		}
+		if len(profiles) != 1 {
+			t.Fatalf("expected 1 profile, got %d", len(profiles))
+		}
+		if !profiles[0].IsAlive {
+			t.Fatalf("expected IsAlive=true when live host exists")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("no output emitted")
+	}
+}
+
+func TestAssetProfileBuilder_Execute_OpenPortsAndConfigTargetsDoNotDuplicateProfiles(t *testing.T) {
+	module := newAssetProfileBuilderModule()
+	if err := module.Init("test-dedup-fallback", map[string]any{}); err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
+
+	target := "192.0.2.43"
+	inputs := map[string]any{
+		"config.targets": []string{target},
+		"discovery.live_hosts": []any{
+			discovery.ICMPPingDiscoveryResult{LiveHosts: []string{}},
+		},
+		"discovery.open_tcp_ports": []any{
+			discovery.TCPPortDiscoveryResult{Target: target, OpenPorts: []int{25}},
+		},
+	}
+
+	outCh := make(chan engine.ModuleOutput, 1)
+	if err := module.Execute(context.Background(), inputs, outCh); err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+
+	select {
+	case out := <-outCh:
+		profiles, ok := out.Data.([]engine.AssetProfile)
+		if !ok {
+			t.Fatalf("expected []engine.AssetProfile, got %T", out.Data)
+		}
+		if len(profiles) != 1 {
+			t.Fatalf("expected deduped single profile, got %d", len(profiles))
+		}
+	case <-time.After(time.Second):
+		t.Fatal("no output emitted")
+	}
+}
+
 func TestAssetProfileBuilder_Execute_LiveHostsAndOpenPorts(t *testing.T) {
 	module := newAssetProfileBuilderModule()
 	if err := module.Init("test-live", map[string]any{}); err != nil {
@@ -328,14 +491,14 @@ func TestAssetProfileBuilder_Execute_HTTPAndSSHDetails(t *testing.T) {
 			},
 		},
 		"service.ssh.details": []any{
-			parse.SSHParsedInfo{
-				Target:          target,
-				Port:            sshPort,
-				ProtocolName:    "ssh",
-				Software:        "OpenSSH",
-				SoftwareVersion: "8.9p1",
-				SSHVersion:      "2.0",
-				VersionInfo:     "OpenSSH_8.9p1 Debian-3",
+			scan.SSHServiceInfo{
+				Target:      target,
+				Port:        sshPort,
+				SSHProbe:    true,
+				SSHBanner:   "SSH-2.0-OpenSSH_8.9p1 Debian-3",
+				SSHProtocol: "2.0",
+				SSHSoftware: "OpenSSH",
+				SSHVersion:  "8.9p1",
 			},
 		},
 	}

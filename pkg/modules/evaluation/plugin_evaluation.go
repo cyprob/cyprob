@@ -8,7 +8,6 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/cyprob/cyprob/pkg/engine"
-	"github.com/cyprob/cyprob/pkg/modules/parse"
 	"github.com/cyprob/cyprob/pkg/modules/scan"
 	"github.com/cyprob/cyprob/pkg/output"
 	"github.com/cyprob/cyprob/pkg/plugin"
@@ -72,10 +71,10 @@ func NewPluginEvaluationModule() *PluginEvaluationModule {
 				},
 				{
 					Key:          "service.ssh.details",
-					DataTypeName: "parse.SSHParsedInfo",
+					DataTypeName: "scan.SSHServiceInfo",
 					Cardinality:  engine.CardinalityList,
 					IsOptional:   true,
-					Description:  "Parsed SSH service details for target/port extraction",
+					Description:  "Native SSH service details for target/port extraction",
 				},
 				{
 					Key:          "service.banner.tcp",
@@ -364,11 +363,7 @@ func (m *PluginEvaluationModule) buildEvaluationContext(inputs map[string]any) m
 	// Extract target and port from service details (SSH, HTTP, etc.)
 	// This provides context for vulnerability reporting
 	if sshDetails, ok := inputs["service.ssh.details"].([]any); ok && len(sshDetails) > 0 {
-		// Try parse.SSHParsedInfo struct first (direct type)
-		if sshInfo, ok := sshDetails[0].(parse.SSHParsedInfo); ok {
-			context["target"] = sshInfo.Target
-			context["service.port"] = sshInfo.Port
-		} else if sshInfo, ok := sshDetails[0].(scan.SSHServiceInfo); ok {
+		if sshInfo, ok := sshDetails[0].(scan.SSHServiceInfo); ok {
 			context["target"] = sshInfo.Target
 			context["service.port"] = sshInfo.Port
 		} else if sshInfo, ok := sshDetails[0].(map[string]any); ok {

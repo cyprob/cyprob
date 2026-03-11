@@ -22,6 +22,7 @@ const (
 	sshParserModuleDescription = "Parses raw SSH response banners into structured data (service, product, etc.)."
 	sshParserModuleVersion     = "0.1.0"
 	sshParserModuleAuthor      = "Vulntor Team"
+	sshParsedBannerDataKey     = "service.ssh.banner_parsed"
 )
 
 // Package parse provides a module for parsing SSH messages.
@@ -80,7 +81,7 @@ func newSSHParserModule() *SSHParserModule {
 			},
 			Produces: []engine.DataContractEntry{
 				{
-					Key: "service.ssh.details",
+					Key: sshParsedBannerDataKey,
 					// This module will send multiple ModuleOutput messages if it parses multiple SSH banners.
 					// Each ModuleOutput.Data will be a single parse.SSHParsedInfo struct.
 					// DataContext will aggregate these into a list: []interface{}{SSHParsedInfo1, SSHParsedInfo2, ...}
@@ -230,7 +231,7 @@ func (m *SSHParserModule) Execute(ctx context.Context, inputs map[string]any, ou
 		// Output structured SSH details
 		outputChan <- engine.ModuleOutput{
 			FromModuleName: m.meta.ID,
-			DataKey:        "service.ssh.details",
+			DataKey:        sshParsedBannerDataKey,
 			Data:           parsedInfo,
 			Timestamp:      time.Now(),
 			Target:         bannerResult.IP,

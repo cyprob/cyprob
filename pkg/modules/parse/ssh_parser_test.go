@@ -66,12 +66,12 @@ func TestSSHParser_Metadata_Default(t *testing.T) {
 
 	hasProduce := false
 	for _, p := range md.Produces {
-		if p.Key == "service.ssh.details" {
+		if p.Key == sshParsedBannerDataKey {
 			hasProduce = true
 			break
 		}
 	}
-	require.True(t, hasProduce, "expected producves to include service.ssh.details")
+	require.True(t, hasProduce, "expected produces to include ssh parsed banner key")
 }
 
 func TestSSHParser_Execute_ParsesValidBanners(t *testing.T) {
@@ -125,7 +125,7 @@ func TestSSHParser_Execute_ParsesValidBanners(t *testing.T) {
 			inputs := map[string]any{
 				"service.banner.tcp": tc.banners,
 			}
-			// Each banner produces 3 outputs: service.ssh.details, ssh.banner, ssh.version
+			// Each banner produces 3 outputs: parsed SSH banner, ssh.banner, ssh.version
 			outCh := make(chan engine.ModuleOutput, len(tc.banners)*3)
 			defer close(outCh)
 
@@ -147,9 +147,9 @@ func TestSSHParser_Execute_ParsesValidBanners(t *testing.T) {
 				var foundDetails, foundBanner bool
 				for _, out := range outputs {
 					switch out.DataKey {
-					case "service.ssh.details":
+					case sshParsedBannerDataKey:
 						parsed, ok := out.Data.(SSHParsedInfo)
-						require.True(t, ok, "service.ssh.details should be SSHParsedInfo")
+						require.True(t, ok, "parsed ssh banner should be SSHParsedInfo")
 						require.Equal(t, "SSH", parsed.ProtocolName)
 						require.NotEmpty(t, parsed.SSHVersion)
 						foundDetails = true
@@ -164,7 +164,7 @@ func TestSSHParser_Execute_ParsesValidBanners(t *testing.T) {
 						require.NotEmpty(t, version)
 					}
 				}
-				require.True(t, foundDetails, "should have service.ssh.details output")
+				require.True(t, foundDetails, "should have parsed ssh banner output")
 				require.True(t, foundBanner, "should have ssh.banner output")
 			} else {
 				require.Empty(t, outputs)
@@ -263,7 +263,7 @@ func TestSSHParser_Execute_ParsesSoftwareVersionProperly(t *testing.T) {
 		},
 	}
 
-	// Each banner produces 3 outputs: service.ssh.details, ssh.banner, ssh.version
+	// Each banner produces 3 outputs: parsed SSH banner, ssh.banner, ssh.version
 	outCh := make(chan engine.ModuleOutput, 3)
 	defer close(outCh)
 
@@ -275,14 +275,14 @@ func TestSSHParser_Execute_ParsesSoftwareVersionProperly(t *testing.T) {
 		outputs = append(outputs, <-outCh)
 	}
 
-	// Should have 3 outputs: service.ssh.details, ssh.banner, ssh.version
+	// Should have 3 outputs: parsed SSH banner, ssh.banner, ssh.version
 	require.NotEmpty(t, outputs)
 
-	// Find and verify service.ssh.details output
+	// Find and verify parsed SSH banner output
 	var parsed SSHParsedInfo
 	var found bool
 	for _, out := range outputs {
-		if out.DataKey == "service.ssh.details" {
+		if out.DataKey == sshParsedBannerDataKey {
 			var ok bool
 			parsed, ok = out.Data.(SSHParsedInfo)
 			require.True(t, ok)
@@ -290,7 +290,7 @@ func TestSSHParser_Execute_ParsesSoftwareVersionProperly(t *testing.T) {
 			break
 		}
 	}
-	require.True(t, found, "should have service.ssh.details output")
+	require.True(t, found, "should have parsed ssh banner output")
 
 	require.Equal(t, "SSH", parsed.ProtocolName)
 	require.Equal(t, "2.0", parsed.SSHVersion)
@@ -308,7 +308,7 @@ func TestSSHParser_Execute_TypedSliceInput(t *testing.T) {
 		},
 	}
 
-	// Each banner produces 3 outputs: service.ssh.details, ssh.banner, ssh.version
+	// Each banner produces 3 outputs: parsed SSH banner, ssh.banner, ssh.version
 	outCh := make(chan engine.ModuleOutput, 3)
 	defer close(outCh)
 
@@ -322,11 +322,11 @@ func TestSSHParser_Execute_TypedSliceInput(t *testing.T) {
 
 	require.NotEmpty(t, outputs)
 
-	// Find and verify service.ssh.details output
+	// Find and verify parsed SSH banner output
 	var parsed SSHParsedInfo
 	var found bool
 	for _, out := range outputs {
-		if out.DataKey == "service.ssh.details" {
+		if out.DataKey == sshParsedBannerDataKey {
 			var ok bool
 			parsed, ok = out.Data.(SSHParsedInfo)
 			require.True(t, ok)
@@ -334,7 +334,7 @@ func TestSSHParser_Execute_TypedSliceInput(t *testing.T) {
 			break
 		}
 	}
-	require.True(t, found, "should have service.ssh.details output")
+	require.True(t, found, "should have parsed ssh banner output")
 
 	require.Equal(t, "Dropbear", parsed.Software)
 	require.Equal(t, "2020.78", parsed.SoftwareVersion)

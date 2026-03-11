@@ -33,37 +33,43 @@ type AssetProfileBuilderModule struct {
 func newAssetProfileBuilderModule() *AssetProfileBuilderModule {
 	return &AssetProfileBuilderModule{
 		meta: engine.ModuleMetadata{
-			Name:        assetProfileBuilderModuleTypeName,
-			Version:     "0.1.0",
-			Description: "Aggregates all scan data into comprehensive asset profiles.",
-			Type:        engine.ReportingModuleType, // veya OrchestrationModuleType
-			Author:      "Vulntor Team",
-			Tags:        []string{"reporting", "aggregation", "asset-profile"},
-			Consumes: []engine.DataContractEntry{ // Bu modül birçok şeyi tüketir
-				// Planner bu anahtarları DataContext'ten alıp bu modülün input'una verir.
-				// Veya bu modül doğrudan DataContext'in tamamını alıp kendi içinde filtreleyebilir.
-				// Şimdilik spesifik anahtarlar varsayalım:
-				{Key: "config.targets", DataTypeName: "[]string", Cardinality: engine.CardinalitySingle, IsOptional: true},
-				{Key: "discovery.live_hosts", DataTypeName: "discovery.ICMPPingDiscoveryResult", Cardinality: engine.CardinalityList, IsOptional: true},    // DataContext'te []interface{}{ICMPPingDiscoveryResult}
-				{Key: "discovery.open_tcp_ports", DataTypeName: "discovery.TCPPortDiscoveryResult", Cardinality: engine.CardinalityList, IsOptional: true}, // []interface{}{TCPPortDiscoveryResult1, TCPResult2}
-				{Key: "service.banner.tcp", DataTypeName: "scan.BannerGrabResult", Cardinality: engine.CardinalityList, IsOptional: true},                  // []interface{}{BannerResult1, BannerResult2}
-				{Key: "service.http.details", DataTypeName: "parse.HTTPParsedInfo", Cardinality: engine.CardinalityList, IsOptional: true},                 // []interface{}{HTTPParsedInfo1, ...}
-				{Key: "service.ssh.details", DataTypeName: "parse.SSHParsedInfo", Cardinality: engine.CardinalityList, IsOptional: true},                   // []interface{}{SSHParsedInfo1, ...}
-				{Key: "service.smtp.details", DataTypeName: "scan.SMTPServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},                 // []interface{}{SMTPServiceInfo1, ...}
-				{Key: "service.fingerprint.details", DataTypeName: "parse.FingerprintParsedInfo", Cardinality: engine.CardinalityList, IsOptional: true},   // []interface{}{FingerprintParsedInfo1, ...}
-				{Key: "service.tech.tags", DataTypeName: "parse.TechTagResult", Cardinality: engine.CardinalityList, IsOptional: true},                     // []interface{}{TechTagResult1, ...}
-				{Key: "service.rdp.details", DataTypeName: "scan.RDPServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},                   // []interface{}{RDPServiceInfo1, ...}
-				{Key: "service.rpc.details", DataTypeName: "scan.RPCServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},                   // []interface{}{RPCServiceInfo1, ...}
-				{Key: "service.tls.details", DataTypeName: "scan.TLSServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},                   // []interface{}{TLSServiceInfo1, ...}
-				{Key: "service.identity.details", DataTypeName: "parse.ServiceIdentityInfo", Cardinality: engine.CardinalityList, IsOptional: true},        // []interface{}{ServiceIdentityInfo1, ...}
-				{Key: "evaluation.vulnerabilities", DataTypeName: "evaluation.VulnerabilityResult", Cardinality: engine.CardinalityList, IsOptional: true}, // []interface{}{VulnerabilityResult1, ...}
-			},
-			Produces: []engine.DataContractEntry{
-				{Key: "asset.profiles", DataTypeName: "[]engine.AssetProfile", Cardinality: engine.CardinalitySingle}, // Tek bir liste üretir
-			},
+			Name:         assetProfileBuilderModuleTypeName,
+			Version:      "0.1.0",
+			Description:  "Aggregates all scan data into comprehensive asset profiles.",
+			Type:         engine.ReportingModuleType, // veya OrchestrationModuleType
+			Author:       "Vulntor Team",
+			Tags:         []string{"reporting", "aggregation", "asset-profile"},
+			Consumes:     buildAssetProfileBuilderConsumes(),
+			Produces:     buildAssetProfileBuilderProduces(),
 			ConfigSchema: map[string]engine.ParameterDefinition{},
 		},
 		config: AssetProfileBuilderConfig{},
+	}
+}
+
+func buildAssetProfileBuilderConsumes() []engine.DataContractEntry {
+	keys := []engine.DataContractEntry{
+		{Key: "config.targets", DataTypeName: "[]string", Cardinality: engine.CardinalitySingle, IsOptional: true},
+		{Key: "discovery.live_hosts", DataTypeName: "discovery.ICMPPingDiscoveryResult", Cardinality: engine.CardinalityList, IsOptional: true},
+		{Key: "discovery.open_tcp_ports", DataTypeName: "discovery.TCPPortDiscoveryResult", Cardinality: engine.CardinalityList, IsOptional: true},
+		{Key: "service.banner.tcp", DataTypeName: "scan.BannerGrabResult", Cardinality: engine.CardinalityList, IsOptional: true},
+		{Key: "service.http.details", DataTypeName: "parse.HTTPParsedInfo", Cardinality: engine.CardinalityList, IsOptional: true},
+		{Key: "service.ssh.details", DataTypeName: "scan.SSHServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
+		{Key: "service.smtp.details", DataTypeName: "scan.SMTPServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
+		{Key: "service.fingerprint.details", DataTypeName: "parse.FingerprintParsedInfo", Cardinality: engine.CardinalityList, IsOptional: true},
+		{Key: "service.tech.tags", DataTypeName: "parse.TechTagResult", Cardinality: engine.CardinalityList, IsOptional: true},
+		{Key: "service.rdp.details", DataTypeName: "scan.RDPServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
+		{Key: "service.rpc.details", DataTypeName: "scan.RPCServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
+		{Key: "service.tls.details", DataTypeName: "scan.TLSServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
+		{Key: "service.identity.details", DataTypeName: "parse.ServiceIdentityInfo", Cardinality: engine.CardinalityList, IsOptional: true},
+		{Key: "evaluation.vulnerabilities", DataTypeName: "evaluation.VulnerabilityResult", Cardinality: engine.CardinalityList, IsOptional: true},
+	}
+	return keys
+}
+
+func buildAssetProfileBuilderProduces() []engine.DataContractEntry {
+	return []engine.DataContractEntry{
+		{Key: "asset.profiles", DataTypeName: "[]engine.AssetProfile", Cardinality: engine.CardinalitySingle},
 	}
 }
 
@@ -77,7 +83,6 @@ func (m *AssetProfileBuilderModule) Init(instanceID string, configMap map[string
 	return nil
 }
 
-//nolint:gocyclo // Complexity is inherent to aggregation logic
 func (m *AssetProfileBuilderModule) Execute(ctx context.Context, inputs map[string]any, outputChan chan<- engine.ModuleOutput) error {
 	logger := log.With().Str("module", m.meta.Name).Str("instance_id", m.meta.ID).Logger()
 	logger.Info().Msg("Starting asset profile aggregation")
@@ -143,19 +148,14 @@ func (m *AssetProfileBuilderModule) Execute(ctx context.Context, inputs map[stri
 		}
 	}
 
-	sshDetailsResults := []parse.SSHParsedInfo{}
 	sshNativeDetailsResults := []scan.SSHServiceInfo{}
 	if rawSSH, ok := inputs["service.ssh.details"]; ok {
 		if list, listOk := rawSSH.([]any); listOk {
 			for _, item := range list {
-				if casted, castOk := item.(parse.SSHParsedInfo); castOk {
-					sshDetailsResults = append(sshDetailsResults, casted)
-				} else if casted, castOk := item.(scan.SSHServiceInfo); castOk {
+				if casted, castOk := item.(scan.SSHServiceInfo); castOk {
 					sshNativeDetailsResults = append(sshNativeDetailsResults, casted)
 				}
 			}
-		} else if typed, typedOk := rawSSH.([]parse.SSHParsedInfo); typedOk {
-			sshDetailsResults = append(sshDetailsResults, typed...)
 		} else if typed, typedOk := rawSSH.([]scan.SSHServiceInfo); typedOk {
 			sshNativeDetailsResults = append(sshNativeDetailsResults, typed...)
 		}
@@ -285,46 +285,80 @@ func (m *AssetProfileBuilderModule) Execute(ctx context.Context, inputs map[stri
 
 	// Ana veri işleme ve birleştirme mantığı
 	finalAssetProfiles := []engine.AssetProfile{}
-	processedTargets := make(map[string]*engine.AssetProfile) // IP adresine göre AssetProfile tutar
+	processedTargets := make(map[string]int) // Target'a göre AssetProfile slice index'i
 
-	// 1. Canlı hostlardan AssetProfile'ları başlat
+	seedProfile := func(target string, isAlive bool, hostnameHint string) {
+		target = strings.TrimSpace(target)
+		if target == "" {
+			return
+		}
+
+		now := time.Now()
+		if idx, exists := processedTargets[target]; exists {
+			profile := &finalAssetProfiles[idx]
+			if profile.ResolvedIPs == nil {
+				profile.ResolvedIPs = make(map[string]time.Time)
+			}
+			if _, known := profile.ResolvedIPs[target]; !known {
+				profile.ResolvedIPs[target] = now
+			}
+			if isAlive {
+				profile.IsAlive = true
+				if profile.FirstSeenAlive.IsZero() {
+					profile.FirstSeenAlive = now
+				}
+			}
+			profile.Hostnames = appendUniqueString(profile.Hostnames, hostnameHint)
+			profile.LastObservationTime = now
+			return
+		}
+
+		profile := engine.AssetProfile{
+			Target:              target,
+			ResolvedIPs:         map[string]time.Time{target: now},
+			IsAlive:             isAlive,
+			LastObservationTime: now,
+			OpenPorts:           make(map[string][]engine.PortProfile),
+		}
+		if isAlive {
+			profile.FirstSeenAlive = now
+		}
+		profile.Hostnames = appendUniqueString(profile.Hostnames, hostnameHint)
+
+		finalAssetProfiles = append(finalAssetProfiles, profile)
+		processedTargets[target] = len(finalAssetProfiles) - 1
+	}
+
+	totalLiveHosts := 0
 	for _, icmpResult := range liveHostResults {
 		for _, liveIP := range icmpResult.LiveHosts {
-			if _, exists := processedTargets[liveIP]; !exists {
-				now := time.Now()
-				profile := &engine.AssetProfile{
-					Target:              liveIP,
-					ResolvedIPs:         map[string]time.Time{liveIP: now},
-					IsAlive:             true,
-					LastObservationTime: now,
-					OpenPorts:           make(map[string][]engine.PortProfile),
-				}
-				processedTargets[liveIP] = profile
-				finalAssetProfiles = append(finalAssetProfiles, *profile) // Slice'a eklerken değerini kopyala
-			} else {
-				processedTargets[liveIP].IsAlive = true
-				processedTargets[liveIP].LastObservationTime = time.Now()
+			if strings.TrimSpace(liveIP) != "" {
+				totalLiveHosts++
 			}
 		}
 	}
+	usableOpenPortTargets := 0
+	for _, tcpResult := range openTCPPortResults {
+		if strings.TrimSpace(tcpResult.Target) != "" {
+			usableOpenPortTargets++
+		}
+	}
 
-	// Eğer canlı host bilgisi yoksa, initialTargets'ı kullan (ping kapalıysa veya yanıt yoksa)
-	if len(liveHostResults) == 0 {
-		expandedInitialTargets := netutil.ParseAndExpandTargets(initialTargets) // utils'dan
-		for _, target := range expandedInitialTargets {
-			if _, exists := processedTargets[target]; !exists {
-				now := time.Now()
-				profile := &engine.AssetProfile{
-					Target:      target,
-					ResolvedIPs: map[string]time.Time{target: now},
-					IsAlive:     false, // Ping ile doğrulanmadı
-					// ScanStartTime:       now,
-					LastObservationTime: now,
-					OpenPorts:           make(map[string][]engine.PortProfile),
-				}
-				processedTargets[target] = profile
-				finalAssetProfiles = append(finalAssetProfiles, *profile)
+	switch {
+	case totalLiveHosts > 0:
+		for _, icmpResult := range liveHostResults {
+			for _, liveIP := range icmpResult.LiveHosts {
+				seedProfile(liveIP, true, "")
 			}
+		}
+	case usableOpenPortTargets > 0:
+		for _, tcpResult := range openTCPPortResults {
+			seedProfile(tcpResult.Target, false, tcpResult.Hostname)
+		}
+	default:
+		expandedInitialTargets := netutil.ParseAndExpandTargets(initialTargets)
+		for _, target := range expandedInitialTargets {
+			seedProfile(target, false, "")
 		}
 	}
 
@@ -375,20 +409,6 @@ func (m *AssetProfileBuilderModule) Execute(ctx context.Context, inputs map[stri
 							portProfile.Service.ParsedAttributes["content_type"] = httpDetail.ContentType
 							portProfile.Service.ParsedAttributes["headers"] = httpDetail.Headers
 							// portProfile.Service.Scheme = httpDetail.Scheme
-							break
-						}
-					}
-					// Bu porta ait parse edilmiş SSH detaylarını bul
-					for _, sshDetail := range sshDetailsResults {
-						if sshDetail.Target == targetIP && sshDetail.Port == portNum {
-							portProfile.Service.Name = sshDetail.ProtocolName
-							portProfile.Service.Product = sshDetail.Software
-							portProfile.Service.Version = sshDetail.SoftwareVersion
-							if portProfile.Service.ParsedAttributes == nil {
-								portProfile.Service.ParsedAttributes = make(map[string]any)
-							}
-							portProfile.Service.ParsedAttributes["ssh_protocol_version"] = sshDetail.SSHVersion
-							portProfile.Service.ParsedAttributes["ssh_full_version_info"] = sshDetail.VersionInfo
 							break
 						}
 					}
@@ -483,14 +503,13 @@ func (m *AssetProfileBuilderModule) Execute(ctx context.Context, inputs map[stri
 	}
 
 	// asset.profiles'ı ModuleOutput olarak gönder
+	logger.Info().Int("profile_count", len(finalAssetProfiles)).Msg("Asset profile aggregation completed")
 	outputChan <- engine.ModuleOutput{
 		FromModuleName: m.meta.ID,
-		DataKey:        m.meta.Produces[0].Key, // "asset.profiles"
-		Data:           finalAssetProfiles,     // Bu []engine.AssetProfile tipinde olmalı
+		DataKey:        m.meta.Produces[0].Key,
+		Data:           finalAssetProfiles,
 		Timestamp:      time.Now(),
 	}
-
-	logger.Info().Int("profile_count", len(finalAssetProfiles)).Msg("Asset profile aggregation completed")
 	return nil
 }
 
