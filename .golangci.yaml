@@ -38,7 +38,7 @@ version: '2'
 
 formatters:
   enable:
-    - gofumpt   # Go formatter (Phase 1)
+    - gofumpt # Go formatter (Phase 1)
 
 linters:
   # Phase 6: Enable ALL linters by default
@@ -47,44 +47,44 @@ linters:
   # Strategic disables (Phase 6): Too strict, redundant, or not applicable
   disable:
     # Too strict/noisy - would require massive codebase changes
-    - exhaustive        # Exhaustive switch/enum checks (too pedantic)
-    - exhaustruct       # Exhaustive struct initialization (unrealistic)
-    - varnamelen        # Variable name length (conflicts with Go conventions)
-    - wsl               # Whitespace linting (too opinionated)
-    - nlreturn          # Newline before return (too opinionated)
-    - lll               # Line length limit (we use editor wrapping)
-    - gochecknoglobals  # No globals (too strict for constants)
-    - gochecknoinits    # No init functions (we use init for registration)
-    - godox             # TODO/FIXME detection (we track in KNOWN-ISSUES.md)
-    - err113            # Error wrapping (conflicts with existing patterns)
-    - wrapcheck         # Wrap errors (conflicts with existing patterns)
-    - tagliatelle       # Struct tag naming (too opinionated)
-    - testableexamples  # Example tests must be testable (too strict)
-    - nonamedreturns    # No named returns (conflicts with Go idioms)
-    - ireturn           # Accept interfaces, return concrete types (too strict)
-    - maintidx          # Maintainability index (redundant with gocyclo)
-    - godot             # Period at end of comments (too opinionated, 161 violations)
-    - tagalign          # Struct tag alignment (too opinionated, 144 violations)
-    - noinlineerr       # Inline errors (conflicts with existing patterns, 176 violations)
-    - mnd               # Magic numbers (too noisy, 102 violations)
-    - perfsprint        # Performance sprint (micro-optimization, 92 violations)
-    - intrange          # Range iteration (Go 1.22+ feature, 21 violations)
-    - godoclint         # Godoc format rules (too strict, 50 violations)
-    - nestif            # Nested if depth (conflicts with readable code, 17 violations)
-    - funcorder         # Function ordering (too opinionated, 12 violations)
-    - wsl_v5            # Whitespace linting v5 (too opinionated, 1353 violations)
+    - exhaustive # Exhaustive switch/enum checks (too pedantic)
+    - exhaustruct # Exhaustive struct initialization (unrealistic)
+    - varnamelen # Variable name length (conflicts with Go conventions)
+    - wsl # Whitespace linting (too opinionated)
+    - nlreturn # Newline before return (too opinionated)
+    - lll # Line length limit (we use editor wrapping)
+    - gochecknoglobals # No globals (too strict for constants)
+    - gochecknoinits # No init functions (we use init for registration)
+    - godox # TODO/FIXME detection (we track in KNOWN-ISSUES.md)
+    - err113 # Error wrapping (conflicts with existing patterns)
+    - wrapcheck # Wrap errors (conflicts with existing patterns)
+    - tagliatelle # Struct tag naming (too opinionated)
+    - testableexamples # Example tests must be testable (too strict)
+    - nonamedreturns # No named returns (conflicts with Go idioms)
+    - ireturn # Accept interfaces, return concrete types (too strict)
+    - maintidx # Maintainability index (redundant with gocyclo)
+    - godot # Period at end of comments (too opinionated, 161 violations)
+    - tagalign # Struct tag alignment (too opinionated, 144 violations)
+    - noinlineerr # Inline errors (conflicts with existing patterns, 176 violations)
+    - mnd # Magic numbers (too noisy, 102 violations)
+    - perfsprint # Performance sprint (micro-optimization, 92 violations)
+    - intrange # Range iteration (Go 1.22+ feature, 21 violations)
+    - godoclint # Godoc format rules (too strict, 50 violations)
+    - nestif # Nested if depth (conflicts with readable code, 17 violations)
+    - funcorder # Function ordering (too opinionated, 12 violations)
+    - wsl_v5 # Whitespace linting v5 (too opinionated, 1353 violations)
 
     # Redundant - already covered by other linters
-    - cyclop            # Cyclomatic complexity (using gocyclo instead)
-    - gocognit          # Cognitive complexity (using gocyclo instead)
+    - cyclop # Cyclomatic complexity (using gocyclo instead)
+    - gocognit # Cognitive complexity (using gocyclo instead)
 
     # Not applicable to our codebase
-    - testpackage       # Test package naming (using package name_test)
-    - paralleltest      # t.Parallel() required (not all tests can be parallel)
-    - gosmopolitan      # Locale-specific code (not applicable)
-    - rowserrcheck      # SQL rows error check (not using database/sql)
-    - sqlclosecheck     # SQL close check (not using database/sql)
-    - wastedassign      # Duplicate of ineffassign
+    - testpackage # Test package naming (using package name_test)
+    - paralleltest # t.Parallel() required (not all tests can be parallel)
+    - gosmopolitan # Locale-specific code (not applicable)
+    - rowserrcheck # SQL rows error check (not using database/sql)
+    - sqlclosecheck # SQL close check (not using database/sql)
+    - wastedassign # Duplicate of ineffassign
 
   settings:
     errcheck:
@@ -100,37 +100,37 @@ linters:
         - name: unused-parameter
           disabled: true
         # Phase 7: Additional quality rules
-        - name: struct-tag           # Validate struct tags
-        - name: context-as-argument  # Context should be first param
-        - name: error-return         # Error should be last return value
-        - name: error-strings        # Error strings should not be capitalized
-        - name: error-naming         # Error vars should start with Err/err
-        - name: indent-error-flow    # Reduce nesting with early returns
-        - name: superfluous-else     # Eliminate unnecessary else clauses
+        - name: struct-tag # Validate struct tags
+        - name: context-as-argument # Context should be first param
+        - name: error-return # Error should be last return value
+        - name: error-strings # Error strings should not be capitalized
+        - name: error-naming # Error vars should start with Err/err
+        - name: indent-error-flow # Reduce nesting with early returns
+        - name: superfluous-else # Eliminate unnecessary else clauses
 
     staticcheck:
       # Phase 7: Optimized checks configuration
       checks:
         - all
-        - '-ST1000'  # Disable package comment requirement (Phase 1)
-        - '-ST1003'  # Disable underscore in names (Phase 1)
-        - '-ST1020'  # Disable comment form checks (Phase 1)
-        - '-ST1021'  # Disable comment form checks (Phase 1)
-        - '-SA1019'  # Deprecated API (needed for compatibility) (Phase 7)
-        - '-SA1029'  # Inefficient string casting (micro-optimization) (Phase 7)
-        - '-SA5011'  # Possible nil pointer dereference after nil check (false positive in tests) (Phase 7)
+        - '-ST1000' # Disable package comment requirement (Phase 1)
+        - '-ST1003' # Disable underscore in names (Phase 1)
+        - '-ST1020' # Disable comment form checks (Phase 1)
+        - '-ST1021' # Disable comment form checks (Phase 1)
+        - '-SA1019' # Deprecated API (needed for compatibility) (Phase 7)
+        - '-SA1029' # Inefficient string casting (micro-optimization) (Phase 7)
+        - '-SA5011' # Possible nil pointer dereference after nil check (false positive in tests) (Phase 7)
 
     # Phase 3: Complexity limits
     gocyclo:
-      min-complexity: 15  # Conservative threshold for cyclomatic complexity
+      min-complexity: 15 # Conservative threshold for cyclomatic complexity
 
     funlen:
-      lines: -1         # Ignore total line count (comments don't inflate)
-      statements: 100   # Max 100 statements per function
+      lines: -1 # Ignore total line count (comments don't inflate)
+      statements: 100 # Max 100 statements per function
 
     goconst:
-      min-len: 3           # Minimum string length to check
-      min-occurrences: 4   # Must repeat 4+ times to suggest constant
+      min-len: 3 # Minimum string length to check
+      min-occurrences: 4 # Must repeat 4+ times to suggest constant
 
     # Phase 4: Forbidden patterns
     forbidigo:
@@ -150,19 +150,19 @@ linters:
         main:
           deny:
             - pkg: io/ioutil
-              desc: "Deprecated since Go 1.16, use io and os packages instead"
+              desc: 'Deprecated since Go 1.16, use io and os packages instead'
 
             - pkg: github.com/pkg/errors
-              desc: "Use standard library errors package (errors.Join, errors.As, errors.Is) instead"
+              desc: 'Use standard library errors package (errors.Join, errors.As, errors.Is) instead'
 
             - pkg: golang.org/x/net/context
-              desc: "Use standard library context package instead"
+              desc: 'Use standard library context package instead'
 
     # Phase 7: Advanced settings - Fine-tuning
     govet:
       enable-all: true
       disable:
-        - shadow         # Variable shadowing (too strict for Go idioms)
+        - shadow # Variable shadowing (too strict for Go idioms)
         - fieldalignment # Struct field ordering (micro-optimization, not worth refactoring)
 
     misspell:
@@ -175,28 +175,28 @@ linters:
       # Test files - relax many rules (Phase 6 comprehensive)
       - path: (.+)_test\.go
         linters:
-          - errcheck        # Test errors can be ignored sometimes
-          - revive          # Revive rules too noisy for tests (Phase 1)
-          - funlen          # Test functions can be long (Phase 3)
-          - goconst         # Test strings can repeat (Phase 3)
-          - gocyclo         # Test setup can be complex (Phase 3)
-          - forbidigo       # panic() OK in tests for deliberate failures (Phase 4)
-          - dupl            # Duplicate test cases OK (Phase 6)
-          - gomnd           # Magic numbers OK in tests (Phase 6)
-          - goerr113        # Dynamic errors OK in tests (Phase 6)
+          - errcheck # Test errors can be ignored sometimes
+          - revive # Revive rules too noisy for tests (Phase 1)
+          - funlen # Test functions can be long (Phase 3)
+          - goconst # Test strings can repeat (Phase 3)
+          - gocyclo # Test setup can be complex (Phase 3)
+          - forbidigo # panic() OK in tests for deliberate failures (Phase 4)
+          - dupl # Duplicate test cases OK (Phase 6)
+          - gomnd # Magic numbers OK in tests (Phase 6)
+          - goerr113 # Dynamic errors OK in tests (Phase 6)
           - forcetypeassert # Type assertions OK in tests (Phase 6)
-          - contextcheck    # Context propagation flexible in tests (Phase 6)
-          - errchkjson      # JSON error checks can be relaxed (Phase 6)
-          - noctx           # HTTP requests without context OK in tests (Phase 6)
-          - bodyclose       # Response body close can be deferred (Phase 6)
-          - prealloc        # Preallocation not critical in tests (Phase 6)
-          - unparam         # Unused params OK in test helpers (Phase 6)
-          - nilnil          # Returning (nil, nil) OK in tests (Phase 6)
-          - testifylint     # testify usage patterns relaxed in tests (Phase 6)
-          - errorlint       # Error comparison relaxed in tests (Phase 6)
-          - thelper         # Test helper marking not strict (Phase 6)
-          - copyloopvar     # Loop variable copying OK in tests (Phase 6)
-          - gosec           # Security checks relaxed in tests (file permissions OK) (Phase 6)
+          - contextcheck # Context propagation flexible in tests (Phase 6)
+          - errchkjson # JSON error checks can be relaxed (Phase 6)
+          - noctx # HTTP requests without context OK in tests (Phase 6)
+          - bodyclose # Response body close can be deferred (Phase 6)
+          - prealloc # Preallocation not critical in tests (Phase 6)
+          - unparam # Unused params OK in test helpers (Phase 6)
+          - nilnil # Returning (nil, nil) OK in tests (Phase 6)
+          - testifylint # testify usage patterns relaxed in tests (Phase 6)
+          - errorlint # Error comparison relaxed in tests (Phase 6)
+          - thelper # Test helper marking not strict (Phase 6)
+          - copyloopvar # Loop variable copying OK in tests (Phase 6)
+          - gosec # Security checks relaxed in tests (file permissions OK) (Phase 6)
 
       # Generated code - exclude ALL linters (Phase 6)
       - path: (.+)_gen\.go
@@ -206,292 +206,292 @@ linters:
       # Main packages - entry points need flexibility (Phase 6)
       - path: cmd/.*/main\.go
         linters:
-          - gochecknoglobals  # Globals OK in main packages
-          - gochecknoinits    # init() OK in main packages
+          - gochecknoglobals # Globals OK in main packages
+          - gochecknoinits # init() OK in main packages
 
       # Phase 4: CLI commands - fmt.Print* OK for user output
       - path: cmd/vulntor/commands/
         linters:
-          - forbidigo  # CLI needs fmt.Print for user-facing output
+          - forbidigo # CLI needs fmt.Print for user-facing output
 
       # Phase 4: CLI helper functions - fmt.Print* OK for user output
       - path: pkg/cli/
         linters:
-          - forbidigo  # CLI helpers need fmt.Print for user-facing output
+          - forbidigo # CLI helpers need fmt.Print for user-facing output
 
       # Phase 4: Server shutdown - panic OK for timeout kill
       - path: pkg/server/server\.go
         linters:
-          - forbidigo  # Panic acceptable for forced shutdown after timeout
+          - forbidigo # Panic acceptable for forced shutdown after timeout
 
       # Phase 4: Module implementations - TODO: migrate to structured logging
       - path: pkg/modules/
         linters:
-          - forbidigo  # Modules currently use fmt.Printf for debug (refactor later)
+          - forbidigo # Modules currently use fmt.Printf for debug (refactor later)
 
       # Phase 4: Core engine - TODO: migrate to structured logging
       - path: pkg/engine/
         linters:
-          - forbidigo  # Engine uses fmt.Printf for INFO messages (refactor later)
+          - forbidigo # Engine uses fmt.Printf for INFO messages (refactor later)
 
       # Phase 4: Fingerprint loader - TODO: migrate to structured logging
       - path: pkg/fingerprint/loader\.go
         linters:
-          - forbidigo  # Loader uses fmt.Printf for errors (refactor later)
+          - forbidigo # Loader uses fmt.Printf for errors (refactor later)
 
       # Phase 3: Legitimate high complexity - Core engine (DAG orchestration)
       - path: pkg/engine/orchestrator\.go
-        text: "cyclomatic complexity (33|34) of func"
+        text: 'cyclomatic complexity (33|34) of func'
         linters:
-          - gocyclo  # DAG execution requires complex control flow
+          - gocyclo # DAG execution requires complex control flow
 
       - path: pkg/engine/planner\.go
-        text: "cyclomatic complexity (22|34) of func"
+        text: 'cyclomatic complexity (22|34) of func'
         linters:
-          - gocyclo  # DAG planning requires complex decision logic
+          - gocyclo # DAG planning requires complex decision logic
 
       # Phase 3: Legitimate high complexity - Network parsing
       - path: pkg/netutil/netutil\.go
-        text: "cyclomatic complexity (52|19) of func"
+        text: 'cyclomatic complexity (52|19) of func'
         linters:
-          - gocyclo  # Target/port parsing has many edge cases
+          - gocyclo # Target/port parsing has many edge cases
 
       - path: pkg/modules/parse/http_parser\.go
-        text: "cyclomatic complexity 33 of func"
+        text: 'cyclomatic complexity 33 of func'
         linters:
-          - gocyclo  # HTTP header parsing has many branches
+          - gocyclo # HTTP header parsing has many branches
 
       - path: pkg/modules/reporting/asset_profile_builder\.go
-        text: "cyclomatic complexity 71 of func"
+        text: 'cyclomatic complexity 71 of func'
         linters:
-          - gocyclo  # Asset profile aggregation requires extensive logic
+          - gocyclo # Asset profile aggregation requires extensive logic
 
       # Phase 3: Legitimate high complexity - Plugin system
       - path: pkg/plugin/trigger\.go
-        text: "cyclomatic complexity 31 of func"
+        text: 'cyclomatic complexity 31 of func'
         linters:
-          - gocyclo  # Trigger evaluation requires complex matching
+          - gocyclo # Trigger evaluation requires complex matching
 
       - path: pkg/plugin/smart_loader\.go
-        text: "cyclomatic complexity 28 of func"
+        text: 'cyclomatic complexity 28 of func'
         linters:
-          - gocyclo  # Category matching requires exhaustive checks
+          - gocyclo # Category matching requires exhaustive checks
 
       - path: pkg/plugin/service\.go
-        text: "cyclomatic complexity (16|18|24) of func"
+        text: 'cyclomatic complexity (16|18|24) of func'
         linters:
-          - gocyclo  # Plugin install/update/uninstall has many validation branches
+          - gocyclo # Plugin install/update/uninstall has many validation branches
 
       - path: pkg/plugin/types\.go
-        text: "cyclomatic complexity 16 of func"
+        text: 'cyclomatic complexity 16 of func'
         linters:
-          - gocyclo  # Plugin validation checks many required fields
+          - gocyclo # Plugin validation checks many required fields
 
       # Phase 3: Moderate complexity - CLI commands (TODO: refactor in future)
       - path: cmd/vulntor/commands/
-        text: "cyclomatic complexity (16|20|26|31) of func"
+        text: 'cyclomatic complexity (16|20|26|31) of func'
         linters:
-          - gocyclo  # CLI flag parsing and output formatting (refactor later)
+          - gocyclo # CLI flag parsing and output formatting (refactor later)
 
       # Phase 3: Moderate complexity - Module implementations (TODO: refactor in future)
       - path: pkg/modules/discovery/icmp_ping\.go
-        text: "cyclomatic complexity (21|27) of func"
+        text: 'cyclomatic complexity (21|27) of func'
         linters:
-          - gocyclo  # ICMP packet handling has many edge cases
+          - gocyclo # ICMP packet handling has many edge cases
 
       - path: pkg/modules/discovery/tcp_port_discovery\.go
-        text: "cyclomatic complexity 18 of func"
+        text: 'cyclomatic complexity 18 of func'
         linters:
-          - gocyclo  # TCP connection handling with timeouts
+          - gocyclo # TCP connection handling with timeouts
 
       - path: pkg/modules/parse/ssh_parser\.go
-        text: "cyclomatic complexity 16 of func"
+        text: 'cyclomatic complexity 16 of func'
         linters:
-          - gocyclo  # SSH banner parsing with version extraction
+          - gocyclo # SSH banner parsing with version extraction
 
       - path: pkg/modules/scan/banner_grab\.go
-        text: "cyclomatic complexity 19 of func"
+        text: 'cyclomatic complexity 19 of func'
         linters:
-          - gocyclo  # Banner grabbing protocol probes
+          - gocyclo # Banner grabbing protocol probes
 
       - path: pkg/modules/scan/port_utils\.go
-        text: "cyclomatic complexity 19 of func"
+        text: 'cyclomatic complexity 19 of func'
         linters:
-          - gocyclo  # Port range parsing (comma, dash, ranges)
+          - gocyclo # Port range parsing (comma, dash, ranges)
 
       # Phase 3: Other moderate complexity (TODO: refactor in future)
       - path: pkg/scanexec/service\.go
-        text: "cyclomatic complexity 21 of func"
+        text: 'cyclomatic complexity 21 of func'
         linters:
-          - gocyclo  # Scan statistics aggregation
+          - gocyclo # Scan statistics aggregation
 
       - path: pkg/storage/gc\.go
-        text: "cyclomatic complexity 17 of func"
+        text: 'cyclomatic complexity 17 of func'
         linters:
-          - gocyclo  # Garbage collection with retention policies
+          - gocyclo # Garbage collection with retention policies
 
       # Phase 3: Function length - legitimate cases
       - path: pkg/engine/orchestrator\.go
         text: "Function 'Run' has too many statements"
         linters:
-          - funlen  # DAG orchestration requires sequential steps
+          - funlen # DAG orchestration requires sequential steps
 
       - path: pkg/modules/parse/http_parser\.go
         text: "Function 'Execute' (has too many statements|is too long)"
         linters:
-          - funlen  # HTTP header extraction requires many statements
+          - funlen # HTTP header extraction requires many statements
 
       - path: pkg/modules/reporting/asset_profile_builder\.go
         text: "Function 'Execute' (has too many statements|is too long)"
         linters:
-          - funlen  # Asset profile aggregation from multiple data sources
+          - funlen # Asset profile aggregation from multiple data sources
 
       # Phase 6: Context in struct (legitimate design pattern)
       - path: pkg/engine/manager\.go
-        text: "found a struct that contains a context.Context field"
+        text: 'found a struct that contains a context.Context field'
         linters:
-          - containedctx  # AppManager stores context for lifecycle management
+          - containedctx # AppManager stores context for lifecycle management
 
       - path: pkg/safe/routine\.go
-        text: "found a struct that contains a context.Context field"
+        text: 'found a struct that contains a context.Context field'
         linters:
-          - containedctx  # Safe goroutine wrapper needs context
+          - containedctx # Safe goroutine wrapper needs context
 
       # Phase 6: Embedded struct field separation (style preference)
       - linters:
           - embeddedstructfieldcheck
-        text: "there must be an empty line separating embedded fields"
+        text: 'there must be an empty line separating embedded fields'
 
       # Phase 6: Error name format (false positive for package-level var)
       - path: pkg/fingerprint/probe_catalog_loader\.go
-        text: "the sentinel error name.*should conform to the `errXxx` format"
+        text: 'the sentinel error name.*should conform to the `errXxx` format'
         linters:
           - errname
 
       # Phase 6: gosec file permission warnings (intentional for user-readable files)
-      - text: "G301: Expect directory permissions"
+      - text: 'G301: Expect directory permissions'
         linters:
-          - gosec  # Workspace directories are user-owned, 0755 is appropriate
+          - gosec # Workspace directories are user-owned, 0755 is appropriate
 
-      - text: "G306: Expect WriteFile permissions"
+      - text: 'G306: Expect WriteFile permissions'
         linters:
-          - gosec  # Config/data files need to be user-readable, 0644 is appropriate
+          - gosec # Config/data files need to be user-readable, 0644 is appropriate
 
-      - text: "G302: Expect file permissions"
+      - text: 'G302: Expect file permissions'
         linters:
-          - gosec  # Some files need specific permissions for user access
+          - gosec # Some files need specific permissions for user access
 
-      - text: "G304: Potential file inclusion via variable"
+      - text: 'G304: Potential file inclusion via variable'
         linters:
-          - gosec  # User-provided file paths, validated by application logic
+          - gosec # User-provided file paths, validated by application logic
 
       # Phase 6: gosec TLS skip verify (intentional for banner grabbing)
       - path: pkg/modules/scan/banner_grab\.go
-        text: "G402: TLS InsecureSkipVerify"
+        text: 'G402: TLS InsecureSkipVerify'
         linters:
-          - gosec  # Banner grabbing needs to connect to untrusted servers
+          - gosec # Banner grabbing needs to connect to untrusted servers
 
       # Phase 6: gosec weak RNG (non-cryptographic use)
       - path: pkg/plugin/retry\.go
-        text: "G404: Use of weak random number generator"
+        text: 'G404: Use of weak random number generator'
         linters:
-          - gosec  # Retry jitter doesn't need cryptographic randomness
+          - gosec # Retry jitter doesn't need cryptographic randomness
 
       # Phase 6: gocritic ifElseChain (readable as-is)
       - linters:
           - gocritic
-        text: "ifElseChain: rewrite if-else to switch statement"
+        text: 'ifElseChain: rewrite if-else to switch statement'
 
       # Phase 6: gocritic commentFormatting (legacy code style)
       - path: pkg/netutil/netutil\.go
         linters:
           - gocritic
-        text: "commentFormatting"
+        text: 'commentFormatting'
 
       # Phase 6: gocritic appendAssign (intentional intermediate value)
       - path: pkg/engine/dag_schema\.go
         linters:
           - gocritic
-        text: "appendAssign"
+        text: 'appendAssign'
 
       # Phase 6: errorlint (error comparison - TODO: migrate to errors.Is in future)
       - linters:
           - errorlint
-        text: "(comparing with|type assertion on error|non-wrapping format verb)"
+        text: '(comparing with|type assertion on error|non-wrapping format verb)'
 
       # Phase 6: contextcheck (context propagation - acceptable patterns)
-      - path: ".*"
+      - path: '.*'
         linters:
           - contextcheck
 
       # Phase 6: inamedparam (interface parameter naming - legacy interfaces)
-      - path: ".*"
+      - path: '.*'
         linters:
           - inamedparam
 
       # Phase 6: noctx (network calls without context - legacy code)
-      - path: ".*"
+      - path: '.*'
         linters:
           - noctx
 
       # Phase 6: prealloc (pre-allocation optimization - not critical)
-      - path: ".*"
+      - path: '.*'
         linters:
           - prealloc
 
       # Phase 6: predeclared (variable names shadowing builtins - intentional)
-      - path: ".*"
+      - path: '.*'
         linters:
           - predeclared
 
       # Phase 6: unparam (unused parameters - interface requirements)
-      - path: ".*"
+      - path: '.*'
         linters:
           - unparam
 
       # Phase 6: whitespace (trailing newlines - cosmetic)
-      - path: ".*"
+      - path: '.*'
         linters:
           - whitespace
 
       # Phase 6: musttag (struct tag requirements - optional tags)
-      - path: ".*"
+      - path: '.*'
         linters:
           - musttag
 
       # Phase 6: nilnil (returning nil,nil - acceptable pattern)
-      - path: ".*"
+      - path: '.*'
         linters:
           - nilnil
 
       # Phase 6: nilerr (nil error check - false positive)
-      - path: ".*"
+      - path: '.*'
         linters:
           - nilerr
 
       # Phase 6: usetesting (t.TempDir recommendation - optional optimization)
-      - path: ".*"
+      - path: '.*'
         linters:
           - usetesting
 
       # Phase 6: unconvert (unnecessary conversion - type safety)
-      - path: ".*"
+      - path: '.*'
         linters:
           - unconvert
 
       # Phase 6: recvcheck (mixed pointer/value receivers - intentional design)
-      - path: ".*"
+      - path: '.*'
         linters:
           - recvcheck
 
       # Phase 6: nolintlint (unused nolint directives - cleanup later)
-      - path: ".*"
+      - path: '.*'
         linters:
           - nolintlint
 
       # Phase 7: govet unusedwrite (test code - intentional unused writes for test structure)
       - path: (.+)_test\.go
-        text: "unusedwrite"
+        text: 'unusedwrite'
         linters:
           - govet
 
