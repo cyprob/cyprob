@@ -197,6 +197,27 @@ rules:
     pattern_strength: 0.88
     port_bonuses: [21, 2121]
 
+  - id: 'ftp.crushftp'
+    protocol: 'ftp'
+    description: 'CrushFTP FTP server banner'
+    product: 'CrushFTP'
+    vendor: 'CrushFTP, LLC'
+    cpe: 'cpe:2.3:a:crushftp:crushftp:*:*:*:*:*:*:*:*'
+    match: '(?i)(220[- ]welcome to crushftp!?|220\s+crushftp server ready)'
+
+    exclude_patterns:
+      - "pure-ftpd"
+      - "proftpd"
+      - "vsftpd"
+
+    soft_exclude_patterns:
+      - "error"
+      - "denied"
+      - "unavailable"
+
+    pattern_strength: 0.95
+    port_bonuses: [21, 990]
+
   # SSH Services
   - id: 'ssh.openssh'
     protocol: 'ssh'
@@ -260,6 +281,27 @@ rules:
       - "denied"
 
     pattern_strength: 0.88
+    port_bonuses: [22, 2222]
+
+  - id: 'ssh.crushftpsshd'
+    protocol: 'ssh'
+    description: 'CrushFTP SSHD banner'
+    product: 'CrushFTP SSHD'
+    vendor: 'CrushFTP, LLC'
+    cpe: 'cpe:2.3:a:crushftp:crushftp:*:*:*:*:*:*:*:*'
+    match: '(?i)ssh-\d\.\d+-crushftpsshd'
+
+    exclude_patterns:
+      - "openssh"
+      - "dropbear"
+      - "libssh"
+
+    soft_exclude_patterns:
+      - "error"
+      - "refused"
+      - "denied"
+
+    pattern_strength: 0.93
     port_bonuses: [22, 2222]
 
   - id: 'mysql.mysql'

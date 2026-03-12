@@ -1901,6 +1901,105 @@ func TestResolve_vsftpd(t *testing.T) {
 	}
 }
 
+func TestResolve_CrushFTP(t *testing.T) {
+	rules := []StaticRule{{
+		ID:                  "ftp.crushftp",
+		Protocol:            "ftp",
+		Product:             "CrushFTP",
+		Vendor:              "CrushFTP, LLC",
+		CPE:                 "cpe:2.3:a:crushftp:crushftp:*:*:*:*:*:*:*:*",
+		Match:               `(?i)(220[- ]welcome to crushftp!?|220\s+crushftp server ready)`,
+		ExcludePatterns:     []string{`pure-ftpd`, `proftpd`, `vsftpd`},
+		SoftExcludePatterns: []string{`error`, `denied`, `unavailable`},
+		PatternStrength:     0.95,
+		PortBonuses:         []int{21, 990},
+	}}
+	rb := NewRuleBasedResolver(rules)
+
+	testCases := []struct {
+		name        string
+		banner      string
+		port        int
+		shouldMatch bool
+	}{
+		{"CrushFTP welcome", "220-Welcome to CrushFTP!\r\n220 CrushFTP Server Ready!", 21, true},
+		{"CrushFTP feat style", "220 CrushFTP Server Ready!\r\n211-Extensions supported:", 21, true},
+		{"CrushFTP on 990", "220 Welcome to CrushFTP!", 990, true},
+		{"ProFTPD banner (should reject)", "220 ProFTPD 1.3.7 Server ready", 21, false},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			input := Input{Protocol: "ftp", Banner: tc.banner, Port: tc.port}
+			res, err := rb.Resolve(ctx, input)
+
+			if tc.shouldMatch {
+				if err != nil {
+					t.Fatalf("expected match, got error: %v", err)
+				}
+				if res.Product != "CrushFTP" {
+					t.Fatalf("expected CrushFTP, got %s", res.Product)
+				}
+				if res.Vendor != "CrushFTP, LLC" {
+					t.Fatalf("expected CrushFTP, LLC, got %s", res.Vendor)
+				}
+			} else if err == nil {
+				t.Fatalf("expected no match, but got result: %+v", res)
+			}
+		})
+	}
+}
+
+func TestResolve_CrushFTPSSHD(t *testing.T) {
+	rules := []StaticRule{{
+		ID:                  "ssh.crushftpsshd",
+		Protocol:            "ssh",
+		Product:             "CrushFTP SSHD",
+		Vendor:              "CrushFTP, LLC",
+		CPE:                 "cpe:2.3:a:crushftp:crushftp:*:*:*:*:*:*:*:*",
+		Match:               `(?i)ssh-\d\.\d+-crushftpsshd`,
+		ExcludePatterns:     []string{`openssh`, `dropbear`, `libssh`},
+		SoftExcludePatterns: []string{`error`, `refused`, `denied`},
+		PatternStrength:     0.93,
+		PortBonuses:         []int{22, 2222},
+	}}
+	rb := NewRuleBasedResolver(rules)
+
+	testCases := []struct {
+		name        string
+		banner      string
+		port        int
+		shouldMatch bool
+	}{
+		{"CrushFTP SSHD on 22", "SSH-2.0-CrushFTPSSHD", 22, true},
+		{"CrushFTP SSHD on 2222", "SSH-2.0-CrushFTPSSHD", 2222, true},
+		{"OpenSSH banner (should reject)", "SSH-2.0-OpenSSH_9.6", 22, false},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			input := Input{Protocol: "ssh", Banner: tc.banner, Port: tc.port}
+			res, err := rb.Resolve(ctx, input)
+
+			if tc.shouldMatch {
+				if err != nil {
+					t.Fatalf("expected match, got error: %v", err)
+				}
+				if res.Product != "CrushFTP SSHD" {
+					t.Fatalf("expected CrushFTP SSHD, got %s", res.Product)
+				}
+				if res.Vendor != "CrushFTP, LLC" {
+					t.Fatalf("expected CrushFTP, LLC, got %s", res.Vendor)
+				}
+			} else if err == nil {
+				t.Fatalf("expected no match, but got result: %+v", res)
+			}
+		})
+	}
+}
+
 // Other Services Tests (Phase 4)
 
 func TestResolve_RDP(t *testing.T) {
