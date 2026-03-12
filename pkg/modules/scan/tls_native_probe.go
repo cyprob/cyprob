@@ -112,70 +112,26 @@ var probeTLSDetailsFunc = probeTLSDetails
 
 func newTLSNativeProbeModuleWithSpec(moduleID string, moduleName string, description string, outputKey string, tags []string) *tlsNativeProbeModule {
 	return &tlsNativeProbeModule{
-		meta: engine.ModuleMetadata{
-			ID:          moduleID,
-			Name:        moduleName,
-			Description: description,
-			Version:     "0.1.0",
-			Type:        engine.ScanModuleType,
-			Author:      "Vulntor Team",
-			Tags:        tags,
-			Consumes: []engine.DataContractEntry{
-				{
-					Key:          "discovery.open_tcp_ports",
-					DataTypeName: "discovery.TCPPortDiscoveryResult",
-					Cardinality:  engine.CardinalityList,
-					IsOptional:   true,
-					Description:  "Open TCP ports used to identify TLS candidate services.",
-				},
-				{
-					Key:          "config.original_cli_targets",
-					DataTypeName: "[]string",
-					Cardinality:  engine.CardinalitySingle,
-					IsOptional:   true,
-					Description:  "Original CLI targets used to preserve hostname for SNI fallback.",
-				},
-			},
-			Produces: []engine.DataContractEntry{
-				{
-					Key:          outputKey,
-					DataTypeName: "scan.TLSServiceInfo",
-					Cardinality:  engine.CardinalityList,
-					Description:  "Structured TLS native probe output per target and port.",
-				},
-			},
-			ConfigSchema: map[string]engine.ParameterDefinition{
-				"timeout": {
-					Description: "Total timeout budget per target (e.g. 2s).",
-					Type:        "duration",
-					Required:    false,
-					Default:     "2s",
-				},
-				"connect_timeout": {
-					Description: "TCP connect timeout per attempt.",
-					Type:        "duration",
-					Required:    false,
-					Default:     "1s",
-				},
-				"io_timeout": {
-					Description: "I/O timeout per attempt.",
-					Type:        "duration",
-					Required:    false,
-					Default:     "1s",
-				},
-				"retries": {
-					Description: "Retry count per strategy.",
-					Type:        "int",
-					Required:    false,
-					Default:     0,
-				},
+		meta: buildTCPNativeProbeMetadata(tcpNativeProbeMetadataSpec{
+			moduleID:              moduleID,
+			moduleName:            moduleName,
+			description:           description,
+			outputKey:             outputKey,
+			outputType:            "scan.TLSServiceInfo",
+			outputDescription:     "Structured TLS native probe output per target and port.",
+			tags:                  tags,
+			consumes:              []engine.DataContractEntry{nativeOpenTCPPortsConsume(true, "Open TCP ports used to identify TLS candidate services."), nativeOriginalTargetsConsume("Original CLI targets used to preserve hostname for SNI fallback.")},
+			timeoutDefault:        "2s",
+			connectTimeoutDefault: "1s",
+			ioTimeoutDefault:      "1s",
+			extraConfigParameters: map[string]engine.ParameterDefinition{
 				"extra_ports": {
 					Description: "Additional TLS candidate ports to probe.",
 					Type:        "[]int",
 					Required:    false,
 				},
 			},
-		},
+		}),
 		options: defaultTLSProbeOptions(),
 	}
 }
@@ -195,26 +151,9 @@ func (m *tlsNativeProbeModule) Metadata() engine.ModuleMetadata {
 }
 
 func (m *tlsNativeProbeModule) Init(instanceID string, configMap map[string]any) error {
-	m.meta.ID = instanceID
 	opts := defaultTLSProbeOptions()
-	if configMap != nil {
-		if d, ok := parseDurationConfig(configMap["timeout"]); ok && d > 0 {
-			opts.TotalTimeout = d
-		}
-		if d, ok := parseDurationConfig(configMap["connect_timeout"]); ok && d > 0 {
-			opts.ConnectTimeout = d
-		}
-		if d, ok := parseDurationConfig(configMap["io_timeout"]); ok && d > 0 {
-			opts.IOTimeout = d
-		}
-		if retries, ok := configMap["retries"].(int); ok && retries >= 0 {
-			opts.Retries = retries
-		}
-		if retries, ok := configMap["retries"].(float64); ok && retries >= 0 {
-			opts.Retries = int(retries)
-		}
-		opts.ExtraPorts = parseExtraPortsConfig(configMap["extra_ports"])
-	}
+	initCommonTCPProbeOptions(&m.meta, instanceID, configMap, &opts.TotalTimeout, &opts.ConnectTimeout, &opts.IOTimeout, &opts.Retries)
+	opts.ExtraPorts = parseOptionalPortList(configMap, "extra_ports")
 	m.options = opts
 	return nil
 }

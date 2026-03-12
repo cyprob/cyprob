@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -75,8 +76,8 @@ type SMBServiceInfo struct {
 	Product         string            `json:"product,omitempty"`
 	Vendor          string            `json:"vendor,omitempty"`
 	ProductVersion  string            `json:"product_version,omitempty"`
-	OSHints         SMBOSHints        `json:"os_hints,omitempty"`
-	HostHints       SMBHostHints      `json:"host_hints,omitempty"`
+	OSHints         SMBOSHints        `json:"os_hints,omitzero"`
+	HostHints       SMBHostHints      `json:"host_hints,omitzero"`
 	Error           string            `json:"error,omitempty"`
 	Attempts        []SMBProbeAttempt `json:"attempts,omitempty"`
 }
@@ -90,65 +91,19 @@ var probeSMBDetailsFunc = probeSMBDetails
 
 func newSMBNativeProbeModuleWithSpec(moduleID string, moduleName string, description string, outputKey string, tags []string) *smbNativeProbeModule {
 	return &smbNativeProbeModule{
-		meta: engine.ModuleMetadata{
-			ID:          moduleID,
-			Name:        moduleName,
-			Description: description,
-			Version:     "0.1.0",
-			Type:        engine.ScanModuleType,
-			Author:      "Vulntor Team",
-			Tags:        tags,
-			Consumes: []engine.DataContractEntry{
-				{
-					Key:          "discovery.open_tcp_ports",
-					DataTypeName: "discovery.TCPPortDiscoveryResult",
-					Cardinality:  engine.CardinalityList,
-					IsOptional:   true,
-					Description:  "Open TCP ports used to identify SMB candidate services.",
-				},
-				{
-					Key:          "service.banner.tcp",
-					DataTypeName: "scan.BannerGrabResult",
-					Cardinality:  engine.CardinalityList,
-					IsOptional:   true,
-					Description:  "Banner results used as fallback SMB candidate source.",
-				},
-			},
-			Produces: []engine.DataContractEntry{
-				{
-					Key:          outputKey,
-					DataTypeName: "scan.SMBServiceInfo",
-					Cardinality:  engine.CardinalityList,
-					Description:  "Structured SMB native probe output per target and port.",
-				},
-			},
-			ConfigSchema: map[string]engine.ParameterDefinition{
-				"timeout": {
-					Description: "Total timeout budget per target (e.g. 2s).",
-					Type:        "duration",
-					Required:    false,
-					Default:     "2s",
-				},
-				"connect_timeout": {
-					Description: "TCP connect timeout per attempt.",
-					Type:        "duration",
-					Required:    false,
-					Default:     "1s",
-				},
-				"io_timeout": {
-					Description: "Read/write timeout per attempt.",
-					Type:        "duration",
-					Required:    false,
-					Default:     "1s",
-				},
-				"retries": {
-					Description: "Retry count per strategy.",
-					Type:        "int",
-					Required:    false,
-					Default:     0,
-				},
-			},
-		},
+		meta: buildTCPNativeProbeMetadata(tcpNativeProbeMetadataSpec{
+			moduleID:              moduleID,
+			moduleName:            moduleName,
+			description:           description,
+			outputKey:             outputKey,
+			outputType:            "scan.SMBServiceInfo",
+			outputDescription:     "Structured SMB native probe output per target and port.",
+			tags:                  tags,
+			consumes:              []engine.DataContractEntry{nativeOpenTCPPortsConsume(true, "Open TCP ports used to identify SMB candidate services."), nativeBannerConsume("Banner results used as fallback SMB candidate source.")},
+			timeoutDefault:        "2s",
+			connectTimeoutDefault: "1s",
+			ioTimeoutDefault:      "1s",
+		}),
 		options: defaultSMBProbeOptions(),
 	}
 }
@@ -168,24 +123,9 @@ func (m *smbNativeProbeModule) Metadata() engine.ModuleMetadata {
 }
 
 func (m *smbNativeProbeModule) Init(instanceID string, configMap map[string]any) error {
-	m.meta.ID = instanceID
 	opts := defaultSMBProbeOptions()
+	initCommonTCPProbeOptions(&m.meta, instanceID, configMap, &opts.TotalTimeout, &opts.ConnectTimeout, &opts.IOTimeout, &opts.Retries)
 	if configMap != nil {
-		if d, ok := parseDurationConfig(configMap["timeout"]); ok && d > 0 {
-			opts.TotalTimeout = d
-		}
-		if d, ok := parseDurationConfig(configMap["connect_timeout"]); ok && d > 0 {
-			opts.ConnectTimeout = d
-		}
-		if d, ok := parseDurationConfig(configMap["io_timeout"]); ok && d > 0 {
-			opts.IOTimeout = d
-		}
-		if retries, ok := configMap["retries"].(int); ok && retries >= 0 {
-			opts.Retries = retries
-		}
-		if retries, ok := configMap["retries"].(float64); ok && retries >= 0 {
-			opts.Retries = int(retries)
-		}
 		if includeEnum, ok := configMap["include_enum"].(bool); ok {
 			opts.IncludeEnum = includeEnum
 		}
@@ -255,6 +195,12 @@ func toAnySlice(raw any) []any {
 		}
 		return out
 	case []discovery.TCPPortDiscoveryResult:
+		out := make([]any, 0, len(v))
+		for _, item := range v {
+			out = append(out, item)
+		}
+		return out
+	case []discovery.UDPPortDiscoveryResult:
 		out := make([]any, 0, len(v))
 		for _, item := range v {
 			out = append(out, item)
@@ -412,6 +358,7 @@ type ntlmChallengeInfo struct {
 	DNSDomain       string
 }
 
+//nolint:gocyclo // SMB probing keeps protocol fallback ordering explicit.
 func probeSMBDetails(ctx context.Context, target string, port int, opts SMBProbeOptions) SMBServiceInfo {
 	if port <= 0 {
 		port = 445
@@ -571,6 +518,7 @@ func buildSMBProbeStrategies(port int, includeNetBIOS bool) []smbProbeStrategy {
 	return strategies
 }
 
+//nolint:gocyclo // SMB strategy execution keeps transport-specific branches explicit.
 func probeSingleSMBStrategy(ctx context.Context, ip string, strategy smbProbeStrategy, opts SMBProbeOptions) (smbNegotiateResult, smbEnumResult, error) {
 	start := time.Now()
 	address := net.JoinHostPort(ip, strconv.Itoa(strategy.transport))
@@ -653,7 +601,9 @@ func buildSMB2NegotiateRequest() []byte {
 		binary.LittleEndian.PutUint16(body[36+i*2:38+i*2], d)
 	}
 
-	payload := append(header, body...)
+	payload := make([]byte, 0, len(header)+len(body))
+	payload = append(payload, header...)
+	payload = append(payload, body...)
 	frame := make([]byte, 4+len(payload))
 	binary.BigEndian.PutUint32(frame[0:4], uint32(len(payload)))
 	copy(frame[4:], payload)
@@ -686,7 +636,7 @@ func parseSMBNegotiateResponse(frame []byte) (smbNegotiateResult, error) {
 			signingRequired: nil,
 		}, nil
 	}
-	if !(sig[0] == 0xFE && sig[1] == 'S' && sig[2] == 'M' && sig[3] == 'B') {
+	if sig[0] != 0xFE || sig[1] != 'S' || sig[2] != 'M' || sig[3] != 'B' {
 		return smbNegotiateResult{}, fmt.Errorf("unknown_smb_signature")
 	}
 
@@ -763,6 +713,7 @@ func runSMBEnumFromStrategy(ctx context.Context, target string, strategy smbProb
 	return smbEnumResult{err: fmt.Errorf("smb_enum_failed: %w", errors.Join(errs...))}
 }
 
+//nolint:gocyclo // SMB session parsing is branch-heavy because the wire format is branch-heavy.
 func runSMBEnumSessionRequest(
 	ctx context.Context,
 	target string,
@@ -871,7 +822,9 @@ func buildSMB2SessionSetupRequest() ([]byte, error) {
 	binary.LittleEndian.PutUint16(body[12:14], uint16(64+24))
 	binary.LittleEndian.PutUint16(body[14:16], uint16(len(ntlm)))
 
-	payload := append(header, body...)
+	payload := make([]byte, 0, len(header)+len(body)+len(ntlm))
+	payload = append(payload, header...)
+	payload = append(payload, body...)
 	payload = append(payload, ntlm...)
 	frame := make([]byte, 4+len(payload))
 	binary.BigEndian.PutUint32(frame[0:4], uint32(len(payload)))
@@ -991,54 +944,6 @@ func smb2SessionSetupNTLMNegotiateRequest() []byte {
 	return req
 }
 
-func smb2SessionSetupLegacyType1Request() []byte {
-	ntlm := buildLegacyNTLMType1Token()
-	packetLen := 64 + 24 + len(ntlm)
-	req := make([]byte, 4+packetLen)
-	req[0] = 0x00
-	req[1] = byte(packetLen >> 16)
-	req[2] = byte(packetLen >> 8)
-	req[3] = byte(packetLen)
-
-	off := 4
-	copy(req[off:off+4], []byte{0xFE, 'S', 'M', 'B'})
-	off += 4
-	binary.LittleEndian.PutUint16(req[off:off+2], 64)
-	off += 2
-	off += 2
-	off += 4
-	binary.LittleEndian.PutUint16(req[off:off+2], 0x0001)
-	off += 2
-	binary.LittleEndian.PutUint16(req[off:off+2], 1)
-	off += 2
-	off += 4
-	off += 4
-	binary.LittleEndian.PutUint64(req[off:off+8], 1)
-	off += 8
-	off += 4
-	off += 4
-	off += 8
-	off += 16
-
-	binary.LittleEndian.PutUint16(req[off:off+2], 0x0019)
-	off += 2
-	req[off] = 0x00
-	off++
-	req[off] = 0x01
-	off++
-	off += 4
-	off += 4
-	binary.LittleEndian.PutUint16(req[off:off+2], 0x0058)
-	off += 2
-	binary.LittleEndian.PutUint16(req[off:off+2], uint16(len(ntlm)))
-	off += 2
-	off += 8
-
-	copy(req[off:], ntlm)
-	binary.LittleEndian.PutUint32(req[4+32:4+36], 0x0000FEFF)
-	return req
-}
-
 func smb2SessionSetupAnonymousRequest() []byte {
 	return []byte{
 		0x00, 0x00, 0x00, 0x58,
@@ -1064,28 +969,6 @@ func smb2SessionSetupAnonymousRequest() []byte {
 	}
 }
 
-func buildLegacyNTLMType1Token() []byte {
-	flags := uint32(0x00000001 |
-		0x00000004 |
-		0x00000200 |
-		0x00008000 |
-		0x00080000 |
-		0x00800000 |
-		ntlmNegotiateVersionFlag |
-		0x20000000 |
-		0x80000000)
-
-	msg := make([]byte, 40)
-	copy(msg[0:8], []byte("NTLMSSP\x00"))
-	binary.LittleEndian.PutUint32(msg[8:12], 1)
-	binary.LittleEndian.PutUint32(msg[12:16], flags)
-	msg[32] = 10
-	msg[33] = 0
-	binary.LittleEndian.PutUint16(msg[34:36], 19045)
-	msg[39] = 15
-	return msg
-}
-
 func parseNTLMChallengeFromSessionResponse(resp []byte) (*ntlmChallengeInfo, error) {
 	blob, err := extractSMB2SecurityBlob(resp)
 	if err == nil {
@@ -1101,7 +984,7 @@ func extractSMB2SecurityBlob(resp []byte) ([]byte, error) {
 	if len(resp) < 4+64+8 {
 		return nil, errors.New("short_session_setup_response")
 	}
-	if !(resp[4] == 0xFE && resp[5] == 'S' && resp[6] == 'M' && resp[7] == 'B') {
+	if resp[4] != 0xFE || resp[5] != 'S' || resp[6] != 'M' || resp[7] != 'B' {
 		return nil, errors.New("invalid_session_setup_signature")
 	}
 
@@ -1351,10 +1234,8 @@ func pickTopProbeError(errors []string) string {
 		"probe_failed",
 	}
 	for _, p := range priority {
-		for _, e := range errors {
-			if e == p {
-				return p
-			}
+		if slices.Contains(errors, p) {
+			return p
 		}
 	}
 	return errors[len(errors)-1]
