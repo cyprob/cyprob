@@ -45,6 +45,8 @@ func TestPluginEvaluationModule_Metadata(t *testing.T) {
 		consumedKeys[i] = entry.Key
 	}
 	require.Contains(t, consumedKeys, "ssh.version")
+	require.Contains(t, consumedKeys, "snmp.version")
+	require.Contains(t, consumedKeys, "snmp.community")
 	require.Contains(t, consumedKeys, "http.server")
 	require.Contains(t, consumedKeys, "service.port")
 	require.Contains(t, consumedKeys, "tls.version")
@@ -298,6 +300,124 @@ func TestBuildEvaluationContext_SSHNativeDetails(t *testing.T) {
 
 	require.Equal(t, "192.0.2.11", ctx["target"])
 	require.Equal(t, 22, ctx["service.port"])
+}
+
+func TestBuildEvaluationContext_SNMPNativeDetails(t *testing.T) {
+	module := NewPluginEvaluationModule()
+
+	inputs := map[string]any{
+		"snmp.version": []any{"SNMPv2c"},
+		"service.snmp.details": []any{
+			scan.SNMPServiceInfo{
+				Target:      "192.0.2.25",
+				Port:        161,
+				SNMPProbe:   true,
+				SNMPVersion: "SNMPv2c",
+				Community:   "public",
+			},
+		},
+	}
+
+	ctx := module.buildEvaluationContext(inputs)
+
+	require.Equal(t, "192.0.2.25", ctx["target"])
+	require.Equal(t, 161, ctx["service.port"])
+	require.Equal(t, "SNMPv2c", ctx["snmp.version"])
+}
+
+func TestPluginEvaluationModule_Execute_WeakSNMPCommunity(t *testing.T) {
+	module := NewPluginEvaluationModule()
+	require.NoError(t, module.Init("test-instance", nil))
+
+	ctx := context.Background()
+	inputs := map[string]any{
+		"snmp.version":        "SNMPv2c",
+		"snmp.community":      "public",
+		"service.ssh.details": []any{},
+		"service.snmp.details": []any{
+			scan.SNMPServiceInfo{
+				Target:      "192.0.2.26",
+				Port:        161,
+				SNMPProbe:   true,
+				SNMPVersion: "SNMPv2c",
+				Community:   "public",
+			},
+		},
+	}
+
+	outputChan := make(chan engine.ModuleOutput, 10)
+	done := make(chan struct{})
+	var outputs []engine.ModuleOutput
+	go func() {
+		for output := range outputChan {
+			outputs = append(outputs, output)
+		}
+		close(done)
+	}()
+
+	err := module.Execute(ctx, inputs, outputChan)
+	close(outputChan)
+	<-done
+
+	require.NoError(t, err)
+	require.NotEmpty(t, outputs)
+
+	vuln, ok := outputs[0].Data.(VulnerabilityResult)
+	require.True(t, ok)
+	require.True(t, vuln.Matched)
+	require.Equal(t, 161, vuln.Port)
+	require.Contains(t, vuln.Plugin, "SNMP")
+}
+
+func TestPluginEvaluationModule_Execute_WeakSNMPCommunityPrefersSNMPPortOverSSH(t *testing.T) {
+	module := NewPluginEvaluationModule()
+	require.NoError(t, module.Init("test-instance", nil))
+
+	ctx := context.Background()
+	inputs := map[string]any{
+		"snmp.version":   "SNMPv2c",
+		"snmp.community": "public",
+		"service.ssh.details": []any{
+			scan.SSHServiceInfo{
+				Target:   "192.0.2.30",
+				Port:     22,
+				SSHProbe: true,
+			},
+		},
+		"service.snmp.details": []any{
+			scan.SNMPServiceInfo{
+				Target:      "192.0.2.30",
+				Port:        161,
+				SNMPProbe:   true,
+				SNMPVersion: "SNMPv2c",
+				Community:   "public",
+			},
+		},
+	}
+
+	outputChan := make(chan engine.ModuleOutput, 10)
+	done := make(chan struct{})
+	var outputs []engine.ModuleOutput
+	go func() {
+		for output := range outputChan {
+			outputs = append(outputs, output)
+		}
+		close(done)
+	}()
+
+	err := module.Execute(ctx, inputs, outputChan)
+	close(outputChan)
+	<-done
+
+	require.NoError(t, err)
+	require.NotEmpty(t, outputs)
+
+	vuln, ok := outputs[0].Data.(VulnerabilityResult)
+	require.True(t, ok)
+	require.True(t, vuln.Matched)
+	require.Equal(t, 161, vuln.Port)
+	require.Equal(t, "192.0.2.30", vuln.Target)
+	require.Contains(t, vuln.Plugin, "SNMP")
 }
 
 func TestBuildEvaluationContext_BannerGrab_MapFallback(t *testing.T) {

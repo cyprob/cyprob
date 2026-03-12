@@ -3,6 +3,7 @@ package commands
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -14,6 +15,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cyprob/cyprob/pkg/engine"
+	"github.com/cyprob/cyprob/pkg/modules/discovery"
 	scanpkg "github.com/cyprob/cyprob/pkg/modules/scan"
 	"github.com/stretchr/testify/require"
 )
@@ -28,6 +31,10 @@ type scanDebugTestOutput struct {
 		Target    string `json:"target"`
 		OpenPorts []int  `json:"open_ports"`
 	} `json:"open_ports"`
+	OpenUDPPorts []struct {
+		Target    string `json:"target"`
+		OpenPorts []int  `json:"open_ports"`
+	} `json:"open_udp_ports"`
 	Banners []struct {
 		IP            string `json:"ip"`
 		ResolvedIP    string `json:"resolved_ip"`
@@ -83,6 +90,21 @@ type scanDebugTestOutput struct {
 		Ciphers     []string `json:"ciphers"`
 		ProbeError  string   `json:"probe_error"`
 	} `json:"ssh_details"`
+	SNMPDetails []struct {
+		Target        string `json:"target"`
+		Port          int    `json:"port"`
+		SNMPProbe     bool   `json:"snmp_probe"`
+		SNMPVersion   string `json:"snmp_version"`
+		Community     string `json:"community"`
+		SysDescr      string `json:"sys_descr"`
+		SysName       string `json:"sys_name"`
+		SysObjectID   string `json:"sys_object_id"`
+		ProductHint   string `json:"product_hint"`
+		VendorHint    string `json:"vendor_hint"`
+		ProbeError    string `json:"probe_error"`
+		WeakProtocol  bool   `json:"weak_protocol"`
+		WeakCommunity bool   `json:"weak_community"`
+	} `json:"snmp_details"`
 	AssetProfiles []struct {
 		Target string `json:"target"`
 	} `json:"asset_profiles"`
@@ -223,6 +245,43 @@ func TestScanDebugTargetSMTPJSONSmoke(t *testing.T) {
 	require.Equal(t, "Postfix", payload.ServiceIdentity[0].Product)
 }
 
+func TestRunDebugSNMPNativeProbeStageWithModule(t *testing.T) {
+	const moduleType = "test-scan-debug-snmp-native-probe"
+	engine.RegisterModuleFactory(moduleType, func() engine.Module {
+		return &testScanDebugSNMPModule{
+			meta: engine.ModuleMetadata{
+				ID:   "test-scan-debug-snmp-native-probe-instance",
+				Name: moduleType,
+				Type: engine.ScanModuleType,
+				Consumes: []engine.DataContractEntry{
+					{Key: "discovery.open_udp_ports", DataTypeName: "discovery.UDPPortDiscoveryResult", Cardinality: engine.CardinalityList},
+				},
+				Produces: []engine.DataContractEntry{
+					{Key: "service.snmp.details", DataTypeName: "scan.SNMPServiceInfo", Cardinality: engine.CardinalityList},
+				},
+			},
+		}
+	})
+
+	steps := newScanDebugSteps("snmp-native-probe")
+	results, err := runDebugSNMPNativeProbeStageWithModule(
+		context.Background(),
+		scanDebugTargetOptions{Timeout: "2s"},
+		steps,
+		[]discovery.UDPPortDiscoveryResult{
+			{Target: "127.0.0.1", OpenPorts: []int{161}},
+		},
+		"test_scan_debug_snmp_module",
+		moduleType,
+		"snmp-native-probe",
+	)
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	require.True(t, results[0].SNMPProbe)
+	require.Equal(t, "SNMPv2c", results[0].SNMPVersion)
+	require.Empty(t, steps.values()[0].Errors)
+}
+
 func TestDebugTLSExtraPortsFromBanners(t *testing.T) {
 	require.Empty(t, debugTLSExtraPortsFromBanners([]scanpkg.BannerGrabResult{
 		{IP: "127.0.0.1", Port: 10443, Protocol: "tcp", Banner: "HELLO"},
@@ -326,4 +385,37 @@ func hasTag(results []struct {
 		}
 	}
 	return false
+}
+
+type testScanDebugSNMPModule struct {
+	meta engine.ModuleMetadata
+}
+
+func (m *testScanDebugSNMPModule) Metadata() engine.ModuleMetadata {
+	return m.meta
+}
+
+func (m *testScanDebugSNMPModule) Init(instanceID string, config map[string]any) error {
+	m.meta.ID = instanceID
+	return nil
+}
+
+func (m *testScanDebugSNMPModule) Execute(ctx context.Context, inputs map[string]any, outputChan chan<- engine.ModuleOutput) error {
+	_ = ctx
+	_ = inputs
+	outputChan <- engine.ModuleOutput{
+		FromModuleName: m.meta.ID,
+		DataKey:        "service.snmp.details",
+		Data: scanpkg.SNMPServiceInfo{
+			Target:      "127.0.0.1",
+			Port:        161,
+			SNMPProbe:   true,
+			SNMPVersion: "SNMPv2c",
+			Community:   "public",
+			ProductHint: "Net-SNMP",
+		},
+		Timestamp: time.Now(),
+		Target:    "127.0.0.1",
+	}
+	return nil
 }

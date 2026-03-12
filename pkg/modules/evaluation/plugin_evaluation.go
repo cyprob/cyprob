@@ -4,6 +4,7 @@ package evaluation
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	"github.com/rs/zerolog/log"
 
@@ -75,6 +76,27 @@ func NewPluginEvaluationModule() *PluginEvaluationModule {
 					Cardinality:  engine.CardinalityList,
 					IsOptional:   true,
 					Description:  "Native SSH service details for target/port extraction",
+				},
+				{
+					Key:          "service.snmp.details",
+					DataTypeName: "scan.SNMPServiceInfo",
+					Cardinality:  engine.CardinalityList,
+					IsOptional:   true,
+					Description:  "Native SNMP service details for target/port extraction",
+				},
+				{
+					Key:          "snmp.version",
+					DataTypeName: "string",
+					Cardinality:  engine.CardinalityList,
+					IsOptional:   true,
+					Description:  "SNMP version for evaluation compatibility",
+				},
+				{
+					Key:          "snmp.community",
+					DataTypeName: "string",
+					Cardinality:  engine.CardinalityList,
+					IsOptional:   true,
+					Description:  "SNMP community for evaluation compatibility",
 				},
 				{
 					Key:          "service.banner.tcp",
@@ -262,6 +284,12 @@ func (m *PluginEvaluationModule) Execute(ctx context.Context, inputs map[string]
 		// Extract target information from context
 		target := m.extractTarget(evalContext)
 		port := m.extractPort(evalContext)
+		if isSNMPPlugin(pluginToEval) {
+			if snmpTarget, snmpPort, ok := extractSNMPTargetPort(inputs); ok {
+				target = snmpTarget
+				port = snmpPort
+			}
+		}
 
 		// Create vulnerability result
 		vuln := VulnerabilityResult{
@@ -342,6 +370,8 @@ func (m *PluginEvaluationModule) buildEvaluationContext(inputs map[string]any) m
 		"tls.certificate.not_after",
 		"tls.certificate.is_expired",
 		"tls.certificate.is_self_signed",
+		"snmp.version",
+		"snmp.community",
 	}
 
 	logger := log.With().Str("module", m.meta.Name).Str("instance_id", m.meta.ID).Logger()
@@ -376,6 +406,27 @@ func (m *PluginEvaluationModule) buildEvaluationContext(inputs map[string]any) m
 			} else if port, ok := sshInfo["port"].(float64); ok {
 				context["service.port"] = int(port)
 			}
+		}
+	}
+
+	if _, hasTarget := context["target"]; !hasTarget {
+		if snmpDetails, ok := inputs["service.snmp.details"].([]any); ok && len(snmpDetails) > 0 {
+			if snmpInfo, ok := snmpDetails[0].(scan.SNMPServiceInfo); ok {
+				context["target"] = snmpInfo.Target
+				context["service.port"] = snmpInfo.Port
+			} else if snmpInfo, ok := snmpDetails[0].(map[string]any); ok {
+				if target, ok := snmpInfo["target"].(string); ok {
+					context["target"] = target
+				}
+				if port, ok := snmpInfo["port"].(int); ok {
+					context["service.port"] = port
+				} else if port, ok := snmpInfo["port"].(float64); ok {
+					context["service.port"] = int(port)
+				}
+			}
+		} else if snmpDetails, ok := inputs["service.snmp.details"].([]scan.SNMPServiceInfo); ok && len(snmpDetails) > 0 {
+			context["target"] = snmpDetails[0].Target
+			context["service.port"] = snmpDetails[0].Port
 		}
 	}
 
@@ -435,6 +486,52 @@ func (m *PluginEvaluationModule) extractPort(context map[string]any) int {
 		return int(port)
 	}
 	return 0
+}
+
+func isSNMPPlugin(def *plugin.YAMLPlugin) bool {
+	if def == nil {
+		return false
+	}
+	if slices.Contains(def.Metadata.Tags, "snmp") {
+		return true
+	}
+	for _, trigger := range def.Triggers {
+		switch trigger.DataKey {
+		case "snmp.version", "snmp.community", "service.snmp.details":
+			return true
+		}
+	}
+	if def.Match != nil {
+		for _, rule := range def.Match.Rules {
+			switch rule.Field {
+			case "snmp.version", "snmp.community":
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func extractSNMPTargetPort(inputs map[string]any) (string, int, bool) {
+	if snmpDetails, ok := inputs["service.snmp.details"].([]any); ok && len(snmpDetails) > 0 {
+		if info, ok := snmpDetails[0].(scan.SNMPServiceInfo); ok {
+			return info.Target, info.Port, info.Target != "" && info.Port > 0
+		}
+		if info, ok := snmpDetails[0].(map[string]any); ok {
+			target, _ := info["target"].(string)
+			switch port := info["port"].(type) {
+			case int:
+				return target, port, target != "" && port > 0
+			case float64:
+				return target, int(port), target != "" && port > 0
+			}
+		}
+	}
+	if snmpDetails, ok := inputs["service.snmp.details"].([]scan.SNMPServiceInfo); ok && len(snmpDetails) > 0 {
+		info := snmpDetails[0]
+		return info.Target, info.Port, info.Target != "" && info.Port > 0
+	}
+	return "", 0, false
 }
 
 // PluginEvaluationModuleFactory is the factory function for creating plugin evaluation modules.

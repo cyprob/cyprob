@@ -23,6 +23,7 @@ const (
 	TagDovecot      = "dovecot"
 	TagMicrosoftIIS = "microsoft_iis"
 	TagRDP          = "rdp"
+	TagSNMP         = "snmp"
 	TagTLS          = "tls"
 	TagHTTPS        = "https"
 	TagRPC          = "rpc"
@@ -130,6 +131,7 @@ var canonicalTechTagSet = map[string]struct{}{
 	TagDovecot:      {},
 	TagMicrosoftIIS: {},
 	TagRDP:          {},
+	TagSNMP:         {},
 	TagTLS:          {},
 	TagHTTPS:        {},
 	TagRPC:          {},

@@ -20,9 +20,10 @@ import (
 )
 
 type scanDebugTargetOptions struct {
-	Ports   string
-	Timeout string
-	Format  string
+	Ports    string
+	UDPPorts string
+	Timeout  string
+	Format   string
 }
 
 type scanDebugResolvedTarget struct {
@@ -40,12 +41,14 @@ type scanDebugPayload struct {
 	Target          string                             `json:"target"`
 	ResolvedTargets []scanDebugResolvedTarget          `json:"resolved_targets"`
 	OpenPorts       []discovery.TCPPortDiscoveryResult `json:"open_ports"`
+	OpenUDPPorts    []discovery.UDPPortDiscoveryResult `json:"open_udp_ports,omitempty"`
 	Banners         []scanpkg.BannerGrabResult         `json:"banners"`
 	HTTPDetails     []parsepkg.HTTPParsedInfo          `json:"http_details,omitempty"`
 	Fingerprints    []parsepkg.FingerprintParsedInfo   `json:"fingerprints"`
 	TechTags        []parsepkg.TechTagResult           `json:"tech_tags"`
 	SMTPDetails     []scanpkg.SMTPServiceInfo          `json:"smtp_details"`
 	SSHDetails      []scanpkg.SSHServiceInfo           `json:"ssh_details"`
+	SNMPDetails     []scanpkg.SNMPServiceInfo          `json:"snmp_details,omitempty"`
 	RPCEpmapper     []scanpkg.RPCEpmapperInfo          `json:"rpc_epmapper"`
 	RPCDetails      []scanpkg.RPCServiceInfo           `json:"rpc_details"`
 	RDPDetails      []scanpkg.RDPServiceInfo           `json:"rdp_details"`
@@ -86,24 +89,36 @@ func newScanDebugTargetCommand() *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&opts.Ports, "ports", "", "Ports to scan (e.g. 80,443,993)")
+	cmd.Flags().StringVar(&opts.UDPPorts, "udp-ports", "", "UDP ports to scan (e.g. 161)")
 	cmd.Flags().StringVar(&opts.Timeout, "timeout", "", "Step timeout override (e.g. 5s)")
 	cmd.Flags().StringVar(&opts.Format, "format", scanDebugOutputFormatJSON, "Output format: json|pretty")
 
 	return cmd
 }
 
+//nolint:gocyclo // Debug pipeline orchestration is intentionally linear and stage-oriented.
 func runScanDebugTarget(cmd *cobra.Command, target string, opts scanDebugTargetOptions) error {
 	format, err := validateScanDebugOptions(opts)
 	if err != nil {
 		return err
 	}
 
-	steps := newScanDebugSteps(
+	stepNames := []string{
 		"resolve-targets",
 		"tcp-port-discovery",
+	}
+	if strings.TrimSpace(opts.UDPPorts) != "" {
+		stepNames = append(stepNames, "udp-port-discovery")
+	}
+	stepNames = append(stepNames,
 		"banner-grabber",
 		"smtp-native-probe",
 		"ssh-native-probe",
+	)
+	if strings.TrimSpace(opts.UDPPorts) != "" {
+		stepNames = append(stepNames, "snmp-native-probe")
+	}
+	stepNames = append(stepNames,
 		"rpc-epmapper-probe",
 		"rpc-followup-probe",
 		"rdp-native-probe",
@@ -115,6 +130,7 @@ func runScanDebugTarget(cmd *cobra.Command, target string, opts scanDebugTargetO
 		"service-identity-normalizer",
 		"asset-profile-builder",
 	)
+	steps := newScanDebugSteps(stepNames...)
 
 	resolved, resolveErr := resolveDebugTargets(target)
 	if resolveErr != nil {
@@ -138,6 +154,18 @@ func runScanDebugTarget(cmd *cobra.Command, target string, opts scanDebugTargetO
 	openPorts, err := runDebugTCPPortDiscoveryStage(ctx, target, opts, steps)
 	if err != nil {
 		return err
+	}
+	var openUDPPorts []discovery.UDPPortDiscoveryResult
+	var snmpDetails []scanpkg.SNMPServiceInfo
+	if strings.TrimSpace(opts.UDPPorts) != "" {
+		openUDPPorts, err = runDebugUDPPortDiscoveryStage(ctx, target, opts, steps)
+		if err != nil {
+			return err
+		}
+		snmpDetails, err = runDebugSNMPNativeProbeStageWithModule(ctx, opts, steps, openUDPPorts, "scan_debug_snmp_native_probe", "snmp-native-probe", "snmp-native-probe")
+		if err != nil {
+			return err
+		}
 	}
 	banners, err := runDebugBannerGrabStageWithModule(ctx, target, opts, steps, openPorts, "scan_debug_banner_grabber", "banner-grabber", "banner-grabber")
 	if err != nil {
@@ -186,12 +214,14 @@ func runScanDebugTarget(cmd *cobra.Command, target string, opts scanDebugTargetO
 	pipelineInputs := map[string]any{
 		"config.targets":              []string{target},
 		"discovery.open_tcp_ports":    toAnySlice(openPorts),
+		"discovery.open_udp_ports":    toAnySlice(openUDPPorts),
 		"service.banner.tcp":          toAnySlice(banners),
 		"service.http.details":        toAnySlice(httpDetails),
 		"service.fingerprint.details": toAnySlice(fingerprints),
 		"service.tech.tags":           toAnySlice(techTags),
 		"service.smtp.details":        toAnySlice(smtpDetails),
 		"service.ssh.details":         toAnySlice(sshDetails),
+		"service.snmp.details":        toAnySlice(snmpDetails),
 		"service.rpc.epmapper":        toAnySlice(rpcEpmapper),
 		"service.rpc.details":         toAnySlice(rpcDetails),
 		"service.rdp.details":         toAnySlice(rdpDetails),
@@ -213,12 +243,14 @@ func runScanDebugTarget(cmd *cobra.Command, target string, opts scanDebugTargetO
 		Target:          target,
 		ResolvedTargets: resolved,
 		OpenPorts:       openPorts,
+		OpenUDPPorts:    openUDPPorts,
 		Banners:         banners,
 		HTTPDetails:     httpDetails,
 		Fingerprints:    fingerprints,
 		TechTags:        techTags,
 		SMTPDetails:     smtpDetails,
 		SSHDetails:      sshDetails,
+		SNMPDetails:     snmpDetails,
 		RPCEpmapper:     rpcEpmapper,
 		RPCDetails:      rpcDetails,
 		RDPDetails:      rdpDetails,
@@ -246,6 +278,7 @@ func validateScanDebugOptions(opts scanDebugTargetOptions) (string, error) {
 	return format, nil
 }
 
+//nolint:dupl // TCP and UDP debug discovery stages intentionally share the same orchestration shape.
 func runDebugTCPPortDiscoveryStage(
 	ctx context.Context,
 	target string,
@@ -279,14 +312,38 @@ func runDebugTCPPortDiscoveryStage(
 	return openPorts, nil
 }
 
-func runDebugBannerGrabStage(
+//nolint:dupl // TCP and UDP debug discovery stages intentionally share the same orchestration shape.
+func runDebugUDPPortDiscoveryStage(
 	ctx context.Context,
 	target string,
 	opts scanDebugTargetOptions,
 	steps *scanDebugStepCollection,
-	openPorts []discovery.TCPPortDiscoveryResult,
-) ([]scanpkg.BannerGrabResult, error) {
-	return runDebugBannerGrabStageWithModule(ctx, target, opts, steps, openPorts, "scan_debug_banner_grabber", "banner-grabber", "banner-grabber")
+) ([]discovery.UDPPortDiscoveryResult, error) {
+	udpCfg := map[string]any{}
+	if strings.TrimSpace(opts.UDPPorts) != "" {
+		udpCfg["ports"] = splitAndTrim(opts.UDPPorts)
+	}
+	if opts.Timeout != "" {
+		udpCfg["timeout"] = opts.Timeout
+	}
+
+	udpModule, err := engine.GetModuleInstance("scan_debug_udp_port_discovery", "udp-port-discovery", udpCfg)
+	if err != nil {
+		return nil, fmt.Errorf("create udp-port-discovery module: %w", err)
+	}
+
+	udpOutputs, udpExecErr := executeDebugModule(ctx, udpModule, map[string]any{
+		"config.targets": []string{target},
+	})
+	if udpExecErr != nil {
+		steps.addError("udp-port-discovery", udpExecErr.Error())
+	}
+	steps.addErrors("udp-port-discovery", collectOutputErrors(udpOutputs))
+	openPorts := collectUDPDiscoveryResults(udpOutputs)
+	if len(openPorts) == 0 {
+		steps.addWarning("udp-port-discovery", "no open udp ports found")
+	}
+	return openPorts, nil
 }
 
 func runDebugBannerGrabStageWithModule(
@@ -327,15 +384,6 @@ func runDebugBannerGrabStageWithModule(
 	return banners, nil
 }
 
-func runDebugRPCEpmapperStage(
-	ctx context.Context,
-	opts scanDebugTargetOptions,
-	steps *scanDebugStepCollection,
-	openPorts []discovery.TCPPortDiscoveryResult,
-) ([]scanpkg.RPCEpmapperInfo, error) {
-	return runDebugRPCEpmapperStageWithModule(ctx, opts, steps, openPorts, "scan_debug_rpc_epmapper_probe", "rpc-epmapper-probe", "rpc-epmapper-probe")
-}
-
 func runDebugRPCEpmapperStageWithModule(
 	ctx context.Context,
 	opts scanDebugTargetOptions,
@@ -371,16 +419,7 @@ func runDebugRPCEpmapperStageWithModule(
 	return results, nil
 }
 
-func runDebugSMTPNativeProbeStage(
-	ctx context.Context,
-	opts scanDebugTargetOptions,
-	steps *scanDebugStepCollection,
-	openPorts []discovery.TCPPortDiscoveryResult,
-	banners []scanpkg.BannerGrabResult,
-) ([]scanpkg.SMTPServiceInfo, error) {
-	return runDebugSMTPNativeProbeStageWithModule(ctx, opts, steps, openPorts, banners, "scan_debug_smtp_native_probe", "smtp-native-probe", "smtp-native-probe")
-}
-
+//nolint:dupl // SMTP and SSH debug native stages intentionally share the same orchestration shape.
 func runDebugSMTPNativeProbeStageWithModule(
 	ctx context.Context,
 	opts scanDebugTargetOptions,
@@ -423,16 +462,7 @@ func runDebugSMTPNativeProbeStageWithModule(
 	return results, nil
 }
 
-func runDebugSSHNativeProbeStage(
-	ctx context.Context,
-	opts scanDebugTargetOptions,
-	steps *scanDebugStepCollection,
-	openPorts []discovery.TCPPortDiscoveryResult,
-	banners []scanpkg.BannerGrabResult,
-) ([]scanpkg.SSHServiceInfo, error) {
-	return runDebugSSHNativeProbeStageWithModule(ctx, opts, steps, openPorts, banners, "scan_debug_ssh_native_probe", "ssh-native-probe", "ssh-native-probe")
-}
-
+//nolint:dupl // SMTP and SSH debug native stages intentionally share the same orchestration shape.
 func runDebugSSHNativeProbeStageWithModule(
 	ctx context.Context,
 	opts scanDebugTargetOptions,
@@ -475,13 +505,43 @@ func runDebugSSHNativeProbeStageWithModule(
 	return results, nil
 }
 
-func runDebugRPCFollowupStage(
+func runDebugSNMPNativeProbeStageWithModule(
 	ctx context.Context,
 	opts scanDebugTargetOptions,
 	steps *scanDebugStepCollection,
-	rpcEpmapper []scanpkg.RPCEpmapperInfo,
-) ([]scanpkg.RPCServiceInfo, error) {
-	return runDebugRPCFollowupStageWithModule(ctx, opts, steps, rpcEpmapper, "scan_debug_rpc_followup_probe", "rpc-followup-probe", "rpc-followup-probe")
+	openPorts []discovery.UDPPortDiscoveryResult,
+	instanceID string,
+	moduleType string,
+	stepName string,
+) ([]scanpkg.SNMPServiceInfo, error) {
+	snmpConfig := map[string]any{}
+	if opts.Timeout != "" {
+		snmpConfig["timeout"] = opts.Timeout
+		snmpConfig["per_attempt_timeout"] = opts.Timeout
+		snmpConfig["retries"] = 0
+	}
+
+	snmpModule, err := engine.GetModuleInstance(instanceID, moduleType, snmpConfig)
+	if err != nil {
+		return nil, fmt.Errorf("create %s module: %w", moduleType, err)
+	}
+
+	snmpOutputs, snmpExecErr := executeDebugModule(ctx, snmpModule, map[string]any{
+		"discovery.open_udp_ports": toAnySlice(openPorts),
+	})
+	if snmpExecErr != nil {
+		steps.addError(stepName, snmpExecErr.Error())
+	}
+	steps.addErrors(stepName, collectOutputErrors(snmpOutputs))
+	results := collectSNMPDetailsResults(snmpOutputs)
+	if len(results) == 0 {
+		if reason := debugSNMPCandidateWarning(openPorts); reason != "" {
+			steps.addWarning(stepName, reason)
+		} else {
+			steps.addWarning(stepName, "no snmp metadata generated")
+		}
+	}
+	return results, nil
 }
 
 func runDebugRPCFollowupStageWithModule(
@@ -524,14 +584,7 @@ func runDebugRPCFollowupStageWithModule(
 	return results, nil
 }
 
-func runDebugHTTPStage(
-	ctx context.Context,
-	steps *scanDebugStepCollection,
-	banners []scanpkg.BannerGrabResult,
-) ([]parsepkg.HTTPParsedInfo, error) {
-	return runDebugHTTPStageWithModule(ctx, steps, banners, "scan_debug_http_parser", "http-parser", "http-parser")
-}
-
+//nolint:dupl // HTTP and fingerprint parser stages intentionally share the same orchestration shape.
 func runDebugHTTPStageWithModule(
 	ctx context.Context,
 	steps *scanDebugStepCollection,
@@ -563,14 +616,7 @@ func runDebugHTTPStageWithModule(
 	return httpDetails, nil
 }
 
-func runDebugFingerprintStage(
-	ctx context.Context,
-	steps *scanDebugStepCollection,
-	banners []scanpkg.BannerGrabResult,
-) ([]parsepkg.FingerprintParsedInfo, error) {
-	return runDebugFingerprintStageWithModule(ctx, steps, banners, "scan_debug_fingerprint_parser", "fingerprint-parser", "fingerprint-parser")
-}
-
+//nolint:dupl // HTTP and fingerprint parser stages intentionally share the same orchestration shape.
 func runDebugFingerprintStageWithModule(
 	ctx context.Context,
 	steps *scanDebugStepCollection,
@@ -600,16 +646,6 @@ func runDebugFingerprintStageWithModule(
 		steps.addWarning(stepName, "no fingerprint matches")
 	}
 	return fingerprints, nil
-}
-
-func runDebugTechTagStage(
-	ctx context.Context,
-	steps *scanDebugStepCollection,
-	banners []scanpkg.BannerGrabResult,
-	httpDetails []parsepkg.HTTPParsedInfo,
-	fingerprints []parsepkg.FingerprintParsedInfo,
-) ([]parsepkg.TechTagResult, error) {
-	return runDebugTechTagStageWithModule(ctx, steps, banners, httpDetails, fingerprints, "scan_debug_tech_tagger", "tech-tagger", "tech-tagger")
 }
 
 func runDebugTechTagStageWithModule(
@@ -649,16 +685,7 @@ func runDebugTechTagStageWithModule(
 	return techTags, nil
 }
 
-func runDebugSMBNativeProbeStage(
-	ctx context.Context,
-	opts scanDebugTargetOptions,
-	steps *scanDebugStepCollection,
-	openPorts []discovery.TCPPortDiscoveryResult,
-	banners []scanpkg.BannerGrabResult,
-) ([]scanpkg.SMBServiceInfo, error) {
-	return runDebugSMBNativeProbeStageWithModule(ctx, opts, steps, openPorts, banners, "scan_debug_smb_native_probe", "smb-native-probe", "smb-native-probe")
-}
-
+//nolint:dupl // SMB and RDP debug native stages intentionally share the same orchestration shape.
 func runDebugSMBNativeProbeStageWithModule(
 	ctx context.Context,
 	opts scanDebugTargetOptions,
@@ -697,16 +724,7 @@ func runDebugSMBNativeProbeStageWithModule(
 	return smbDetails, nil
 }
 
-func runDebugRDPNativeProbeStage(
-	ctx context.Context,
-	opts scanDebugTargetOptions,
-	steps *scanDebugStepCollection,
-	openPorts []discovery.TCPPortDiscoveryResult,
-	banners []scanpkg.BannerGrabResult,
-) ([]scanpkg.RDPServiceInfo, error) {
-	return runDebugRDPNativeProbeStageWithModule(ctx, opts, steps, openPorts, banners, "scan_debug_rdp_native_probe", "rdp-native-probe", "rdp-native-probe")
-}
-
+//nolint:dupl // SMB and RDP debug native stages intentionally share the same orchestration shape.
 func runDebugRDPNativeProbeStageWithModule(
 	ctx context.Context,
 	opts scanDebugTargetOptions,
@@ -743,16 +761,6 @@ func runDebugRDPNativeProbeStageWithModule(
 		steps.addWarning(stepName, "no rdp metadata generated")
 	}
 	return rdpDetails, nil
-}
-
-func runDebugTLSNativeProbeStage(
-	ctx context.Context,
-	opts scanDebugTargetOptions,
-	steps *scanDebugStepCollection,
-	openPorts []discovery.TCPPortDiscoveryResult,
-	banners []scanpkg.BannerGrabResult,
-) ([]scanpkg.TLSServiceInfo, error) {
-	return runDebugTLSNativeProbeStageWithModule(ctx, opts, steps, openPorts, banners, "scan_debug_tls_native_probe", "tls-native-probe", "tls-native-probe")
 }
 
 func runDebugTLSNativeProbeStageWithModule(
@@ -873,6 +881,16 @@ func debugTLSCandidateWarning(openPorts []discovery.TCPPortDiscoveryResult, bann
 	return "no_candidate"
 }
 
+func debugSNMPCandidateWarning(openPorts []discovery.UDPPortDiscoveryResult) string {
+	if debugHasSNMPCandidate(openPorts) {
+		return ""
+	}
+	if len(openPorts) > 0 {
+		return "non_family_port_without_banner_hint"
+	}
+	return "no_candidate"
+}
+
 func debugHasOpenPorts(openPorts []discovery.TCPPortDiscoveryResult) bool {
 	for _, result := range openPorts {
 		if len(result.OpenPorts) > 0 {
@@ -898,10 +916,8 @@ func debugHasSSHCandidate(openPorts []discovery.TCPPortDiscoveryResult, banners 
 
 func debugHasSMTPCandidate(openPorts []discovery.TCPPortDiscoveryResult, banners []scanpkg.BannerGrabResult) bool {
 	for _, result := range openPorts {
-		for _, port := range result.OpenPorts {
-			if debugIsSMTPPort(port) {
-				return true
-			}
+		if slices.ContainsFunc(result.OpenPorts, debugIsSMTPPort) {
+			return true
 		}
 	}
 	for _, banner := range banners {
@@ -914,13 +930,20 @@ func debugHasSMTPCandidate(openPorts []discovery.TCPPortDiscoveryResult, banners
 
 func debugHasTLSCandidate(openPorts []discovery.TCPPortDiscoveryResult, banners []scanpkg.BannerGrabResult) bool {
 	for _, result := range openPorts {
-		for _, port := range result.OpenPorts {
-			if debugIsTLSPort(port) {
-				return true
-			}
+		if slices.ContainsFunc(result.OpenPorts, debugIsTLSPort) {
+			return true
 		}
 	}
 	return len(debugTLSExtraPortsFromBanners(banners)) > 0
+}
+
+func debugHasSNMPCandidate(openPorts []discovery.UDPPortDiscoveryResult) bool {
+	for _, result := range openPorts {
+		if slices.Contains(result.OpenPorts, 161) {
+			return true
+		}
+	}
+	return false
 }
 
 func debugTLSExtraPortsFromBanners(banners []scanpkg.BannerGrabResult) []int {
@@ -1071,6 +1094,22 @@ func collectBannerResults(outputs []engine.ModuleOutput) []scanpkg.BannerGrabRes
 	return results
 }
 
+func collectUDPDiscoveryResults(outputs []engine.ModuleOutput) []discovery.UDPPortDiscoveryResult {
+	results := make([]discovery.UDPPortDiscoveryResult, 0)
+	for _, output := range outputs {
+		switch data := output.Data.(type) {
+		case discovery.UDPPortDiscoveryResult:
+			results = append(results, data)
+		case []discovery.UDPPortDiscoveryResult:
+			results = append(results, data...)
+		}
+	}
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].Target < results[j].Target
+	})
+	return results
+}
+
 func collectHTTPDetailsResults(outputs []engine.ModuleOutput) []parsepkg.HTTPParsedInfo {
 	results := make([]parsepkg.HTTPParsedInfo, 0)
 	for _, output := range outputs {
@@ -1173,6 +1212,25 @@ func collectSMTPDetailsResults(outputs []engine.ModuleOutput) []scanpkg.SMTPServ
 		case scanpkg.SMTPServiceInfo:
 			results = append(results, data)
 		case []scanpkg.SMTPServiceInfo:
+			results = append(results, data...)
+		}
+	}
+	sort.Slice(results, func(i, j int) bool {
+		if results[i].Target == results[j].Target {
+			return results[i].Port < results[j].Port
+		}
+		return results[i].Target < results[j].Target
+	})
+	return results
+}
+
+func collectSNMPDetailsResults(outputs []engine.ModuleOutput) []scanpkg.SNMPServiceInfo {
+	results := make([]scanpkg.SNMPServiceInfo, 0)
+	for _, output := range outputs {
+		switch data := output.Data.(type) {
+		case scanpkg.SNMPServiceInfo:
+			results = append(results, data)
+		case []scanpkg.SNMPServiceInfo:
 			results = append(results, data...)
 		}
 	}
@@ -1385,11 +1443,13 @@ func writeScanDebugPretty(w io.Writer, payload scanDebugPayload) error {
 	fmt.Fprintf(w, "Target: %s\n", payload.Target)
 	fmt.Fprintf(w, "Resolved Targets: %d\n", len(payload.ResolvedTargets))
 	fmt.Fprintf(w, "Open Port Entries: %d\n", len(payload.OpenPorts))
+	fmt.Fprintf(w, "Open UDP Port Entries: %d\n", len(payload.OpenUDPPorts))
 	fmt.Fprintf(w, "Banners: %d\n", len(payload.Banners))
 	fmt.Fprintf(w, "Fingerprints: %d\n", len(payload.Fingerprints))
 	fmt.Fprintf(w, "Tech Tags: %d\n", len(payload.TechTags))
 	fmt.Fprintf(w, "SMTP Details: %d\n", len(payload.SMTPDetails))
 	fmt.Fprintf(w, "SSH Details: %d\n", len(payload.SSHDetails))
+	fmt.Fprintf(w, "SNMP Details: %d\n", len(payload.SNMPDetails))
 	fmt.Fprintf(w, "RPC Epmapper: %d\n", len(payload.RPCEpmapper))
 	fmt.Fprintf(w, "RPC Details: %d\n", len(payload.RPCDetails))
 	fmt.Fprintf(w, "RDP Details: %d\n", len(payload.RDPDetails))

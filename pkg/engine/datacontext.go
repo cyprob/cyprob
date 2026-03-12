@@ -51,6 +51,8 @@ func RegisterCommonSchema(dc *DataContext) {
 	// Note: For CardinalityList, register slice types ([]T) not element types (T)
 	_ = dc.RegisterType("ssh.banner", reflect.TypeFor[[]string](), CardinalityList)
 	_ = dc.RegisterType("ssh.version", reflect.TypeFor[[]string](), CardinalityList)
+	_ = dc.RegisterType("snmp.version", reflect.TypeFor[[]string](), CardinalityList)
+	_ = dc.RegisterType("snmp.community", reflect.TypeFor[[]string](), CardinalityList)
 	_ = dc.RegisterType("http.server", reflect.TypeFor[[]string](), CardinalityList)
 	_ = dc.RegisterType("service.port", reflect.TypeFor[[]int](), CardinalityList)
 

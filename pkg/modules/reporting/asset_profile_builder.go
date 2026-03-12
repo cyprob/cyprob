@@ -10,10 +10,10 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/cyprob/cyprob/pkg/engine"
-	"github.com/cyprob/cyprob/pkg/modules/discovery"  // For ICMPPingDiscoveryResult, TCPPortDiscoveryResult
+	"github.com/cyprob/cyprob/pkg/modules/discovery"
 	"github.com/cyprob/cyprob/pkg/modules/evaluation" // For VulnerabilityResult
-	"github.com/cyprob/cyprob/pkg/modules/parse"      // For HTTPParsedInfo, SSHParsedInfo
-	"github.com/cyprob/cyprob/pkg/modules/scan"       // For BannerGrabResult
+	"github.com/cyprob/cyprob/pkg/modules/parse"
+	"github.com/cyprob/cyprob/pkg/modules/scan"
 	"github.com/cyprob/cyprob/pkg/netutil"
 )
 
@@ -52,10 +52,12 @@ func buildAssetProfileBuilderConsumes() []engine.DataContractEntry {
 		{Key: "config.targets", DataTypeName: "[]string", Cardinality: engine.CardinalitySingle, IsOptional: true},
 		{Key: "discovery.live_hosts", DataTypeName: "discovery.ICMPPingDiscoveryResult", Cardinality: engine.CardinalityList, IsOptional: true},
 		{Key: "discovery.open_tcp_ports", DataTypeName: "discovery.TCPPortDiscoveryResult", Cardinality: engine.CardinalityList, IsOptional: true},
+		{Key: "discovery.open_udp_ports", DataTypeName: "discovery.UDPPortDiscoveryResult", Cardinality: engine.CardinalityList, IsOptional: true},
 		{Key: "service.banner.tcp", DataTypeName: "scan.BannerGrabResult", Cardinality: engine.CardinalityList, IsOptional: true},
 		{Key: "service.http.details", DataTypeName: "parse.HTTPParsedInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 		{Key: "service.ssh.details", DataTypeName: "scan.SSHServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 		{Key: "service.smtp.details", DataTypeName: "scan.SMTPServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
+		{Key: "service.snmp.details", DataTypeName: "scan.SNMPServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 		{Key: "service.fingerprint.details", DataTypeName: "parse.FingerprintParsedInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 		{Key: "service.tech.tags", DataTypeName: "parse.TechTagResult", Cardinality: engine.CardinalityList, IsOptional: true},
 		{Key: "service.rdp.details", DataTypeName: "scan.RDPServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
@@ -83,6 +85,7 @@ func (m *AssetProfileBuilderModule) Init(instanceID string, configMap map[string
 	return nil
 }
 
+//nolint:gocyclo // Asset aggregation intentionally centralizes fan-in from many module outputs.
 func (m *AssetProfileBuilderModule) Execute(ctx context.Context, inputs map[string]any, outputChan chan<- engine.ModuleOutput) error {
 	logger := log.With().Str("module", m.meta.Name).Str("instance_id", m.meta.ID).Logger()
 	logger.Info().Msg("Starting asset profile aggregation")
@@ -121,6 +124,19 @@ func (m *AssetProfileBuilderModule) Execute(ctx context.Context, inputs map[stri
 					openTCPPortResults = append(openTCPPortResults, casted)
 				}
 			}
+		}
+	}
+
+	openUDPPortResults := []discovery.UDPPortDiscoveryResult{}
+	if rawOpenUDPPorts, ok := inputs["discovery.open_udp_ports"]; ok {
+		if list, listOk := rawOpenUDPPorts.([]any); listOk {
+			for _, item := range list {
+				if casted, castOk := item.(discovery.UDPPortDiscoveryResult); castOk {
+					openUDPPortResults = append(openUDPPortResults, casted)
+				}
+			}
+		} else if typed, ok := rawOpenUDPPorts.([]discovery.UDPPortDiscoveryResult); ok {
+			openUDPPortResults = append(openUDPPortResults, typed...)
 		}
 	}
 
@@ -171,6 +187,19 @@ func (m *AssetProfileBuilderModule) Execute(ctx context.Context, inputs map[stri
 			}
 		} else if typed, typedOk := rawSMTP.([]scan.SMTPServiceInfo); typedOk {
 			smtpDetails = append(smtpDetails, typed...)
+		}
+	}
+
+	snmpDetails := []scan.SNMPServiceInfo{}
+	if rawSNMP, ok := inputs["service.snmp.details"]; ok {
+		if list, listOk := rawSNMP.([]any); listOk {
+			for _, item := range list {
+				if casted, castOk := item.(scan.SNMPServiceInfo); castOk {
+					snmpDetails = append(snmpDetails, casted)
+				}
+			}
+		} else if typed, typedOk := rawSNMP.([]scan.SNMPServiceInfo); typedOk {
+			snmpDetails = append(snmpDetails, typed...)
 		}
 	}
 
@@ -343,6 +372,12 @@ func (m *AssetProfileBuilderModule) Execute(ctx context.Context, inputs map[stri
 			usableOpenPortTargets++
 		}
 	}
+	usableOpenUDPPortTargets := 0
+	for _, udpResult := range openUDPPortResults {
+		if strings.TrimSpace(udpResult.Target) != "" {
+			usableOpenUDPPortTargets++
+		}
+	}
 
 	switch {
 	case totalLiveHosts > 0:
@@ -351,9 +386,12 @@ func (m *AssetProfileBuilderModule) Execute(ctx context.Context, inputs map[stri
 				seedProfile(liveIP, true, "")
 			}
 		}
-	case usableOpenPortTargets > 0:
+	case usableOpenPortTargets > 0 || usableOpenUDPPortTargets > 0:
 		for _, tcpResult := range openTCPPortResults {
 			seedProfile(tcpResult.Target, false, tcpResult.Hostname)
+		}
+		for _, udpResult := range openUDPPortResults {
+			seedProfile(udpResult.Target, false, "")
 		}
 	default:
 		expandedInitialTargets := netutil.ParseAndExpandTargets(initialTargets)
@@ -498,6 +536,37 @@ func (m *AssetProfileBuilderModule) Execute(ctx context.Context, inputs map[stri
 				}
 			}
 		}
+
+		for _, udpResult := range openUDPPortResults {
+			if udpResult.Target != targetIP {
+				continue
+			}
+			for _, portNum := range udpResult.OpenPorts {
+				portProfile := engine.PortProfile{
+					PortNumber: portNum,
+					Protocol:   "udp",
+					Status:     "open",
+					Service:    engine.ServiceDetails{},
+				}
+
+				if snmpNative := findSNMPDetails(snmpDetails, targetIP, portNum); snmpNative != nil {
+					applySNMPDetails(&portProfile, *snmpNative)
+				}
+
+				identity := findServiceIdentity(identityDetails, targetIP, portNum)
+				if identity != nil {
+					applyServiceIdentity(asset, &portProfile, *identity)
+				}
+
+				targetPortKey := fmt.Sprintf("%s:%d", targetIP, portNum)
+				if vulns, found := allVulnerabilities[targetPortKey]; found {
+					portProfile.Vulnerabilities = vulns
+					asset.TotalVulnerabilities += len(vulns)
+				}
+
+				assetOpenPorts = append(assetOpenPorts, portProfile)
+			}
+		}
 		asset.OpenPorts[targetIP] = assetOpenPorts // Haritaya ekle
 		asset.LastObservationTime = time.Now()
 	}
@@ -583,6 +652,7 @@ func findSSHNativeDetails(items []scan.SSHServiceInfo, target string, port int) 
 	return nil
 }
 
+//nolint:gocyclo // SSH attribute emission is intentionally explicit to preserve JSON contract names.
 func applySSHNativeDetails(portProfile *engine.PortProfile, details scan.SSHServiceInfo) {
 	if portProfile.Service.ParsedAttributes == nil {
 		portProfile.Service.ParsedAttributes = make(map[string]any)
@@ -651,6 +721,7 @@ func findSMTPDetails(items []scan.SMTPServiceInfo, target string, port int) *sca
 	return nil
 }
 
+//nolint:gocyclo // SMTP attribute emission is intentionally explicit to preserve JSON contract names.
 func applySMTPDetails(portProfile *engine.PortProfile, details scan.SMTPServiceInfo) {
 	if portProfile.Service.ParsedAttributes == nil {
 		portProfile.Service.ParsedAttributes = make(map[string]any)
@@ -727,6 +798,59 @@ func applySMTPDetails(portProfile *engine.PortProfile, details scan.SMTPServiceI
 	}
 	if strings.TrimSpace(details.ProbeError) != "" {
 		portProfile.Service.ParsedAttributes["smtp_probe_error"] = strings.TrimSpace(details.ProbeError)
+	}
+}
+
+func findSNMPDetails(items []scan.SNMPServiceInfo, target string, port int) *scan.SNMPServiceInfo {
+	for i := range items {
+		if items[i].Target == target && items[i].Port == port {
+			return &items[i]
+		}
+	}
+	return nil
+}
+
+//nolint:gocyclo // SNMP attribute emission is intentionally explicit to preserve JSON contract names.
+func applySNMPDetails(portProfile *engine.PortProfile, details scan.SNMPServiceInfo) {
+	if portProfile.Service.ParsedAttributes == nil {
+		portProfile.Service.ParsedAttributes = make(map[string]any)
+	}
+
+	if details.SNMPProbe && strings.TrimSpace(portProfile.Service.Name) == "" {
+		portProfile.Service.Name = "snmp"
+	}
+	if strings.TrimSpace(details.ProductHint) != "" && strings.TrimSpace(portProfile.Service.Product) == "" {
+		portProfile.Service.Product = strings.TrimSpace(details.ProductHint)
+	}
+	if strings.TrimSpace(details.VersionHint) != "" && strings.TrimSpace(portProfile.Service.Version) == "" {
+		portProfile.Service.Version = strings.TrimSpace(details.VersionHint)
+	}
+
+	if strings.TrimSpace(details.SNMPVersion) != "" {
+		portProfile.Service.ParsedAttributes["snmp_version"] = strings.TrimSpace(details.SNMPVersion)
+	}
+	if strings.TrimSpace(details.SysDescr) != "" {
+		portProfile.Service.ParsedAttributes["snmp_sysdescr"] = strings.TrimSpace(details.SysDescr)
+	}
+	if strings.TrimSpace(details.SysName) != "" {
+		portProfile.Service.ParsedAttributes["snmp_sysname"] = strings.TrimSpace(details.SysName)
+	}
+	if strings.TrimSpace(details.SysObjectID) != "" {
+		portProfile.Service.ParsedAttributes["snmp_sysobjectid"] = strings.TrimSpace(details.SysObjectID)
+	}
+	if strings.TrimSpace(details.ProductHint) != "" {
+		portProfile.Service.ParsedAttributes["snmp_product_hint"] = strings.TrimSpace(details.ProductHint)
+	}
+	if strings.TrimSpace(details.VendorHint) != "" {
+		portProfile.Service.ParsedAttributes["snmp_vendor_hint"] = strings.TrimSpace(details.VendorHint)
+	}
+	if strings.TrimSpace(details.VersionHint) != "" {
+		portProfile.Service.ParsedAttributes["snmp_version_hint"] = strings.TrimSpace(details.VersionHint)
+	}
+	portProfile.Service.ParsedAttributes["snmp_weak_protocol"] = details.WeakProtocol
+	portProfile.Service.ParsedAttributes["snmp_weak_community"] = details.WeakCommunity
+	if strings.TrimSpace(details.ProbeError) != "" {
+		portProfile.Service.ParsedAttributes["snmp_probe_error"] = strings.TrimSpace(details.ProbeError)
 	}
 }
 

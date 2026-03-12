@@ -26,6 +26,7 @@ const (
 	sourceTLSNative        = "tls_native_probe"
 	sourceSSHNative        = "ssh_native_probe"
 	sourceSMTPNative       = "smtp_native_probe"
+	sourceSNMPNative       = "snmp_native_probe"
 	sourceHTTPIdentityHint = "http_identity_hint"
 	sourceFingerprint      = "fingerprint"
 	sourceHeuristic        = "heuristic"
@@ -52,7 +53,7 @@ type ServiceIdentityInfo struct {
 	Banner          string             `json:"banner,omitempty"`
 	TechTags        []string           `json:"tech_tags,omitempty"`
 	HostnameHint    string             `json:"hostname_hint,omitempty"`
-	OSHints         ServiceOSHints     `json:"os_hints,omitempty"`
+	OSHints         ServiceOSHints     `json:"os_hints,omitzero"`
 	FieldSources    map[string]string  `json:"field_sources,omitempty"`
 	FieldConfidence map[string]float64 `json:"field_confidence,omitempty"`
 }
@@ -145,6 +146,7 @@ func newServiceIdentityNormalizerModule() *serviceIdentityNormalizerModule {
 				{Key: "service.tech.tags", DataTypeName: "parse.TechTagResult", Cardinality: engine.CardinalityList, IsOptional: true},
 				{Key: "service.smtp.details", DataTypeName: "scan.SMTPServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 				{Key: "service.ssh.details", DataTypeName: "scan.SSHServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
+				{Key: "service.snmp.details", DataTypeName: "scan.SNMPServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 				{Key: "service.smb.details", DataTypeName: "scan.SMBServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 				{Key: "service.rdp.details", DataTypeName: "scan.RDPServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 				{Key: "service.rpc.details", DataTypeName: "scan.RPCServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
@@ -189,6 +191,7 @@ func (m *serviceIdentityNormalizerModule) Execute(ctx context.Context, inputs ma
 	m.ingestFingerprints(inputs, getEntry)
 	m.ingestTechTags(inputs, getEntry)
 	m.ingestSMTPDetails(inputs, getEntry)
+	m.ingestSNMPDetails(inputs, getEntry)
 	m.ingestSMBDetails(inputs, getEntry)
 	smbEvidence := collectSMBHostEvidence(inputs)
 	m.ingestRDPDetails(inputs, smbEvidence, getEntry)
@@ -310,6 +313,7 @@ func (m *serviceIdentityNormalizerModule) ingestTechTags(inputs map[string]any, 
 	}
 }
 
+//nolint:gocyclo // Native SMTP mapping is intentionally field-by-field to keep precedence explicit.
 func (m *serviceIdentityNormalizerModule) ingestSMTPDetails(inputs map[string]any, getEntry func(target string, port int) *ServiceIdentityInfo) {
 	raw, ok := inputs["service.smtp.details"]
 	if !ok {
@@ -351,6 +355,39 @@ func (m *serviceIdentityNormalizerModule) ingestSMTPDetails(inputs map[string]an
 	}
 }
 
+func (m *serviceIdentityNormalizerModule) ingestSNMPDetails(inputs map[string]any, getEntry func(target string, port int) *ServiceIdentityInfo) {
+	raw, ok := inputs["service.snmp.details"]
+	if !ok {
+		return
+	}
+	items := toAnyList(raw)
+	for _, item := range items {
+		snmpInfo, ok := item.(scanpkg.SNMPServiceInfo)
+		if !ok {
+			continue
+		}
+		if snmpInfo.Target == "" || snmpInfo.Port <= 0 {
+			continue
+		}
+		if !snmpInfo.SNMPProbe && strings.TrimSpace(snmpInfo.SysDescr) == "" && strings.TrimSpace(snmpInfo.SysObjectID) == "" {
+			continue
+		}
+
+		entry := getEntry(snmpInfo.Target, snmpInfo.Port)
+		setIdentityField(entry, "service_name", "snmp", sourceSNMPNative, 0.64)
+		if strings.TrimSpace(entry.Product) == "" && strings.TrimSpace(snmpInfo.ProductHint) != "" {
+			setIdentityField(entry, "product", strings.TrimSpace(snmpInfo.ProductHint), sourceSNMPNative, snmpProductConfidence(snmpInfo))
+		}
+		if strings.TrimSpace(entry.Vendor) == "" && strings.TrimSpace(snmpInfo.VendorHint) != "" {
+			setIdentityField(entry, "vendor", strings.TrimSpace(snmpInfo.VendorHint), sourceSNMPNative, snmpVendorConfidence(snmpInfo))
+		}
+		if strings.TrimSpace(entry.Version) == "" && strings.TrimSpace(snmpInfo.VersionHint) != "" {
+			setIdentityField(entry, "version", strings.TrimSpace(snmpInfo.VersionHint), sourceSNMPNative, 0.65)
+		}
+		entry.TechTags = NormalizeTechTags(append(entry.TechTags, TagSNMP))
+	}
+}
+
 func (m *serviceIdentityNormalizerModule) ingestSMBDetails(inputs map[string]any, getEntry func(target string, port int) *ServiceIdentityInfo) {
 	raw, ok := inputs["service.smb.details"]
 	if !ok {
@@ -387,6 +424,7 @@ func (m *serviceIdentityNormalizerModule) ingestSMBDetails(inputs map[string]any
 	}
 }
 
+//nolint:gocyclo // RDP normalization keeps correlation rules inline to preserve precedence clarity.
 func (m *serviceIdentityNormalizerModule) ingestRDPDetails(
 	inputs map[string]any,
 	smbEvidence map[string]smbHostEvidence,
@@ -432,6 +470,7 @@ func (m *serviceIdentityNormalizerModule) ingestRDPDetails(
 	}
 }
 
+//nolint:gocyclo // RPC normalization keeps service naming and Windows hinting in one place.
 func (m *serviceIdentityNormalizerModule) ingestRPCDetails(inputs map[string]any, getEntry func(target string, port int) *ServiceIdentityInfo) {
 	raw, ok := inputs["service.rpc.details"]
 	if !ok {
@@ -918,6 +957,34 @@ func smtpServiceNameFromNative(info scanpkg.SMTPServiceInfo) string {
 	return "smtp"
 }
 
+func snmpProductConfidence(info scanpkg.SNMPServiceInfo) float64 {
+	if snmpHasExplicitIdentityToken(info) {
+		return 0.75
+	}
+	if strings.TrimSpace(info.SysObjectID) != "" {
+		return 0.70
+	}
+	return 0.75
+}
+
+func snmpVendorConfidence(info scanpkg.SNMPServiceInfo) float64 {
+	if snmpHasExplicitIdentityToken(info) {
+		return 0.75
+	}
+	if strings.TrimSpace(info.SysObjectID) != "" {
+		return 0.70
+	}
+	return 0.75
+}
+
+func snmpHasExplicitIdentityToken(info scanpkg.SNMPServiceInfo) bool {
+	descr := strings.ToLower(strings.TrimSpace(info.SysDescr))
+	return strings.Contains(descr, "net-snmp") ||
+		strings.Contains(descr, "cisco ios") ||
+		strings.Contains(descr, "mikrotik") ||
+		(strings.Contains(descr, "windows") && strings.Contains(descr, "snmp"))
+}
+
 func serviceNameFromPort(port int) string {
 	switch port {
 	case 21:
@@ -934,6 +1001,8 @@ func serviceNameFromPort(port int) string {
 		return "pop3"
 	case 143:
 		return "imap"
+	case 161:
+		return "snmp"
 	case 443:
 		return "https"
 	case 445, 139:
@@ -947,6 +1016,7 @@ func serviceNameFromPort(port int) string {
 	}
 }
 
+//nolint:gocyclo // This helper intentionally accepts multiple orchestrator/runtime shapes.
 func toAnyList(value any) []any {
 	switch typed := value.(type) {
 	case []any:
@@ -976,6 +1046,12 @@ func toAnyList(value any) []any {
 		}
 		return out
 	case []scanpkg.SSHServiceInfo:
+		out := make([]any, 0, len(typed))
+		for _, item := range typed {
+			out = append(out, item)
+		}
+		return out
+	case []scanpkg.SNMPServiceInfo:
 		out := make([]any, 0, len(typed))
 		for _, item := range typed {
 			out = append(out, item)
