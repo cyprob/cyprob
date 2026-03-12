@@ -27,6 +27,7 @@ const (
 	sourceSSHNative        = "ssh_native_probe"
 	sourceSMTPNative       = "smtp_native_probe"
 	sourceSNMPNative       = "snmp_native_probe"
+	sourceFTPNative        = "ftp_native_probe"
 	sourceHTTPIdentityHint = "http_identity_hint"
 	sourceFingerprint      = "fingerprint"
 	sourceHeuristic        = "heuristic"
@@ -144,6 +145,7 @@ func newServiceIdentityNormalizerModule() *serviceIdentityNormalizerModule {
 				{Key: "service.banner.tcp", DataTypeName: "scan.BannerGrabResult", Cardinality: engine.CardinalityList, IsOptional: true},
 				{Key: "service.fingerprint.details", DataTypeName: "parse.FingerprintParsedInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 				{Key: "service.tech.tags", DataTypeName: "parse.TechTagResult", Cardinality: engine.CardinalityList, IsOptional: true},
+				{Key: "service.ftp.details", DataTypeName: "scan.FTPServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 				{Key: "service.smtp.details", DataTypeName: "scan.SMTPServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 				{Key: "service.ssh.details", DataTypeName: "scan.SSHServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 				{Key: "service.snmp.details", DataTypeName: "scan.SNMPServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
@@ -190,6 +192,7 @@ func (m *serviceIdentityNormalizerModule) Execute(ctx context.Context, inputs ma
 	m.ingestBanners(inputs, getEntry)
 	m.ingestFingerprints(inputs, getEntry)
 	m.ingestTechTags(inputs, getEntry)
+	m.ingestFTPDetails(inputs, getEntry)
 	m.ingestSMTPDetails(inputs, getEntry)
 	m.ingestSNMPDetails(inputs, getEntry)
 	m.ingestSMBDetails(inputs, getEntry)
@@ -349,6 +352,47 @@ func (m *serviceIdentityNormalizerModule) ingestSMTPDetails(inputs map[string]an
 
 		tags := []string{TagSMTP}
 		if smtpInfo.TLSEnabled || strings.EqualFold(strings.TrimSpace(smtpInfo.SMTPProtocol), "smtps") {
+			tags = append(tags, TagTLS)
+		}
+		entry.TechTags = NormalizeTechTags(append(entry.TechTags, tags...))
+	}
+}
+
+func (m *serviceIdentityNormalizerModule) ingestFTPDetails(inputs map[string]any, getEntry func(target string, port int) *ServiceIdentityInfo) {
+	raw, ok := inputs["service.ftp.details"]
+	if !ok {
+		return
+	}
+	items := toAnyList(raw)
+	for _, item := range items {
+		ftpInfo, ok := item.(scanpkg.FTPServiceInfo)
+		if !ok {
+			continue
+		}
+		if ftpInfo.Target == "" || ftpInfo.Port <= 0 {
+			continue
+		}
+		if !ftpInfo.FTPProbe && strings.TrimSpace(ftpInfo.Banner) == "" && len(ftpInfo.Features) == 0 && strings.TrimSpace(ftpInfo.SystemHint) == "" {
+			continue
+		}
+
+		entry := getEntry(ftpInfo.Target, ftpInfo.Port)
+		setIdentityField(entry, "service_name", ftpServiceNameFromNative(ftpInfo), sourceFTPNative, 0.62)
+		if strings.TrimSpace(entry.Product) == "" && strings.TrimSpace(ftpInfo.SoftwareHint) != "" {
+			setIdentityField(entry, "product", strings.TrimSpace(ftpInfo.SoftwareHint), sourceFTPNative, 0.72)
+		}
+		if strings.TrimSpace(entry.Vendor) == "" && strings.TrimSpace(ftpInfo.VendorHint) != "" {
+			setIdentityField(entry, "vendor", strings.TrimSpace(ftpInfo.VendorHint), sourceFTPNative, 0.70)
+		}
+		if strings.TrimSpace(entry.Version) == "" && strings.TrimSpace(ftpInfo.VersionHint) != "" {
+			setIdentityField(entry, "version", strings.TrimSpace(ftpInfo.VersionHint), sourceFTPNative, 0.66)
+		}
+		if strings.TrimSpace(entry.Banner) == "" && strings.TrimSpace(ftpInfo.Banner) != "" {
+			setIdentityField(entry, "banner", strings.TrimSpace(ftpInfo.Banner), sourceFTPNative, 0.56)
+		}
+
+		tags := []string{TagFTP}
+		if ftpInfo.TLSEnabled || strings.EqualFold(strings.TrimSpace(ftpInfo.FTPProtocol), "ftps") {
 			tags = append(tags, TagTLS)
 		}
 		entry.TechTags = NormalizeTechTags(append(entry.TechTags, tags...))
@@ -957,6 +1001,13 @@ func smtpServiceNameFromNative(info scanpkg.SMTPServiceInfo) string {
 	return "smtp"
 }
 
+func ftpServiceNameFromNative(info scanpkg.FTPServiceInfo) string {
+	if info.Port == 990 || strings.EqualFold(strings.TrimSpace(info.FTPProtocol), "ftps") || info.TLSEnabled {
+		return "ftps"
+	}
+	return "ftp"
+}
+
 func snmpProductConfidence(info scanpkg.SNMPServiceInfo) float64 {
 	if snmpHasExplicitIdentityToken(info) {
 		return 0.75
@@ -989,6 +1040,8 @@ func serviceNameFromPort(port int) string {
 	switch port {
 	case 21:
 		return "ftp"
+	case 990:
+		return "ftps"
 	case 22:
 		return "ssh"
 	case 25, 587, 2525:
@@ -1040,6 +1093,12 @@ func toAnyList(value any) []any {
 		}
 		return out
 	case []scanpkg.SMTPServiceInfo:
+		out := make([]any, 0, len(typed))
+		for _, item := range typed {
+			out = append(out, item)
+		}
+		return out
+	case []scanpkg.FTPServiceInfo:
 		out := make([]any, 0, len(typed))
 		for _, item := range typed {
 			out = append(out, item)

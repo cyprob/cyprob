@@ -46,6 +46,7 @@ type scanDebugPayload struct {
 	HTTPDetails     []parsepkg.HTTPParsedInfo          `json:"http_details,omitempty"`
 	Fingerprints    []parsepkg.FingerprintParsedInfo   `json:"fingerprints"`
 	TechTags        []parsepkg.TechTagResult           `json:"tech_tags"`
+	FTPDetails      []scanpkg.FTPServiceInfo           `json:"ftp_details"`
 	SMTPDetails     []scanpkg.SMTPServiceInfo          `json:"smtp_details"`
 	SSHDetails      []scanpkg.SSHServiceInfo           `json:"ssh_details"`
 	SNMPDetails     []scanpkg.SNMPServiceInfo          `json:"snmp_details,omitempty"`
@@ -112,6 +113,7 @@ func runScanDebugTarget(cmd *cobra.Command, target string, opts scanDebugTargetO
 	}
 	stepNames = append(stepNames,
 		"banner-grabber",
+		"ftp-native-probe",
 		"smtp-native-probe",
 		"ssh-native-probe",
 	)
@@ -171,6 +173,10 @@ func runScanDebugTarget(cmd *cobra.Command, target string, opts scanDebugTargetO
 	if err != nil {
 		return err
 	}
+	ftpDetails, err := runDebugFTPNativeProbeStageWithModule(ctx, target, opts, steps, openPorts, banners, "scan_debug_ftp_native_probe", "ftp-native-probe", "ftp-native-probe")
+	if err != nil {
+		return err
+	}
 	smtpDetails, err := runDebugSMTPNativeProbeStageWithModule(ctx, opts, steps, openPorts, banners, "scan_debug_smtp_native_probe", "smtp-native-probe", "smtp-native-probe")
 	if err != nil {
 		return err
@@ -219,6 +225,7 @@ func runScanDebugTarget(cmd *cobra.Command, target string, opts scanDebugTargetO
 		"service.http.details":        toAnySlice(httpDetails),
 		"service.fingerprint.details": toAnySlice(fingerprints),
 		"service.tech.tags":           toAnySlice(techTags),
+		"service.ftp.details":         toAnySlice(ftpDetails),
 		"service.smtp.details":        toAnySlice(smtpDetails),
 		"service.ssh.details":         toAnySlice(sshDetails),
 		"service.snmp.details":        toAnySlice(snmpDetails),
@@ -248,6 +255,7 @@ func runScanDebugTarget(cmd *cobra.Command, target string, opts scanDebugTargetO
 		HTTPDetails:     httpDetails,
 		Fingerprints:    fingerprints,
 		TechTags:        techTags,
+		FTPDetails:      ftpDetails,
 		SMTPDetails:     smtpDetails,
 		SSHDetails:      sshDetails,
 		SNMPDetails:     snmpDetails,
@@ -415,6 +423,51 @@ func runDebugRPCEpmapperStageWithModule(
 	results := collectRPCEpmapperResults(rpcOutputs)
 	if len(results) == 0 {
 		steps.addWarning(stepName, "no rpc epmapper metadata generated")
+	}
+	return results, nil
+}
+
+//nolint:dupl // FTP and SMTP debug native stages intentionally share the same orchestration shape.
+func runDebugFTPNativeProbeStageWithModule(
+	ctx context.Context,
+	target string,
+	opts scanDebugTargetOptions,
+	steps *scanDebugStepCollection,
+	openPorts []discovery.TCPPortDiscoveryResult,
+	banners []scanpkg.BannerGrabResult,
+	instanceID string,
+	moduleType string,
+	stepName string,
+) ([]scanpkg.FTPServiceInfo, error) {
+	ftpConfig := map[string]any{}
+	if opts.Timeout != "" {
+		ftpConfig["timeout"] = opts.Timeout
+		ftpConfig["connect_timeout"] = opts.Timeout
+		ftpConfig["io_timeout"] = opts.Timeout
+		ftpConfig["retries"] = 0
+	}
+
+	ftpModule, err := engine.GetModuleInstance(instanceID, moduleType, ftpConfig)
+	if err != nil {
+		return nil, fmt.Errorf("create %s module: %w", moduleType, err)
+	}
+
+	ftpOutputs, ftpExecErr := executeDebugModule(ctx, ftpModule, map[string]any{
+		"discovery.open_tcp_ports":    toAnySlice(openPorts),
+		"service.banner.tcp":          toAnySlice(banners),
+		"config.original_cli_targets": []string{target},
+	})
+	if ftpExecErr != nil {
+		steps.addError(stepName, ftpExecErr.Error())
+	}
+	steps.addErrors(stepName, collectOutputErrors(ftpOutputs))
+	results := collectFTPDetailsResults(ftpOutputs)
+	if len(results) == 0 {
+		if reason := debugFTPCandidateWarning(openPorts, banners); reason != "" {
+			steps.addWarning(stepName, reason)
+		} else {
+			steps.addWarning(stepName, "no ftp metadata generated")
+		}
 	}
 	return results, nil
 }
@@ -871,6 +924,16 @@ func debugSMTPCandidateWarning(openPorts []discovery.TCPPortDiscoveryResult, ban
 	return "no_candidate"
 }
 
+func debugFTPCandidateWarning(openPorts []discovery.TCPPortDiscoveryResult, banners []scanpkg.BannerGrabResult) string {
+	if debugHasFTPCandidate(openPorts, banners) {
+		return ""
+	}
+	if debugHasOpenPorts(openPorts) {
+		return "non_family_port_without_banner_hint"
+	}
+	return "no_candidate"
+}
+
 func debugTLSCandidateWarning(openPorts []discovery.TCPPortDiscoveryResult, banners []scanpkg.BannerGrabResult) string {
 	if debugHasTLSCandidate(openPorts, banners) {
 		return ""
@@ -928,6 +991,20 @@ func debugHasSMTPCandidate(openPorts []discovery.TCPPortDiscoveryResult, banners
 	return false
 }
 
+func debugHasFTPCandidate(openPorts []discovery.TCPPortDiscoveryResult, banners []scanpkg.BannerGrabResult) bool {
+	for _, result := range openPorts {
+		if slices.ContainsFunc(result.OpenPorts, debugIsFTPPort) {
+			return true
+		}
+	}
+	for _, banner := range banners {
+		if debugIsFTPPort(banner.Port) || debugBannerLooksLikeFTP(banner) {
+			return true
+		}
+	}
+	return false
+}
+
 func debugHasTLSCandidate(openPorts []discovery.TCPPortDiscoveryResult, banners []scanpkg.BannerGrabResult) bool {
 	for _, result := range openPorts {
 		if slices.ContainsFunc(result.OpenPorts, debugIsTLSPort) {
@@ -975,6 +1052,15 @@ func debugIsSMTPPort(port int) bool {
 	}
 }
 
+func debugIsFTPPort(port int) bool {
+	switch port {
+	case 21, 990:
+		return true
+	default:
+		return false
+	}
+}
+
 func debugIsTLSPort(port int) bool {
 	switch port {
 	case 443, 8443, 9443:
@@ -994,6 +1080,12 @@ func debugBannerLooksLikeSMTP(banner scanpkg.BannerGrabResult) bool {
 	return debugContainsAnyHint(banner.Protocol, "smtp", "esmtp", "submission") ||
 		debugContainsAnyHint(banner.Banner, "smtp", "esmtp", "submission") ||
 		debugEvidenceLooksLike(banner.Evidence, []string{"smtp", "esmtp", "submission"})
+}
+
+func debugBannerLooksLikeFTP(banner scanpkg.BannerGrabResult) bool {
+	return debugContainsAnyHint(banner.Protocol, "ftp", "ftps") ||
+		debugContainsAnyHint(banner.Banner, "crushftp", "pure-ftpd", "proftpd", "vsftpd", "ftp server ready", "filezilla server") ||
+		debugEvidenceLooksLike(banner.Evidence, []string{"ftp", "ftps", "crushftp", "pure-ftpd", "proftpd", "vsftpd", "filezilla"})
 }
 
 func debugBannerLooksLikeTLS(banner scanpkg.BannerGrabResult) bool {
@@ -1193,6 +1285,25 @@ func collectSSHDetailsResults(outputs []engine.ModuleOutput) []scanpkg.SSHServic
 		case scanpkg.SSHServiceInfo:
 			results = append(results, data)
 		case []scanpkg.SSHServiceInfo:
+			results = append(results, data...)
+		}
+	}
+	sort.Slice(results, func(i, j int) bool {
+		if results[i].Target == results[j].Target {
+			return results[i].Port < results[j].Port
+		}
+		return results[i].Target < results[j].Target
+	})
+	return results
+}
+
+func collectFTPDetailsResults(outputs []engine.ModuleOutput) []scanpkg.FTPServiceInfo {
+	results := make([]scanpkg.FTPServiceInfo, 0)
+	for _, output := range outputs {
+		switch data := output.Data.(type) {
+		case scanpkg.FTPServiceInfo:
+			results = append(results, data)
+		case []scanpkg.FTPServiceInfo:
 			results = append(results, data...)
 		}
 	}
@@ -1447,6 +1558,7 @@ func writeScanDebugPretty(w io.Writer, payload scanDebugPayload) error {
 	fmt.Fprintf(w, "Banners: %d\n", len(payload.Banners))
 	fmt.Fprintf(w, "Fingerprints: %d\n", len(payload.Fingerprints))
 	fmt.Fprintf(w, "Tech Tags: %d\n", len(payload.TechTags))
+	fmt.Fprintf(w, "FTP Details: %d\n", len(payload.FTPDetails))
 	fmt.Fprintf(w, "SMTP Details: %d\n", len(payload.SMTPDetails))
 	fmt.Fprintf(w, "SSH Details: %d\n", len(payload.SSHDetails))
 	fmt.Fprintf(w, "SNMP Details: %d\n", len(payload.SNMPDetails))

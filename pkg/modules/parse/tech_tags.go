@@ -6,6 +6,7 @@ import (
 )
 
 const (
+	TagFTP          = "ftp"
 	TagMailService  = "mail_service"
 	TagWebmail      = "webmail"
 	TagSMTP         = "smtp"
@@ -56,6 +57,7 @@ var canonicalTechTagSet = map[string]struct{}{
 	"elasticsearch":  {},
 	"express":        {},
 	"fedora":         {},
+	TagFTP:           {},
 	"flask":          {},
 	"freebsd":        {},
 	"gitlab":         {},

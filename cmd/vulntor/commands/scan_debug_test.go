@@ -64,6 +64,20 @@ type scanDebugTestOutput struct {
 		Port   int      `json:"port"`
 		Tags   []string `json:"tags"`
 	} `json:"tech_tags"`
+	FTPDetails []struct {
+		Target           string   `json:"target"`
+		Port             int      `json:"port"`
+		FTPProbe         bool     `json:"ftp_probe"`
+		FTPProtocol      string   `json:"ftp_protocol"`
+		Banner           string   `json:"banner"`
+		GreetingCode     int      `json:"greeting_code"`
+		Features         []string `json:"features"`
+		AuthTLSSupported bool     `json:"auth_tls_supported"`
+		TLSEnabled       bool     `json:"tls_enabled"`
+		SystemHint       string   `json:"system_hint"`
+		SoftwareHint     string   `json:"software_hint"`
+		ProbeError       string   `json:"probe_error"`
+	} `json:"ftp_details"`
 	SMTPDetails []struct {
 		Target              string `json:"target"`
 		Port                int    `json:"port"`
@@ -245,6 +259,43 @@ func TestScanDebugTargetSMTPJSONSmoke(t *testing.T) {
 	require.Equal(t, "Postfix", payload.ServiceIdentity[0].Product)
 }
 
+func TestScanDebugTargetFTPJSONSmoke(t *testing.T) {
+	host, port, cleanup := startFTPTestServer(t)
+	defer cleanup()
+
+	cmd := NewCommand()
+	out := &bytes.Buffer{}
+	errOut := &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs([]string{
+		"scan-debug", "target", host,
+		"--ports", fmt.Sprintf("%d", port),
+		"--timeout", "3s",
+		"--format", "json",
+	})
+
+	err := cmd.Execute()
+	require.NoError(t, err, "stderr: %s", errOut.String())
+
+	var payload scanDebugTestOutput
+	require.NoError(t, json.Unmarshal(out.Bytes(), &payload))
+	require.NotEmpty(t, payload.FTPDetails)
+	require.True(t, payload.FTPDetails[0].FTPProbe)
+	require.Equal(t, "ftp", payload.FTPDetails[0].FTPProtocol)
+	require.Equal(t, 220, payload.FTPDetails[0].GreetingCode)
+	require.Equal(t, "UNIX Type: L8", payload.FTPDetails[0].SystemHint)
+	require.Equal(t, "FileZilla Server", payload.FTPDetails[0].SoftwareHint)
+	require.Contains(t, payload.FTPDetails[0].Features, "UTF8")
+	require.Empty(t, payload.FTPDetails[0].ProbeError)
+	require.Empty(t, payload.SMTPDetails)
+	require.Empty(t, payload.SSHDetails)
+	require.NotEmpty(t, payload.ServiceIdentity)
+	require.Equal(t, "ftp", payload.ServiceIdentity[0].ServiceName)
+	require.Equal(t, "FileZilla Server", payload.ServiceIdentity[0].Product)
+	require.NotEmpty(t, payload.AssetProfiles)
+}
+
 func TestRunDebugSNMPNativeProbeStageWithModule(t *testing.T) {
 	const moduleType = "test-scan-debug-snmp-native-probe"
 	engine.RegisterModuleFactory(moduleType, func() engine.Module {
@@ -358,6 +409,50 @@ func startSMTPTestServer(t *testing.T) (string, int, func()) {
 		<-done
 	}
 	return "127.0.0.1", addr.Port, cleanup
+}
+
+func startFTPTestServer(t *testing.T) (string, int, func()) {
+	t.Helper()
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			go func(conn net.Conn) {
+				defer conn.Close()
+				reader := bufio.NewReader(conn)
+				_ = conn.SetDeadline(time.Now().Add(2 * time.Second))
+				_, _ = io.WriteString(conn, "220 FileZilla Server 1.9.4 ready\r\n")
+				for {
+					line, err := reader.ReadString('\n')
+					if err != nil {
+						return
+					}
+					switch {
+					case strings.HasPrefix(strings.ToUpper(line), "FEAT"):
+						_, _ = io.WriteString(conn, "211-Features:\r\n UTF8\r\n MDTM\r\n211 End\r\n")
+					case strings.HasPrefix(strings.ToUpper(line), "SYST"):
+						_, _ = io.WriteString(conn, "215 UNIX Type: L8\r\n")
+					default:
+						_, _ = io.WriteString(conn, "500 Unknown command\r\n")
+					}
+				}
+			}(conn)
+		}
+	}()
+
+	addr := listener.Addr().(*net.TCPAddr)
+	return "127.0.0.1", addr.Port, func() {
+		_ = listener.Close()
+		<-done
+	}
 }
 
 func containsPort(results []struct {

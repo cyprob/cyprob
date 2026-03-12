@@ -55,6 +55,7 @@ func buildAssetProfileBuilderConsumes() []engine.DataContractEntry {
 		{Key: "discovery.open_udp_ports", DataTypeName: "discovery.UDPPortDiscoveryResult", Cardinality: engine.CardinalityList, IsOptional: true},
 		{Key: "service.banner.tcp", DataTypeName: "scan.BannerGrabResult", Cardinality: engine.CardinalityList, IsOptional: true},
 		{Key: "service.http.details", DataTypeName: "parse.HTTPParsedInfo", Cardinality: engine.CardinalityList, IsOptional: true},
+		{Key: "service.ftp.details", DataTypeName: "scan.FTPServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 		{Key: "service.ssh.details", DataTypeName: "scan.SSHServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 		{Key: "service.smtp.details", DataTypeName: "scan.SMTPServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 		{Key: "service.snmp.details", DataTypeName: "scan.SNMPServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
@@ -161,6 +162,19 @@ func (m *AssetProfileBuilderModule) Execute(ctx context.Context, inputs map[stri
 					httpDetailsResults = append(httpDetailsResults, casted)
 				}
 			}
+		}
+	}
+
+	ftpDetails := []scan.FTPServiceInfo{}
+	if rawFTP, ok := inputs["service.ftp.details"]; ok {
+		if list, listOk := rawFTP.([]any); listOk {
+			for _, item := range list {
+				if casted, castOk := item.(scan.FTPServiceInfo); castOk {
+					ftpDetails = append(ftpDetails, casted)
+				}
+			}
+		} else if typed, typedOk := rawFTP.([]scan.FTPServiceInfo); typedOk {
+			ftpDetails = append(ftpDetails, typed...)
 		}
 	}
 
@@ -453,6 +467,9 @@ func (m *AssetProfileBuilderModule) Execute(ctx context.Context, inputs map[stri
 					if sshNative := findSSHNativeDetails(sshNativeDetailsResults, targetIP, portNum); sshNative != nil {
 						applySSHNativeDetails(&portProfile, *sshNative)
 					}
+					if ftpNative := findFTPDetails(ftpDetails, targetIP, portNum); ftpNative != nil {
+						applyFTPDetails(&portProfile, *ftpNative)
+					}
 
 					// Bu porta ait tech tagleri bul
 					for _, tags := range techTagResults {
@@ -719,6 +736,92 @@ func findSMTPDetails(items []scan.SMTPServiceInfo, target string, port int) *sca
 		}
 	}
 	return nil
+}
+
+func findFTPDetails(items []scan.FTPServiceInfo, target string, port int) *scan.FTPServiceInfo {
+	for i := range items {
+		if items[i].Target == target && items[i].Port == port {
+			return &items[i]
+		}
+	}
+	return nil
+}
+
+//nolint:gocyclo // FTP attribute emission is intentionally explicit to preserve JSON contract names.
+func applyFTPDetails(portProfile *engine.PortProfile, details scan.FTPServiceInfo) {
+	if portProfile.Service.ParsedAttributes == nil {
+		portProfile.Service.ParsedAttributes = make(map[string]any)
+	}
+
+	if details.FTPProbe && strings.TrimSpace(portProfile.Service.Name) == "" {
+		if strings.EqualFold(strings.TrimSpace(details.FTPProtocol), "ftps") {
+			portProfile.Service.Name = "ftps"
+		} else {
+			portProfile.Service.Name = "ftp"
+		}
+	}
+	if strings.TrimSpace(details.SoftwareHint) != "" && strings.TrimSpace(portProfile.Service.Product) == "" {
+		portProfile.Service.Product = strings.TrimSpace(details.SoftwareHint)
+	}
+	if strings.TrimSpace(details.VersionHint) != "" && strings.TrimSpace(portProfile.Service.Version) == "" {
+		portProfile.Service.Version = strings.TrimSpace(details.VersionHint)
+	}
+	if strings.TrimSpace(details.Banner) != "" && strings.TrimSpace(portProfile.Service.RawBanner) == "" {
+		portProfile.Service.RawBanner = strings.TrimSpace(details.Banner)
+	}
+	if details.TLSEnabled || strings.EqualFold(strings.TrimSpace(details.FTPProtocol), "ftps") {
+		portProfile.Service.IsTLS = true
+	}
+
+	if strings.TrimSpace(details.Banner) != "" {
+		portProfile.Service.ParsedAttributes["ftp_banner"] = strings.TrimSpace(details.Banner)
+	}
+	if strings.TrimSpace(details.FTPProtocol) != "" {
+		portProfile.Service.ParsedAttributes["ftp_protocol"] = strings.TrimSpace(details.FTPProtocol)
+	}
+	if details.GreetingCode > 0 {
+		portProfile.Service.ParsedAttributes["ftp_greeting_code"] = details.GreetingCode
+	}
+	if len(details.Features) > 0 {
+		portProfile.Service.ParsedAttributes["ftp_features"] = append([]string(nil), details.Features...)
+	}
+	portProfile.Service.ParsedAttributes["ftp_auth_tls_supported"] = details.AuthTLSSupported
+	portProfile.Service.ParsedAttributes["ftp_tls_enabled"] = details.TLSEnabled
+	portProfile.Service.ParsedAttributes["ftp_weak_tls_protocol"] = details.WeakTLSProtocol
+	portProfile.Service.ParsedAttributes["ftp_weak_tls_cipher"] = details.WeakTLSCipher
+
+	if strings.TrimSpace(details.TLSVersion) != "" {
+		portProfile.Service.ParsedAttributes["ftp_tls_version"] = strings.TrimSpace(details.TLSVersion)
+	}
+	if strings.TrimSpace(details.TLSCipherSuite) != "" {
+		portProfile.Service.ParsedAttributes["ftp_tls_cipher_suite"] = strings.TrimSpace(details.TLSCipherSuite)
+	}
+	if strings.TrimSpace(details.CertSubjectCN) != "" {
+		portProfile.Service.ParsedAttributes["ftp_cert_subject_cn"] = strings.TrimSpace(details.CertSubjectCN)
+	}
+	if strings.TrimSpace(details.CertIssuer) != "" {
+		portProfile.Service.ParsedAttributes["ftp_cert_issuer"] = strings.TrimSpace(details.CertIssuer)
+	}
+	if !details.CertNotAfter.IsZero() {
+		portProfile.Service.ParsedAttributes["ftp_cert_not_after"] = details.CertNotAfter
+	}
+	portProfile.Service.ParsedAttributes["ftp_cert_is_self_signed"] = details.CertIsSelfSigned
+
+	if strings.TrimSpace(details.SystemHint) != "" {
+		portProfile.Service.ParsedAttributes["ftp_system_hint"] = strings.TrimSpace(details.SystemHint)
+	}
+	if strings.TrimSpace(details.SoftwareHint) != "" {
+		portProfile.Service.ParsedAttributes["ftp_software_hint"] = strings.TrimSpace(details.SoftwareHint)
+	}
+	if strings.TrimSpace(details.VendorHint) != "" {
+		portProfile.Service.ParsedAttributes["ftp_vendor_hint"] = strings.TrimSpace(details.VendorHint)
+	}
+	if strings.TrimSpace(details.VersionHint) != "" {
+		portProfile.Service.ParsedAttributes["ftp_version_hint"] = strings.TrimSpace(details.VersionHint)
+	}
+	if strings.TrimSpace(details.ProbeError) != "" {
+		portProfile.Service.ParsedAttributes["ftp_probe_error"] = strings.TrimSpace(details.ProbeError)
+	}
 }
 
 //nolint:gocyclo // SMTP attribute emission is intentionally explicit to preserve JSON contract names.
