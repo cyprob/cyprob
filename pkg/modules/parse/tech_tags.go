@@ -30,6 +30,8 @@ const (
 	TagHTTPS        = "https"
 	TagRPC          = "rpc"
 	TagMSRPC        = "msrpc"
+	TagWinRM        = "winrm"
+	TagWSMAN        = "wsman"
 	TagWindowsHint  = "windows_hint"
 )
 
@@ -140,6 +142,8 @@ var canonicalTechTagSet = map[string]struct{}{
 	TagHTTPS:        {},
 	TagRPC:          {},
 	TagMSRPC:        {},
+	TagWinRM:        {},
+	TagWSMAN:        {},
 	TagWindowsHint:  {},
 }
 

@@ -66,6 +66,7 @@ func buildAssetProfileBuilderConsumes() []engine.DataContractEntry {
 		{Key: "service.rdp.details", DataTypeName: "scan.RDPServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 		{Key: "service.rpc.details", DataTypeName: "scan.RPCServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 		{Key: "service.tls.details", DataTypeName: "scan.TLSServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
+		{Key: "service.winrm.details", DataTypeName: "scan.WINRMServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 		{Key: "service.identity.details", DataTypeName: "parse.ServiceIdentityInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 		{Key: "evaluation.vulnerabilities", DataTypeName: "evaluation.VulnerabilityResult", Cardinality: engine.CardinalityList, IsOptional: true},
 	}
@@ -316,6 +317,19 @@ func (m *AssetProfileBuilderModule) Execute(ctx context.Context, inputs map[stri
 			}
 		} else if typed, typedOK := rawTLS.([]scan.TLSServiceInfo); typedOK {
 			tlsDetails = append(tlsDetails, typed...)
+		}
+	}
+
+	winrmDetails := []scan.WINRMServiceInfo{}
+	if rawWinRM, ok := inputs["service.winrm.details"]; ok {
+		if list, listOk := rawWinRM.([]any); listOk {
+			for _, item := range list {
+				if casted, castOk := item.(scan.WINRMServiceInfo); castOk {
+					winrmDetails = append(winrmDetails, casted)
+				}
+			}
+		} else if typed, typedOk := rawWinRM.([]scan.WINRMServiceInfo); typedOk {
+			winrmDetails = append(winrmDetails, typed...)
 		}
 	}
 
@@ -575,6 +589,11 @@ func (m *AssetProfileBuilderModule) Execute(ctx context.Context, inputs map[stri
 					if tls != nil {
 						applyTLSDetails(&portProfile, *tls)
 					}
+					winrm := findWINRMDetails(winrmDetails, targetIP, portNum)
+					if winrm != nil {
+						applyWINRMDetails(&portProfile, *winrm)
+					}
+
 					// Bu porta ait zafiyetleri bul
 					targetPortKey := fmt.Sprintf("%s:%d", targetIP, portNum)
 					if vulns, found := allVulnerabilities[targetPortKey]; found {
@@ -1044,6 +1063,15 @@ func findDNSDetails(items []scan.DNSServiceInfo, target string, port int, transp
 	return nil
 }
 
+func findWINRMDetails(items []scan.WINRMServiceInfo, target string, port int) *scan.WINRMServiceInfo {
+	for i := range items {
+		if items[i].Target == target && items[i].Port == port {
+			return &items[i]
+		}
+	}
+	return nil
+}
+
 //nolint:gocyclo // SNMP attribute emission is intentionally explicit to preserve JSON contract names.
 func applySNMPDetails(portProfile *engine.PortProfile, details scan.SNMPServiceInfo) {
 	if portProfile.Service.ParsedAttributes == nil {
@@ -1274,5 +1302,78 @@ func applyTLSDetails(portProfile *engine.PortProfile, details scan.TLSServiceInf
 
 	if strings.TrimSpace(details.ProbeError) != "" {
 		portProfile.Service.ParsedAttributes["tls_probe_error"] = strings.TrimSpace(details.ProbeError)
+	}
+}
+
+//nolint:gocyclo // WinRM attribute emission is intentionally explicit to preserve JSON contract names.
+func applyWINRMDetails(portProfile *engine.PortProfile, details scan.WINRMServiceInfo) {
+	if portProfile.Service.ParsedAttributes == nil {
+		portProfile.Service.ParsedAttributes = make(map[string]any)
+	}
+
+	if details.WINRMProbe && strings.TrimSpace(portProfile.Service.Name) == "" {
+		portProfile.Service.Name = "winrm"
+	}
+	if details.WINRMProbe && strings.TrimSpace(portProfile.Service.Product) == "" {
+		portProfile.Service.Product = "WinRM"
+	}
+	if strings.TrimSpace(details.ProductVersion) != "" && strings.TrimSpace(portProfile.Service.Version) == "" {
+		portProfile.Service.Version = strings.TrimSpace(details.ProductVersion)
+	}
+	if details.TLSEnabled || strings.EqualFold(strings.TrimSpace(details.WINRMTransport), "https") {
+		portProfile.Service.IsTLS = true
+	}
+
+	if strings.TrimSpace(details.WINRMTransport) != "" {
+		portProfile.Service.ParsedAttributes["winrm_transport"] = strings.TrimSpace(details.WINRMTransport)
+	}
+	if strings.TrimSpace(details.EndpointPath) != "" {
+		portProfile.Service.ParsedAttributes["winrm_endpoint_path"] = strings.TrimSpace(details.EndpointPath)
+	}
+	if details.HTTPStatusCode > 0 {
+		portProfile.Service.ParsedAttributes["winrm_http_status_code"] = details.HTTPStatusCode
+	}
+	if strings.TrimSpace(details.ServerHeader) != "" {
+		portProfile.Service.ParsedAttributes["winrm_server_header"] = strings.TrimSpace(details.ServerHeader)
+	}
+	if strings.TrimSpace(details.ContentType) != "" {
+		portProfile.Service.ParsedAttributes["winrm_content_type"] = strings.TrimSpace(details.ContentType)
+	}
+	if len(details.AuthSchemes) > 0 {
+		portProfile.Service.ParsedAttributes["winrm_auth_schemes"] = append([]string(nil), details.AuthSchemes...)
+	}
+	portProfile.Service.ParsedAttributes["winrm_auth_required"] = details.AuthRequired
+	portProfile.Service.ParsedAttributes["winrm_identify_supported"] = details.IdentifySupported
+	portProfile.Service.ParsedAttributes["winrm_tls_enabled"] = details.TLSEnabled
+	if strings.TrimSpace(details.ServiceHint) != "" {
+		portProfile.Service.ParsedAttributes["winrm_service_hint"] = strings.TrimSpace(details.ServiceHint)
+	}
+	if strings.TrimSpace(details.WSMANProtocolVersion) != "" {
+		portProfile.Service.ParsedAttributes["winrm_wsman_protocol_version"] = strings.TrimSpace(details.WSMANProtocolVersion)
+	}
+	if strings.TrimSpace(details.ProductVendor) != "" {
+		portProfile.Service.ParsedAttributes["winrm_product_vendor"] = strings.TrimSpace(details.ProductVendor)
+	}
+	if strings.TrimSpace(details.ProductVersion) != "" {
+		portProfile.Service.ParsedAttributes["winrm_product_version"] = strings.TrimSpace(details.ProductVersion)
+	}
+	if strings.TrimSpace(details.TLSVersion) != "" {
+		portProfile.Service.ParsedAttributes["winrm_tls_version"] = strings.TrimSpace(details.TLSVersion)
+	}
+	if strings.TrimSpace(details.TLSCipherSuite) != "" {
+		portProfile.Service.ParsedAttributes["winrm_tls_cipher_suite"] = strings.TrimSpace(details.TLSCipherSuite)
+	}
+	if strings.TrimSpace(details.CertSubjectCN) != "" {
+		portProfile.Service.ParsedAttributes["winrm_cert_subject_cn"] = strings.TrimSpace(details.CertSubjectCN)
+	}
+	if strings.TrimSpace(details.CertIssuer) != "" {
+		portProfile.Service.ParsedAttributes["winrm_cert_issuer"] = strings.TrimSpace(details.CertIssuer)
+	}
+	if !details.CertNotAfter.IsZero() {
+		portProfile.Service.ParsedAttributes["winrm_cert_not_after"] = details.CertNotAfter
+	}
+	portProfile.Service.ParsedAttributes["winrm_cert_is_self_signed"] = details.CertIsSelfSigned
+	if strings.TrimSpace(details.ProbeError) != "" {
+		portProfile.Service.ParsedAttributes["winrm_probe_error"] = strings.TrimSpace(details.ProbeError)
 	}
 }

@@ -56,6 +56,7 @@ type scanDebugPayload struct {
 	RPCDetails      []scanpkg.RPCServiceInfo           `json:"rpc_details"`
 	RDPDetails      []scanpkg.RDPServiceInfo           `json:"rdp_details"`
 	TLSDetails      []scanpkg.TLSServiceInfo           `json:"tls_details"`
+	WINRMDetails    []scanpkg.WINRMServiceInfo         `json:"winrm_details"`
 	SMBDetails      []scanpkg.SMBServiceInfo           `json:"smb_details"`
 	AssetProfiles   []engine.AssetProfile              `json:"asset_profiles,omitempty"`
 	ServiceIdentity []parsepkg.ServiceIdentityInfo     `json:"service_identity"`
@@ -129,6 +130,7 @@ func runScanDebugTarget(cmd *cobra.Command, target string, opts scanDebugTargetO
 		"rpc-followup-probe",
 		"rdp-native-probe",
 		"tls-native-probe",
+		"winrm-native-probe",
 		"smb-native-probe",
 		"http-parser",
 		"fingerprint-parser",
@@ -213,6 +215,10 @@ func runScanDebugTarget(cmd *cobra.Command, target string, opts scanDebugTargetO
 	if err != nil {
 		return err
 	}
+	winrmDetails, err := runDebugWINRMNativeProbeStageWithModule(ctx, target, opts, steps, openPorts, "scan_debug_winrm_native_probe", "winrm-native-probe", "winrm-native-probe")
+	if err != nil {
+		return err
+	}
 	smbDetails, err := runDebugSMBNativeProbeStageWithModule(ctx, opts, steps, openPorts, nil, "scan_debug_smb_native_probe", "smb-native-probe", "smb-native-probe")
 	if err != nil {
 		return err
@@ -247,6 +253,7 @@ func runScanDebugTarget(cmd *cobra.Command, target string, opts scanDebugTargetO
 		"service.rpc.details":         toAnySlice(rpcDetails),
 		"service.rdp.details":         toAnySlice(rdpDetails),
 		"service.tls.details":         toAnySlice(tlsDetails),
+		"service.winrm.details":       toAnySlice(winrmDetails),
 		"service.smb.details":         toAnySlice(smbDetails),
 	}
 
@@ -279,6 +286,7 @@ func runScanDebugTarget(cmd *cobra.Command, target string, opts scanDebugTargetO
 		RPCDetails:      rpcDetails,
 		RDPDetails:      rdpDetails,
 		TLSDetails:      tlsDetails,
+		WINRMDetails:    winrmDetails,
 		SMBDetails:      smbDetails,
 		AssetProfiles:   assetProfiles,
 		ServiceIdentity: serviceIdentity,
@@ -962,6 +970,48 @@ func runDebugTLSNativeProbeStageWithModule(
 	return tlsDetails, nil
 }
 
+func runDebugWINRMNativeProbeStageWithModule(
+	ctx context.Context,
+	target string,
+	opts scanDebugTargetOptions,
+	steps *scanDebugStepCollection,
+	openPorts []discovery.TCPPortDiscoveryResult,
+	instanceID string,
+	moduleType string,
+	stepName string,
+) ([]scanpkg.WINRMServiceInfo, error) {
+	winrmConfig := map[string]any{}
+	if opts.Timeout != "" {
+		winrmConfig["timeout"] = opts.Timeout
+		winrmConfig["connect_timeout"] = opts.Timeout
+		winrmConfig["io_timeout"] = opts.Timeout
+		winrmConfig["retries"] = 0
+	}
+
+	winrmModule, err := engine.GetModuleInstance(instanceID, moduleType, winrmConfig)
+	if err != nil {
+		return nil, fmt.Errorf("create %s module: %w", moduleType, err)
+	}
+
+	winrmOutputs, winrmExecErr := executeDebugModule(ctx, winrmModule, map[string]any{
+		"discovery.open_tcp_ports":    toAnySlice(openPorts),
+		"config.original_cli_targets": []string{target},
+	})
+	if winrmExecErr != nil {
+		steps.addError(stepName, winrmExecErr.Error())
+	}
+	steps.addErrors(stepName, collectOutputErrors(winrmOutputs))
+	results := collectWINRMDetailsResults(winrmOutputs)
+	if len(results) == 0 {
+		if reason := debugWINRMCandidateWarning(openPorts); reason != "" {
+			steps.addWarning(stepName, reason)
+		} else {
+			steps.addWarning(stepName, "no winrm metadata generated")
+		}
+	}
+	return results, nil
+}
+
 func runDebugServiceIdentityStage(
 	ctx context.Context,
 	steps *scanDebugStepCollection,
@@ -1048,6 +1098,16 @@ func debugFTPCandidateWarning(openPorts []discovery.TCPPortDiscoveryResult, bann
 
 func debugTLSCandidateWarning(openPorts []discovery.TCPPortDiscoveryResult, banners []scanpkg.BannerGrabResult) string {
 	if debugHasTLSCandidate(openPorts, banners) {
+		return ""
+	}
+	if debugHasOpenPorts(openPorts) {
+		return "non_family_port_without_banner_hint"
+	}
+	return "no_candidate"
+}
+
+func debugWINRMCandidateWarning(openPorts []discovery.TCPPortDiscoveryResult) string {
+	if debugHasWINRMCandidate(openPorts) {
 		return ""
 	}
 	if debugHasOpenPorts(openPorts) {
@@ -1153,6 +1213,15 @@ func debugHasTLSCandidate(openPorts []discovery.TCPPortDiscoveryResult, banners 
 	return len(debugTLSExtraPortsFromBanners(banners)) > 0
 }
 
+func debugHasWINRMCandidate(openPorts []discovery.TCPPortDiscoveryResult) bool {
+	for _, result := range openPorts {
+		if slices.ContainsFunc(result.OpenPorts, debugIsWINRMPort) {
+			return true
+		}
+	}
+	return false
+}
+
 func debugHasSNMPCandidate(openPorts []discovery.UDPPortDiscoveryResult) bool {
 	for _, result := range openPorts {
 		if slices.Contains(result.OpenPorts, 161) {
@@ -1221,6 +1290,15 @@ func debugIsMySQLPort(port int) bool {
 func debugIsTLSPort(port int) bool {
 	switch port {
 	case 443, 8443, 9443:
+		return true
+	default:
+		return false
+	}
+}
+
+func debugIsWINRMPort(port int) bool {
+	switch port {
+	case 5985, 5986:
 		return true
 	default:
 		return false
@@ -1622,6 +1700,25 @@ func collectTLSDetailsResults(outputs []engine.ModuleOutput) []scanpkg.TLSServic
 		case scanpkg.TLSServiceInfo:
 			results = append(results, data)
 		case []scanpkg.TLSServiceInfo:
+			results = append(results, data...)
+		}
+	}
+	sort.Slice(results, func(i, j int) bool {
+		if results[i].Target == results[j].Target {
+			return results[i].Port < results[j].Port
+		}
+		return results[i].Target < results[j].Target
+	})
+	return results
+}
+
+func collectWINRMDetailsResults(outputs []engine.ModuleOutput) []scanpkg.WINRMServiceInfo {
+	results := make([]scanpkg.WINRMServiceInfo, 0)
+	for _, output := range outputs {
+		switch data := output.Data.(type) {
+		case scanpkg.WINRMServiceInfo:
+			results = append(results, data)
+		case []scanpkg.WINRMServiceInfo:
 			results = append(results, data...)
 		}
 	}

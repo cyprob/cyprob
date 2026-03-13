@@ -30,6 +30,7 @@ const (
 	sourceDNSNative        = "dns_native_probe"
 	sourceFTPNative        = "ftp_native_probe"
 	sourceMySQLNative      = "mysql_native_probe"
+	sourceWinRMNative      = "winrm_native_probe"
 	sourceHTTPIdentityHint = "http_identity_hint"
 	sourceFingerprint      = "fingerprint"
 	sourceHeuristic        = "heuristic"
@@ -157,6 +158,7 @@ func newServiceIdentityNormalizerModule() *serviceIdentityNormalizerModule {
 				{Key: "service.rdp.details", DataTypeName: "scan.RDPServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 				{Key: "service.rpc.details", DataTypeName: "scan.RPCServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 				{Key: "service.tls.details", DataTypeName: "scan.TLSServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
+				{Key: "service.winrm.details", DataTypeName: "scan.WINRMServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 			},
 			Produces: []engine.DataContractEntry{
 				{Key: "service.identity.details", DataTypeName: "parse.ServiceIdentityInfo", Cardinality: engine.CardinalityList},
@@ -206,6 +208,7 @@ func (m *serviceIdentityNormalizerModule) Execute(ctx context.Context, inputs ma
 	m.ingestRDPDetails(inputs, smbEvidence, getEntry)
 	m.ingestRPCDetails(inputs, getEntry)
 	m.ingestTLSDetails(inputs, getEntry)
+	m.ingestWINRMDetails(inputs, getEntry)
 	m.ingestSSHDetails(inputs, getEntry)
 	m.ingestHTTPIdentityHints(inputs, getEntry)
 	m.applyHeuristics(entries)
@@ -673,6 +676,44 @@ func (m *serviceIdentityNormalizerModule) ingestTLSDetails(inputs map[string]any
 			setIdentityField(entry, "service_name", "https", sourceTLSNative, 0.65)
 		}
 		entry.TechTags = NormalizeTechTags(append(entry.TechTags, TagTLS, TagHTTPS))
+	}
+}
+
+func (m *serviceIdentityNormalizerModule) ingestWINRMDetails(inputs map[string]any, getEntry func(target string, port int) *ServiceIdentityInfo) {
+	raw, ok := inputs["service.winrm.details"]
+	if !ok {
+		return
+	}
+	items := toAnyList(raw)
+	for _, item := range items {
+		winrmInfo, ok := item.(scanpkg.WINRMServiceInfo)
+		if !ok {
+			continue
+		}
+		if winrmInfo.Target == "" || winrmInfo.Port <= 0 {
+			continue
+		}
+		if !winrmInfo.WINRMProbe {
+			continue
+		}
+
+		entry := getEntry(winrmInfo.Target, winrmInfo.Port)
+		setIdentityField(entry, "service_name", "winrm", sourceWinRMNative, 0.74)
+		if strings.TrimSpace(entry.Product) == "" {
+			setIdentityField(entry, "product", "WinRM", sourceWinRMNative, 0.74)
+		}
+		if strings.TrimSpace(entry.Vendor) == "" {
+			setIdentityField(entry, "vendor", "Microsoft", sourceWinRMNative, 0.72)
+		}
+		if strings.TrimSpace(entry.Version) == "" && strings.TrimSpace(winrmInfo.ProductVersion) != "" {
+			setIdentityField(entry, "version", strings.TrimSpace(winrmInfo.ProductVersion), sourceWinRMNative, 0.65)
+		}
+
+		tags := []string{TagWinRM, TagWSMAN}
+		if winrmInfo.TLSEnabled || strings.EqualFold(strings.TrimSpace(winrmInfo.WINRMTransport), "https") || winrmInfo.Port == 5986 {
+			tags = append(tags, TagTLS)
+		}
+		entry.TechTags = NormalizeTechTags(append(entry.TechTags, tags...))
 	}
 }
 
@@ -1151,6 +1192,10 @@ func serviceNameFromPort(port int) string {
 		return "smb"
 	case 3389:
 		return "rdp"
+	case 5985:
+		return "winrm"
+	case 5986:
+		return "winrm"
 	default:
 		return "unknown"
 	}
@@ -1222,6 +1267,12 @@ func toAnyList(value any) []any {
 		}
 		return out
 	case []scanpkg.TLSServiceInfo:
+		out := make([]any, 0, len(typed))
+		for _, item := range typed {
+			out = append(out, item)
+		}
+		return out
+	case []scanpkg.WINRMServiceInfo:
 		out := make([]any, 0, len(typed))
 		for _, item := range typed {
 			out = append(out, item)

@@ -149,6 +149,21 @@ type scanDebugTestOutput struct {
 		WeakProtocol  bool   `json:"weak_protocol"`
 		WeakCommunity bool   `json:"weak_community"`
 	} `json:"snmp_details"`
+	WINRMDetails []struct {
+		Target            string   `json:"target"`
+		Port              int      `json:"port"`
+		WINRMProbe        bool     `json:"winrm_probe"`
+		WINRMTransport    string   `json:"winrm_transport"`
+		HTTPStatusCode    int      `json:"http_status_code"`
+		ServerHeader      string   `json:"server_header"`
+		ContentType       string   `json:"content_type"`
+		AuthSchemes       []string `json:"auth_schemes"`
+		AuthRequired      bool     `json:"auth_required"`
+		IdentifySupported bool     `json:"identify_supported"`
+		ServiceHint       string   `json:"service_hint"`
+		ProductVersion    string   `json:"product_version"`
+		ProbeError        string   `json:"probe_error"`
+	} `json:"winrm_details"`
 	AssetProfiles []struct {
 		Target string `json:"target"`
 	} `json:"asset_profiles"`
@@ -443,6 +458,45 @@ func TestRunDebugDNSNativeProbeStageWithModule(t *testing.T) {
 	require.Empty(t, steps.values()[0].Errors)
 }
 
+func TestRunDebugWINRMNativeProbeStageWithModule(t *testing.T) {
+	const moduleType = "test-scan-debug-winrm-native-probe"
+	engine.RegisterModuleFactory(moduleType, func() engine.Module {
+		return &testScanDebugWINRMModule{
+			meta: engine.ModuleMetadata{
+				ID:   "test-scan-debug-winrm-native-probe-instance",
+				Name: moduleType,
+				Type: engine.ScanModuleType,
+				Consumes: []engine.DataContractEntry{
+					{Key: "discovery.open_tcp_ports", DataTypeName: "discovery.TCPPortDiscoveryResult", Cardinality: engine.CardinalityList},
+					{Key: "config.original_cli_targets", DataTypeName: "[]string", Cardinality: engine.CardinalitySingle, IsOptional: true},
+				},
+				Produces: []engine.DataContractEntry{
+					{Key: "service.winrm.details", DataTypeName: "scan.WINRMServiceInfo", Cardinality: engine.CardinalityList},
+				},
+			},
+		}
+	})
+
+	steps := newScanDebugSteps("winrm-native-probe")
+	results, err := runDebugWINRMNativeProbeStageWithModule(
+		context.Background(),
+		"winrm.example.test",
+		scanDebugTargetOptions{Timeout: "2s"},
+		steps,
+		[]discovery.TCPPortDiscoveryResult{
+			{Target: "127.0.0.1", OpenPorts: []int{5985}},
+		},
+		"test_scan_debug_winrm_module",
+		moduleType,
+		"winrm-native-probe",
+	)
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	require.True(t, results[0].WINRMProbe)
+	require.Equal(t, 5985, results[0].Port)
+	require.Empty(t, steps.values()[0].Errors)
+}
+
 func TestDebugTLSExtraPortsFromBanners(t *testing.T) {
 	require.Empty(t, debugTLSExtraPortsFromBanners([]scanpkg.BannerGrabResult{
 		{IP: "127.0.0.1", Port: 10443, Protocol: "tcp", Banner: "HELLO"},
@@ -707,6 +761,44 @@ func (m *testScanDebugDNSModule) Execute(ctx context.Context, inputs map[string]
 			DNSProbe:         true,
 			NSQueryResponded: true,
 			ResponseCode:     "NOERROR",
+		},
+		Timestamp: time.Now(),
+		Target:    "127.0.0.1",
+	}
+	return nil
+}
+
+type testScanDebugWINRMModule struct {
+	meta engine.ModuleMetadata
+}
+
+func (m *testScanDebugWINRMModule) Metadata() engine.ModuleMetadata {
+	return m.meta
+}
+
+func (m *testScanDebugWINRMModule) Init(instanceID string, config map[string]any) error {
+	m.meta.ID = instanceID
+	return nil
+}
+
+func (m *testScanDebugWINRMModule) Execute(ctx context.Context, inputs map[string]any, outputChan chan<- engine.ModuleOutput) error {
+	_ = ctx
+	_ = inputs
+	outputChan <- engine.ModuleOutput{
+		FromModuleName: m.meta.ID,
+		DataKey:        "service.winrm.details",
+		Data: scanpkg.WINRMServiceInfo{
+			Target:            "127.0.0.1",
+			Port:              5985,
+			WINRMProbe:        true,
+			WINRMTransport:    "http",
+			HTTPStatusCode:    401,
+			ServerHeader:      "Microsoft-HTTPAPI/2.0",
+			ContentType:       "application/soap+xml; charset=UTF-8",
+			AuthSchemes:       []string{"Negotiate"},
+			AuthRequired:      true,
+			IdentifySupported: false,
+			ServiceHint:       "WinRM",
 		},
 		Timestamp: time.Now(),
 		Target:    "127.0.0.1",
