@@ -47,6 +47,7 @@ type scanDebugPayload struct {
 	Fingerprints    []parsepkg.FingerprintParsedInfo   `json:"fingerprints"`
 	TechTags        []parsepkg.TechTagResult           `json:"tech_tags"`
 	FTPDetails      []scanpkg.FTPServiceInfo           `json:"ftp_details"`
+	MySQLDetails    []scanpkg.MySQLServiceInfo         `json:"mysql_details"`
 	SMTPDetails     []scanpkg.SMTPServiceInfo          `json:"smtp_details"`
 	SSHDetails      []scanpkg.SSHServiceInfo           `json:"ssh_details"`
 	SNMPDetails     []scanpkg.SNMPServiceInfo          `json:"snmp_details,omitempty"`
@@ -114,6 +115,7 @@ func runScanDebugTarget(cmd *cobra.Command, target string, opts scanDebugTargetO
 	stepNames = append(stepNames,
 		"banner-grabber",
 		"ftp-native-probe",
+		"mysql-native-probe",
 		"smtp-native-probe",
 		"ssh-native-probe",
 	)
@@ -177,6 +179,10 @@ func runScanDebugTarget(cmd *cobra.Command, target string, opts scanDebugTargetO
 	if err != nil {
 		return err
 	}
+	mysqlDetails, err := runDebugMySQLNativeProbeStageWithModule(ctx, target, opts, steps, openPorts, banners, "scan_debug_mysql_native_probe", "mysql-native-probe", "mysql-native-probe")
+	if err != nil {
+		return err
+	}
 	smtpDetails, err := runDebugSMTPNativeProbeStageWithModule(ctx, opts, steps, openPorts, banners, "scan_debug_smtp_native_probe", "smtp-native-probe", "smtp-native-probe")
 	if err != nil {
 		return err
@@ -225,15 +231,16 @@ func runScanDebugTarget(cmd *cobra.Command, target string, opts scanDebugTargetO
 		"service.http.details":        toAnySlice(httpDetails),
 		"service.fingerprint.details": toAnySlice(fingerprints),
 		"service.tech.tags":           toAnySlice(techTags),
-		"service.ftp.details":         toAnySlice(ftpDetails),
-		"service.smtp.details":        toAnySlice(smtpDetails),
-		"service.ssh.details":         toAnySlice(sshDetails),
-		"service.snmp.details":        toAnySlice(snmpDetails),
+			"service.ftp.details":         toAnySlice(ftpDetails),
+			"service.mysql.details":       toAnySlice(mysqlDetails),
+			"service.smtp.details":        toAnySlice(smtpDetails),
+			"service.ssh.details":         toAnySlice(sshDetails),
+			"service.snmp.details":        toAnySlice(snmpDetails),
 		"service.rpc.epmapper":        toAnySlice(rpcEpmapper),
 		"service.rpc.details":         toAnySlice(rpcDetails),
-		"service.rdp.details":         toAnySlice(rdpDetails),
-		"service.tls.details":         toAnySlice(tlsDetails),
-		"service.smb.details":         toAnySlice(smbDetails),
+			"service.rdp.details":         toAnySlice(rdpDetails),
+			"service.tls.details":         toAnySlice(tlsDetails),
+			"service.smb.details":         toAnySlice(smbDetails),
 	}
 
 	serviceIdentity, err := runDebugServiceIdentityStage(ctx, steps, pipelineInputs)
@@ -256,6 +263,7 @@ func runScanDebugTarget(cmd *cobra.Command, target string, opts scanDebugTargetO
 		Fingerprints:    fingerprints,
 		TechTags:        techTags,
 		FTPDetails:      ftpDetails,
+		MySQLDetails:    mysqlDetails,
 		SMTPDetails:     smtpDetails,
 		SSHDetails:      sshDetails,
 		SNMPDetails:     snmpDetails,
@@ -510,6 +518,50 @@ func runDebugSMTPNativeProbeStageWithModule(
 			steps.addWarning(stepName, reason)
 		} else {
 			steps.addWarning(stepName, "no smtp metadata generated")
+		}
+	}
+	return results, nil
+}
+
+func runDebugMySQLNativeProbeStageWithModule(
+	ctx context.Context,
+	target string,
+	opts scanDebugTargetOptions,
+	steps *scanDebugStepCollection,
+	openPorts []discovery.TCPPortDiscoveryResult,
+	banners []scanpkg.BannerGrabResult,
+	instanceID string,
+	moduleType string,
+	stepName string,
+) ([]scanpkg.MySQLServiceInfo, error) {
+	mysqlConfig := map[string]any{}
+	if opts.Timeout != "" {
+		mysqlConfig["timeout"] = opts.Timeout
+		mysqlConfig["connect_timeout"] = opts.Timeout
+		mysqlConfig["io_timeout"] = opts.Timeout
+		mysqlConfig["retries"] = 0
+	}
+
+	mysqlModule, err := engine.GetModuleInstance(instanceID, moduleType, mysqlConfig)
+	if err != nil {
+		return nil, fmt.Errorf("create %s module: %w", moduleType, err)
+	}
+
+	mysqlOutputs, mysqlExecErr := executeDebugModule(ctx, mysqlModule, map[string]any{
+		"discovery.open_tcp_ports":    toAnySlice(openPorts),
+		"service.banner.tcp":          toAnySlice(banners),
+		"config.original_cli_targets": []string{target},
+	})
+	if mysqlExecErr != nil {
+		steps.addError(stepName, mysqlExecErr.Error())
+	}
+	steps.addErrors(stepName, collectOutputErrors(mysqlOutputs))
+	results := collectMySQLDetailsResults(mysqlOutputs)
+	if len(results) == 0 {
+		if reason := debugMySQLCandidateWarning(openPorts, banners); reason != "" {
+			steps.addWarning(stepName, reason)
+		} else {
+			steps.addWarning(stepName, "no mysql metadata generated")
 		}
 	}
 	return results, nil
@@ -924,6 +976,16 @@ func debugSMTPCandidateWarning(openPorts []discovery.TCPPortDiscoveryResult, ban
 	return "no_candidate"
 }
 
+func debugMySQLCandidateWarning(openPorts []discovery.TCPPortDiscoveryResult, banners []scanpkg.BannerGrabResult) string {
+	if debugHasMySQLCandidate(openPorts, banners) {
+		return ""
+	}
+	if debugHasOpenPorts(openPorts) {
+		return "non_family_port_without_banner_hint"
+	}
+	return "no_candidate"
+}
+
 func debugFTPCandidateWarning(openPorts []discovery.TCPPortDiscoveryResult, banners []scanpkg.BannerGrabResult) string {
 	if debugHasFTPCandidate(openPorts, banners) {
 		return ""
@@ -1005,6 +1067,23 @@ func debugHasFTPCandidate(openPorts []discovery.TCPPortDiscoveryResult, banners 
 	return false
 }
 
+func debugHasMySQLCandidate(openPorts []discovery.TCPPortDiscoveryResult, banners []scanpkg.BannerGrabResult) bool {
+	for _, result := range openPorts {
+		if slices.ContainsFunc(result.OpenPorts, debugIsMySQLPort) {
+			return true
+		}
+	}
+	for _, banner := range banners {
+		if debugIsMySQLPort(banner.Port) {
+			return true
+		}
+		if banner.Port == 3306 && debugBannerLooksLikeMySQL(banner) {
+			return true
+		}
+	}
+	return false
+}
+
 func debugHasTLSCandidate(openPorts []discovery.TCPPortDiscoveryResult, banners []scanpkg.BannerGrabResult) bool {
 	for _, result := range openPorts {
 		if slices.ContainsFunc(result.OpenPorts, debugIsTLSPort) {
@@ -1061,6 +1140,10 @@ func debugIsFTPPort(port int) bool {
 	}
 }
 
+func debugIsMySQLPort(port int) bool {
+	return port == 3306
+}
+
 func debugIsTLSPort(port int) bool {
 	switch port {
 	case 443, 8443, 9443:
@@ -1086,6 +1169,12 @@ func debugBannerLooksLikeFTP(banner scanpkg.BannerGrabResult) bool {
 	return debugContainsAnyHint(banner.Protocol, "ftp", "ftps") ||
 		debugContainsAnyHint(banner.Banner, "crushftp", "pure-ftpd", "proftpd", "vsftpd", "ftp server ready", "filezilla server") ||
 		debugEvidenceLooksLike(banner.Evidence, []string{"ftp", "ftps", "crushftp", "pure-ftpd", "proftpd", "vsftpd", "filezilla"})
+}
+
+func debugBannerLooksLikeMySQL(banner scanpkg.BannerGrabResult) bool {
+	return debugContainsAnyHint(banner.Protocol, "mysql", "mariadb", "percona") ||
+		debugContainsAnyHint(banner.Banner, "mysql", "mariadb", "percona") ||
+		debugEvidenceLooksLike(banner.Evidence, []string{"mysql", "mariadb", "percona"})
 }
 
 func debugBannerLooksLikeTLS(banner scanpkg.BannerGrabResult) bool {
@@ -1316,6 +1405,25 @@ func collectFTPDetailsResults(outputs []engine.ModuleOutput) []scanpkg.FTPServic
 	return results
 }
 
+func collectMySQLDetailsResults(outputs []engine.ModuleOutput) []scanpkg.MySQLServiceInfo {
+	results := make([]scanpkg.MySQLServiceInfo, 0)
+	for _, output := range outputs {
+		switch data := output.Data.(type) {
+		case scanpkg.MySQLServiceInfo:
+			results = append(results, data)
+		case []scanpkg.MySQLServiceInfo:
+			results = append(results, data...)
+		}
+	}
+	sort.Slice(results, func(i, j int) bool {
+		if results[i].Target == results[j].Target {
+			return results[i].Port < results[j].Port
+		}
+		return results[i].Target < results[j].Target
+	})
+	return results
+}
+
 func collectSMTPDetailsResults(outputs []engine.ModuleOutput) []scanpkg.SMTPServiceInfo {
 	results := make([]scanpkg.SMTPServiceInfo, 0)
 	for _, output := range outputs {
@@ -1429,6 +1537,7 @@ func collectTLSDetailsResults(outputs []engine.ModuleOutput) []scanpkg.TLSServic
 	})
 	return results
 }
+
 
 func collectServiceIdentityResults(outputs []engine.ModuleOutput) []parsepkg.ServiceIdentityInfo {
 	results := make([]parsepkg.ServiceIdentityInfo, 0)

@@ -78,6 +78,21 @@ type scanDebugTestOutput struct {
 		SoftwareHint     string   `json:"software_hint"`
 		ProbeError       string   `json:"probe_error"`
 	} `json:"ftp_details"`
+	MySQLDetails []struct {
+		Target          string `json:"target"`
+		Port            int    `json:"port"`
+		MySQLProbe      bool   `json:"mysql_probe"`
+		GreetingKind    string `json:"greeting_kind"`
+		ProtocolVersion int    `json:"protocol_version"`
+		ServerVersion   string `json:"server_version"`
+		AuthPluginName  string `json:"auth_plugin_name"`
+		TLSSupported    bool   `json:"tls_supported"`
+		TLSEnabled      bool   `json:"tls_enabled"`
+		ProductHint     string `json:"product_hint"`
+		VendorHint      string `json:"vendor_hint"`
+		VersionHint     string `json:"version_hint"`
+		ProbeError      string `json:"probe_error"`
+	} `json:"mysql_details"`
 	SMTPDetails []struct {
 		Target              string `json:"target"`
 		Port                int    `json:"port"`
@@ -296,6 +311,47 @@ func TestScanDebugTargetFTPJSONSmoke(t *testing.T) {
 	require.NotEmpty(t, payload.AssetProfiles)
 }
 
+func TestRunDebugMySQLNativeProbeStageWithModule(t *testing.T) {
+	const moduleType = "test-scan-debug-mysql-native-probe"
+	engine.RegisterModuleFactory(moduleType, func() engine.Module {
+		return &testScanDebugMySQLModule{
+			meta: engine.ModuleMetadata{
+				ID:   "test-scan-debug-mysql-native-probe-instance",
+				Name: moduleType,
+				Type: engine.ScanModuleType,
+				Consumes: []engine.DataContractEntry{
+					{Key: "discovery.open_tcp_ports", DataTypeName: "discovery.TCPPortDiscoveryResult", Cardinality: engine.CardinalityList},
+					{Key: "service.banner.tcp", DataTypeName: "scan.BannerGrabResult", Cardinality: engine.CardinalityList, IsOptional: true},
+					{Key: "config.original_cli_targets", DataTypeName: "[]string", Cardinality: engine.CardinalitySingle, IsOptional: true},
+				},
+				Produces: []engine.DataContractEntry{
+					{Key: "service.mysql.details", DataTypeName: "scan.MySQLServiceInfo", Cardinality: engine.CardinalityList},
+				},
+			},
+		}
+	})
+
+	steps := newScanDebugSteps("mysql-native-probe")
+	results, err := runDebugMySQLNativeProbeStageWithModule(
+		context.Background(),
+		"mysql.example.test",
+		scanDebugTargetOptions{Timeout: "2s"},
+		steps,
+		[]discovery.TCPPortDiscoveryResult{
+			{Target: "127.0.0.1", OpenPorts: []int{3306}},
+		},
+		nil,
+		"test_scan_debug_mysql_module",
+		moduleType,
+		"mysql-native-probe",
+	)
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	require.True(t, results[0].MySQLProbe)
+	require.Equal(t, 3306, results[0].Port)
+	require.Empty(t, steps.values()[0].Errors)
+}
+
 func TestRunDebugSNMPNativeProbeStageWithModule(t *testing.T) {
 	const moduleType = "test-scan-debug-snmp-native-probe"
 	engine.RegisterModuleFactory(moduleType, func() engine.Module {
@@ -486,11 +542,24 @@ type testScanDebugSNMPModule struct {
 	meta engine.ModuleMetadata
 }
 
+type testScanDebugMySQLModule struct {
+	meta engine.ModuleMetadata
+}
+
 func (m *testScanDebugSNMPModule) Metadata() engine.ModuleMetadata {
 	return m.meta
 }
 
+func (m *testScanDebugMySQLModule) Metadata() engine.ModuleMetadata {
+	return m.meta
+}
+
 func (m *testScanDebugSNMPModule) Init(instanceID string, config map[string]any) error {
+	m.meta.ID = instanceID
+	return nil
+}
+
+func (m *testScanDebugMySQLModule) Init(instanceID string, config map[string]any) error {
 	m.meta.ID = instanceID
 	return nil
 }
@@ -508,6 +577,30 @@ func (m *testScanDebugSNMPModule) Execute(ctx context.Context, inputs map[string
 			SNMPVersion: "SNMPv2c",
 			Community:   "public",
 			ProductHint: "Net-SNMP",
+		},
+		Timestamp: time.Now(),
+		Target:    "127.0.0.1",
+	}
+	return nil
+}
+
+func (m *testScanDebugMySQLModule) Execute(ctx context.Context, inputs map[string]any, outputChan chan<- engine.ModuleOutput) error {
+	_ = ctx
+	_ = inputs
+	outputChan <- engine.ModuleOutput{
+		FromModuleName: m.meta.ID,
+		DataKey:        "service.mysql.details",
+		Data: scanpkg.MySQLServiceInfo{
+			Target:          "127.0.0.1",
+			Port:            3306,
+			MySQLProbe:      true,
+			GreetingKind:    "handshake",
+			ProtocolVersion: 10,
+			ServerVersion:   "8.0.36-MySQL Community Server",
+			AuthPluginName:  "caching_sha2_password",
+			ProductHint:     "MySQL",
+			VendorHint:      "Oracle",
+			VersionHint:     "8.0.36",
 		},
 		Timestamp: time.Now(),
 		Target:    "127.0.0.1",

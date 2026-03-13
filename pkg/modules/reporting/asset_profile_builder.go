@@ -56,6 +56,7 @@ func buildAssetProfileBuilderConsumes() []engine.DataContractEntry {
 		{Key: "service.banner.tcp", DataTypeName: "scan.BannerGrabResult", Cardinality: engine.CardinalityList, IsOptional: true},
 		{Key: "service.http.details", DataTypeName: "parse.HTTPParsedInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 		{Key: "service.ftp.details", DataTypeName: "scan.FTPServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
+		{Key: "service.mysql.details", DataTypeName: "scan.MySQLServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 		{Key: "service.ssh.details", DataTypeName: "scan.SSHServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 		{Key: "service.smtp.details", DataTypeName: "scan.SMTPServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 		{Key: "service.snmp.details", DataTypeName: "scan.SNMPServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
@@ -175,6 +176,19 @@ func (m *AssetProfileBuilderModule) Execute(ctx context.Context, inputs map[stri
 			}
 		} else if typed, typedOk := rawFTP.([]scan.FTPServiceInfo); typedOk {
 			ftpDetails = append(ftpDetails, typed...)
+		}
+	}
+
+	mysqlDetails := []scan.MySQLServiceInfo{}
+	if rawMySQL, ok := inputs["service.mysql.details"]; ok {
+		if list, listOk := rawMySQL.([]any); listOk {
+			for _, item := range list {
+				if casted, castOk := item.(scan.MySQLServiceInfo); castOk {
+					mysqlDetails = append(mysqlDetails, casted)
+				}
+			}
+		} else if typed, typedOk := rawMySQL.([]scan.MySQLServiceInfo); typedOk {
+			mysqlDetails = append(mysqlDetails, typed...)
 		}
 	}
 
@@ -524,7 +538,9 @@ func (m *AssetProfileBuilderModule) Execute(ctx context.Context, inputs map[stri
 					if smtpNative := findSMTPDetails(smtpDetails, targetIP, portNum); smtpNative != nil {
 						applySMTPDetails(&portProfile, *smtpNative)
 					}
-
+					if mysqlNative := findMySQLDetails(mysqlDetails, targetIP, portNum); mysqlNative != nil {
+						applyMySQLDetails(&portProfile, *mysqlNative)
+					}
 					identity := findServiceIdentity(identityDetails, targetIP, portNum)
 					if identity != nil {
 						applyServiceIdentity(asset, &portProfile, *identity)
@@ -541,7 +557,6 @@ func (m *AssetProfileBuilderModule) Execute(ctx context.Context, inputs map[stri
 					if tls != nil {
 						applyTLSDetails(&portProfile, *tls)
 					}
-
 					// Bu porta ait zafiyetleri bul
 					targetPortKey := fmt.Sprintf("%s:%d", targetIP, portNum)
 					if vulns, found := allVulnerabilities[targetPortKey]; found {
@@ -569,7 +584,6 @@ func (m *AssetProfileBuilderModule) Execute(ctx context.Context, inputs map[stri
 				if snmpNative := findSNMPDetails(snmpDetails, targetIP, portNum); snmpNative != nil {
 					applySNMPDetails(&portProfile, *snmpNative)
 				}
-
 				identity := findServiceIdentity(identityDetails, targetIP, portNum)
 				if identity != nil {
 					applyServiceIdentity(asset, &portProfile, *identity)
@@ -747,6 +761,15 @@ func findFTPDetails(items []scan.FTPServiceInfo, target string, port int) *scan.
 	return nil
 }
 
+func findMySQLDetails(items []scan.MySQLServiceInfo, target string, port int) *scan.MySQLServiceInfo {
+	for i := range items {
+		if items[i].Target == target && items[i].Port == port {
+			return &items[i]
+		}
+	}
+	return nil
+}
+
 //nolint:gocyclo // FTP attribute emission is intentionally explicit to preserve JSON contract names.
 func applyFTPDetails(portProfile *engine.PortProfile, details scan.FTPServiceInfo) {
 	if portProfile.Service.ParsedAttributes == nil {
@@ -821,6 +844,83 @@ func applyFTPDetails(portProfile *engine.PortProfile, details scan.FTPServiceInf
 	}
 	if strings.TrimSpace(details.ProbeError) != "" {
 		portProfile.Service.ParsedAttributes["ftp_probe_error"] = strings.TrimSpace(details.ProbeError)
+	}
+}
+
+func applyMySQLDetails(portProfile *engine.PortProfile, details scan.MySQLServiceInfo) {
+	if portProfile.Service.ParsedAttributes == nil {
+		portProfile.Service.ParsedAttributes = make(map[string]any)
+	}
+
+	if details.MySQLProbe && strings.TrimSpace(portProfile.Service.Name) == "" {
+		portProfile.Service.Name = "mysql"
+	}
+	if strings.TrimSpace(details.ProductHint) != "" && strings.TrimSpace(portProfile.Service.Product) == "" {
+		portProfile.Service.Product = strings.TrimSpace(details.ProductHint)
+	}
+	if strings.TrimSpace(details.VersionHint) != "" && strings.TrimSpace(portProfile.Service.Version) == "" {
+		portProfile.Service.Version = strings.TrimSpace(details.VersionHint)
+	}
+	if details.TLSEnabled {
+		portProfile.Service.IsTLS = true
+	}
+
+	if strings.TrimSpace(details.GreetingKind) != "" {
+		portProfile.Service.ParsedAttributes["mysql_greeting_kind"] = strings.TrimSpace(details.GreetingKind)
+	}
+	if details.ProtocolVersion > 0 {
+		portProfile.Service.ParsedAttributes["mysql_protocol_version"] = details.ProtocolVersion
+	}
+	if strings.TrimSpace(details.ServerVersion) != "" {
+		portProfile.Service.ParsedAttributes["mysql_server_version"] = strings.TrimSpace(details.ServerVersion)
+	}
+	if details.ConnectionID > 0 {
+		portProfile.Service.ParsedAttributes["mysql_connection_id"] = details.ConnectionID
+	}
+	if details.CapabilityFlags > 0 {
+		portProfile.Service.ParsedAttributes["mysql_capability_flags"] = details.CapabilityFlags
+	}
+	if details.StatusFlags > 0 {
+		portProfile.Service.ParsedAttributes["mysql_status_flags"] = details.StatusFlags
+	}
+	if details.CharacterSet > 0 {
+		portProfile.Service.ParsedAttributes["mysql_character_set"] = details.CharacterSet
+	}
+	if strings.TrimSpace(details.AuthPluginName) != "" {
+		portProfile.Service.ParsedAttributes["mysql_auth_plugin_name"] = strings.TrimSpace(details.AuthPluginName)
+	}
+	portProfile.Service.ParsedAttributes["mysql_tls_supported"] = details.TLSSupported
+	portProfile.Service.ParsedAttributes["mysql_tls_enabled"] = details.TLSEnabled
+
+	if strings.TrimSpace(details.TLSVersion) != "" {
+		portProfile.Service.ParsedAttributes["mysql_tls_version"] = strings.TrimSpace(details.TLSVersion)
+	}
+	if strings.TrimSpace(details.TLSCipherSuite) != "" {
+		portProfile.Service.ParsedAttributes["mysql_tls_cipher_suite"] = strings.TrimSpace(details.TLSCipherSuite)
+	}
+	if strings.TrimSpace(details.CertSubjectCN) != "" {
+		portProfile.Service.ParsedAttributes["mysql_cert_subject_cn"] = strings.TrimSpace(details.CertSubjectCN)
+	}
+	if strings.TrimSpace(details.CertIssuer) != "" {
+		portProfile.Service.ParsedAttributes["mysql_cert_issuer"] = strings.TrimSpace(details.CertIssuer)
+	}
+	if !details.CertNotAfter.IsZero() {
+		portProfile.Service.ParsedAttributes["mysql_cert_not_after"] = details.CertNotAfter
+	}
+	portProfile.Service.ParsedAttributes["mysql_cert_is_self_signed"] = details.CertIsSelfSigned
+
+	if strings.TrimSpace(details.ProductHint) != "" {
+		portProfile.Service.ParsedAttributes["mysql_product_hint"] = strings.TrimSpace(details.ProductHint)
+	}
+	if strings.TrimSpace(details.VendorHint) != "" {
+		portProfile.Service.ParsedAttributes["mysql_vendor_hint"] = strings.TrimSpace(details.VendorHint)
+		portProfile.Service.ParsedAttributes["vendor"] = strings.TrimSpace(details.VendorHint)
+	}
+	if strings.TrimSpace(details.VersionHint) != "" {
+		portProfile.Service.ParsedAttributes["mysql_version_hint"] = strings.TrimSpace(details.VersionHint)
+	}
+	if strings.TrimSpace(details.ProbeError) != "" {
+		portProfile.Service.ParsedAttributes["mysql_probe_error"] = strings.TrimSpace(details.ProbeError)
 	}
 }
 

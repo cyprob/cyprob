@@ -28,6 +28,7 @@ const (
 	sourceSMTPNative       = "smtp_native_probe"
 	sourceSNMPNative       = "snmp_native_probe"
 	sourceFTPNative        = "ftp_native_probe"
+	sourceMySQLNative      = "mysql_native_probe"
 	sourceHTTPIdentityHint = "http_identity_hint"
 	sourceFingerprint      = "fingerprint"
 	sourceHeuristic        = "heuristic"
@@ -146,13 +147,14 @@ func newServiceIdentityNormalizerModule() *serviceIdentityNormalizerModule {
 				{Key: "service.fingerprint.details", DataTypeName: "parse.FingerprintParsedInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 				{Key: "service.tech.tags", DataTypeName: "parse.TechTagResult", Cardinality: engine.CardinalityList, IsOptional: true},
 				{Key: "service.ftp.details", DataTypeName: "scan.FTPServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
+				{Key: "service.mysql.details", DataTypeName: "scan.MySQLServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 				{Key: "service.smtp.details", DataTypeName: "scan.SMTPServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 				{Key: "service.ssh.details", DataTypeName: "scan.SSHServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
-				{Key: "service.snmp.details", DataTypeName: "scan.SNMPServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
+					{Key: "service.snmp.details", DataTypeName: "scan.SNMPServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 				{Key: "service.smb.details", DataTypeName: "scan.SMBServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 				{Key: "service.rdp.details", DataTypeName: "scan.RDPServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
-				{Key: "service.rpc.details", DataTypeName: "scan.RPCServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
-				{Key: "service.tls.details", DataTypeName: "scan.TLSServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
+					{Key: "service.rpc.details", DataTypeName: "scan.RPCServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
+					{Key: "service.tls.details", DataTypeName: "scan.TLSServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 			},
 			Produces: []engine.DataContractEntry{
 				{Key: "service.identity.details", DataTypeName: "parse.ServiceIdentityInfo", Cardinality: engine.CardinalityList},
@@ -193,6 +195,7 @@ func (m *serviceIdentityNormalizerModule) Execute(ctx context.Context, inputs ma
 	m.ingestFingerprints(inputs, getEntry)
 	m.ingestTechTags(inputs, getEntry)
 	m.ingestFTPDetails(inputs, getEntry)
+	m.ingestMySQLDetails(inputs, getEntry)
 	m.ingestSMTPDetails(inputs, getEntry)
 	m.ingestSNMPDetails(inputs, getEntry)
 	m.ingestSMBDetails(inputs, getEntry)
@@ -396,6 +399,36 @@ func (m *serviceIdentityNormalizerModule) ingestFTPDetails(inputs map[string]any
 			tags = append(tags, TagTLS)
 		}
 		entry.TechTags = NormalizeTechTags(append(entry.TechTags, tags...))
+	}
+}
+
+func (m *serviceIdentityNormalizerModule) ingestMySQLDetails(inputs map[string]any, getEntry func(target string, port int) *ServiceIdentityInfo) {
+	raw, ok := inputs["service.mysql.details"]
+	if !ok {
+		return
+	}
+	items := toAnyList(raw)
+	for _, item := range items {
+		mysqlInfo, ok := item.(scanpkg.MySQLServiceInfo)
+		if !ok {
+			continue
+		}
+		if mysqlInfo.Target == "" || mysqlInfo.Port <= 0 || !mysqlInfo.MySQLProbe {
+			continue
+		}
+
+		entry := getEntry(mysqlInfo.Target, mysqlInfo.Port)
+		setIdentityField(entry, "service_name", "mysql", sourceMySQLNative, 0.68)
+		if strings.TrimSpace(entry.Product) == "" && strings.TrimSpace(mysqlInfo.ProductHint) != "" {
+			setIdentityField(entry, "product", strings.TrimSpace(mysqlInfo.ProductHint), sourceMySQLNative, 0.74)
+		}
+		if strings.TrimSpace(entry.Vendor) == "" && strings.TrimSpace(mysqlInfo.VendorHint) != "" {
+			setIdentityField(entry, "vendor", strings.TrimSpace(mysqlInfo.VendorHint), sourceMySQLNative, 0.72)
+		}
+		if strings.TrimSpace(entry.Version) == "" && strings.TrimSpace(mysqlInfo.VersionHint) != "" {
+			setIdentityField(entry, "version", strings.TrimSpace(mysqlInfo.VersionHint), sourceMySQLNative, 0.66)
+		}
+		entry.TechTags = NormalizeTechTags(append(entry.TechTags, "mysql"))
 	}
 }
 
@@ -1062,8 +1095,6 @@ func serviceNameFromPort(port int) string {
 		return "smb"
 	case 3389:
 		return "rdp"
-	case 5985:
-		return "winrm"
 	default:
 		return "unknown"
 	}
