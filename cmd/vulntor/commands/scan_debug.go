@@ -50,6 +50,7 @@ type scanDebugPayload struct {
 	MySQLDetails    []scanpkg.MySQLServiceInfo         `json:"mysql_details"`
 	SMTPDetails     []scanpkg.SMTPServiceInfo          `json:"smtp_details"`
 	SSHDetails      []scanpkg.SSHServiceInfo           `json:"ssh_details"`
+	DNSDetails      []scanpkg.DNSServiceInfo           `json:"dns_details,omitempty"`
 	SNMPDetails     []scanpkg.SNMPServiceInfo          `json:"snmp_details,omitempty"`
 	RPCEpmapper     []scanpkg.RPCEpmapperInfo          `json:"rpc_epmapper"`
 	RPCDetails      []scanpkg.RPCServiceInfo           `json:"rpc_details"`
@@ -118,6 +119,7 @@ func runScanDebugTarget(cmd *cobra.Command, target string, opts scanDebugTargetO
 		"mysql-native-probe",
 		"smtp-native-probe",
 		"ssh-native-probe",
+		"dns-native-probe",
 	)
 	if strings.TrimSpace(opts.UDPPorts) != "" {
 		stepNames = append(stepNames, "snmp-native-probe")
@@ -191,6 +193,10 @@ func runScanDebugTarget(cmd *cobra.Command, target string, opts scanDebugTargetO
 	if err != nil {
 		return err
 	}
+	dnsDetails, err := runDebugDNSNativeProbeStageWithModule(ctx, opts, steps, openPorts, openUDPPorts, "scan_debug_dns_native_probe", "dns-native-probe", "dns-native-probe")
+	if err != nil {
+		return err
+	}
 	rpcEpmapper, err := runDebugRPCEpmapperStageWithModule(ctx, opts, steps, openPorts, "scan_debug_rpc_epmapper_probe", "rpc-epmapper-probe", "rpc-epmapper-probe")
 	if err != nil {
 		return err
@@ -231,16 +237,17 @@ func runScanDebugTarget(cmd *cobra.Command, target string, opts scanDebugTargetO
 		"service.http.details":        toAnySlice(httpDetails),
 		"service.fingerprint.details": toAnySlice(fingerprints),
 		"service.tech.tags":           toAnySlice(techTags),
-			"service.ftp.details":         toAnySlice(ftpDetails),
-			"service.mysql.details":       toAnySlice(mysqlDetails),
-			"service.smtp.details":        toAnySlice(smtpDetails),
-			"service.ssh.details":         toAnySlice(sshDetails),
-			"service.snmp.details":        toAnySlice(snmpDetails),
+		"service.ftp.details":         toAnySlice(ftpDetails),
+		"service.mysql.details":       toAnySlice(mysqlDetails),
+		"service.smtp.details":        toAnySlice(smtpDetails),
+		"service.ssh.details":         toAnySlice(sshDetails),
+		"service.dns.details":         toAnySlice(dnsDetails),
+		"service.snmp.details":        toAnySlice(snmpDetails),
 		"service.rpc.epmapper":        toAnySlice(rpcEpmapper),
 		"service.rpc.details":         toAnySlice(rpcDetails),
-			"service.rdp.details":         toAnySlice(rdpDetails),
-			"service.tls.details":         toAnySlice(tlsDetails),
-			"service.smb.details":         toAnySlice(smbDetails),
+		"service.rdp.details":         toAnySlice(rdpDetails),
+		"service.tls.details":         toAnySlice(tlsDetails),
+		"service.smb.details":         toAnySlice(smbDetails),
 	}
 
 	serviceIdentity, err := runDebugServiceIdentityStage(ctx, steps, pipelineInputs)
@@ -266,6 +273,7 @@ func runScanDebugTarget(cmd *cobra.Command, target string, opts scanDebugTargetO
 		MySQLDetails:    mysqlDetails,
 		SMTPDetails:     smtpDetails,
 		SSHDetails:      sshDetails,
+		DNSDetails:      dnsDetails,
 		SNMPDetails:     snmpDetails,
 		RPCEpmapper:     rpcEpmapper,
 		RPCDetails:      rpcDetails,
@@ -649,6 +657,48 @@ func runDebugSNMPNativeProbeStageWithModule(
 	return results, nil
 }
 
+func runDebugDNSNativeProbeStageWithModule(
+	ctx context.Context,
+	opts scanDebugTargetOptions,
+	steps *scanDebugStepCollection,
+	openTCPPorts []discovery.TCPPortDiscoveryResult,
+	openUDPPorts []discovery.UDPPortDiscoveryResult,
+	instanceID string,
+	moduleType string,
+	stepName string,
+) ([]scanpkg.DNSServiceInfo, error) {
+	dnsConfig := map[string]any{}
+	if opts.Timeout != "" {
+		dnsConfig["timeout"] = opts.Timeout
+		dnsConfig["connect_timeout"] = opts.Timeout
+		dnsConfig["io_timeout"] = opts.Timeout
+		dnsConfig["retries"] = 0
+	}
+
+	dnsModule, err := engine.GetModuleInstance(instanceID, moduleType, dnsConfig)
+	if err != nil {
+		return nil, fmt.Errorf("create %s module: %w", moduleType, err)
+	}
+
+	dnsOutputs, dnsExecErr := executeDebugModule(ctx, dnsModule, map[string]any{
+		"discovery.open_tcp_ports": toAnySlice(openTCPPorts),
+		"discovery.open_udp_ports": toAnySlice(openUDPPorts),
+	})
+	if dnsExecErr != nil {
+		steps.addError(stepName, dnsExecErr.Error())
+	}
+	steps.addErrors(stepName, collectOutputErrors(dnsOutputs))
+	results := collectDNSDetailsResults(dnsOutputs)
+	if len(results) == 0 {
+		if reason := debugDNSCandidateWarning(openTCPPorts, openUDPPorts); reason != "" {
+			steps.addWarning(stepName, reason)
+		} else {
+			steps.addWarning(stepName, "no dns metadata generated")
+		}
+	}
+	return results, nil
+}
+
 func runDebugRPCFollowupStageWithModule(
 	ctx context.Context,
 	opts scanDebugTargetOptions,
@@ -1016,6 +1066,16 @@ func debugSNMPCandidateWarning(openPorts []discovery.UDPPortDiscoveryResult) str
 	return "no_candidate"
 }
 
+func debugDNSCandidateWarning(openTCPPorts []discovery.TCPPortDiscoveryResult, openUDPPorts []discovery.UDPPortDiscoveryResult) string {
+	if debugHasDNSCandidate(openTCPPorts, openUDPPorts) {
+		return ""
+	}
+	if debugHasOpenPorts(openTCPPorts) || len(openUDPPorts) > 0 {
+		return "non_family_port_without_banner_hint"
+	}
+	return "no_candidate"
+}
+
 func debugHasOpenPorts(openPorts []discovery.TCPPortDiscoveryResult) bool {
 	for _, result := range openPorts {
 		if len(result.OpenPorts) > 0 {
@@ -1096,6 +1156,20 @@ func debugHasTLSCandidate(openPorts []discovery.TCPPortDiscoveryResult, banners 
 func debugHasSNMPCandidate(openPorts []discovery.UDPPortDiscoveryResult) bool {
 	for _, result := range openPorts {
 		if slices.Contains(result.OpenPorts, 161) {
+			return true
+		}
+	}
+	return false
+}
+
+func debugHasDNSCandidate(openTCPPorts []discovery.TCPPortDiscoveryResult, openUDPPorts []discovery.UDPPortDiscoveryResult) bool {
+	for _, result := range openTCPPorts {
+		if slices.Contains(result.OpenPorts, 53) {
+			return true
+		}
+	}
+	for _, result := range openUDPPorts {
+		if slices.Contains(result.OpenPorts, 53) {
 			return true
 		}
 	}
@@ -1462,6 +1536,28 @@ func collectSNMPDetailsResults(outputs []engine.ModuleOutput) []scanpkg.SNMPServ
 	return results
 }
 
+func collectDNSDetailsResults(outputs []engine.ModuleOutput) []scanpkg.DNSServiceInfo {
+	results := make([]scanpkg.DNSServiceInfo, 0)
+	for _, output := range outputs {
+		switch data := output.Data.(type) {
+		case scanpkg.DNSServiceInfo:
+			results = append(results, data)
+		case []scanpkg.DNSServiceInfo:
+			results = append(results, data...)
+		}
+	}
+	sort.Slice(results, func(i, j int) bool {
+		if results[i].Target == results[j].Target {
+			if results[i].Port == results[j].Port {
+				return results[i].Transport < results[j].Transport
+			}
+			return results[i].Port < results[j].Port
+		}
+		return results[i].Target < results[j].Target
+	})
+	return results
+}
+
 func collectRPCEpmapperResults(outputs []engine.ModuleOutput) []scanpkg.RPCEpmapperInfo {
 	results := make([]scanpkg.RPCEpmapperInfo, 0)
 	for _, output := range outputs {
@@ -1537,7 +1633,6 @@ func collectTLSDetailsResults(outputs []engine.ModuleOutput) []scanpkg.TLSServic
 	})
 	return results
 }
-
 
 func collectServiceIdentityResults(outputs []engine.ModuleOutput) []parsepkg.ServiceIdentityInfo {
 	results := make([]parsepkg.ServiceIdentityInfo, 0)

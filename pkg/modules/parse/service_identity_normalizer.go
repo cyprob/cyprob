@@ -27,6 +27,7 @@ const (
 	sourceSSHNative        = "ssh_native_probe"
 	sourceSMTPNative       = "smtp_native_probe"
 	sourceSNMPNative       = "snmp_native_probe"
+	sourceDNSNative        = "dns_native_probe"
 	sourceFTPNative        = "ftp_native_probe"
 	sourceMySQLNative      = "mysql_native_probe"
 	sourceHTTPIdentityHint = "http_identity_hint"
@@ -150,11 +151,12 @@ func newServiceIdentityNormalizerModule() *serviceIdentityNormalizerModule {
 				{Key: "service.mysql.details", DataTypeName: "scan.MySQLServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 				{Key: "service.smtp.details", DataTypeName: "scan.SMTPServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 				{Key: "service.ssh.details", DataTypeName: "scan.SSHServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
-					{Key: "service.snmp.details", DataTypeName: "scan.SNMPServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
+				{Key: "service.snmp.details", DataTypeName: "scan.SNMPServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
+				{Key: "service.dns.details", DataTypeName: "scan.DNSServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 				{Key: "service.smb.details", DataTypeName: "scan.SMBServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 				{Key: "service.rdp.details", DataTypeName: "scan.RDPServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
-					{Key: "service.rpc.details", DataTypeName: "scan.RPCServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
-					{Key: "service.tls.details", DataTypeName: "scan.TLSServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
+				{Key: "service.rpc.details", DataTypeName: "scan.RPCServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
+				{Key: "service.tls.details", DataTypeName: "scan.TLSServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 			},
 			Produces: []engine.DataContractEntry{
 				{Key: "service.identity.details", DataTypeName: "parse.ServiceIdentityInfo", Cardinality: engine.CardinalityList},
@@ -198,6 +200,7 @@ func (m *serviceIdentityNormalizerModule) Execute(ctx context.Context, inputs ma
 	m.ingestMySQLDetails(inputs, getEntry)
 	m.ingestSMTPDetails(inputs, getEntry)
 	m.ingestSNMPDetails(inputs, getEntry)
+	m.ingestDNSDetails(inputs, getEntry)
 	m.ingestSMBDetails(inputs, getEntry)
 	smbEvidence := collectSMBHostEvidence(inputs)
 	m.ingestRDPDetails(inputs, smbEvidence, getEntry)
@@ -462,6 +465,44 @@ func (m *serviceIdentityNormalizerModule) ingestSNMPDetails(inputs map[string]an
 			setIdentityField(entry, "version", strings.TrimSpace(snmpInfo.VersionHint), sourceSNMPNative, 0.65)
 		}
 		entry.TechTags = NormalizeTechTags(append(entry.TechTags, TagSNMP))
+	}
+}
+
+func (m *serviceIdentityNormalizerModule) ingestDNSDetails(inputs map[string]any, getEntry func(target string, port int) *ServiceIdentityInfo) {
+	raw, ok := inputs["service.dns.details"]
+	if !ok {
+		return
+	}
+	bestByIdentity := make(map[string]scanpkg.DNSServiceInfo)
+	for _, item := range toAnyList(raw) {
+		dnsInfo, ok := item.(scanpkg.DNSServiceInfo)
+		if !ok {
+			continue
+		}
+		if dnsInfo.Target == "" || dnsInfo.Port <= 0 || !dnsInfo.DNSProbe {
+			continue
+		}
+		key := identityKey(dnsInfo.Target, dnsInfo.Port)
+		current, exists := bestByIdentity[key]
+		if !exists || preferDNSIdentityRecord(dnsInfo, current) {
+			bestByIdentity[key] = dnsInfo
+		}
+	}
+
+	for _, dnsInfo := range bestByIdentity {
+		entry := getEntry(dnsInfo.Target, dnsInfo.Port)
+		setIdentityField(entry, "service_name", "dns", sourceDNSNative, 0.64)
+		setIdentityField(entry, "protocol", strings.TrimSpace(dnsInfo.Transport), sourceDNSNative, 0.64)
+		if strings.TrimSpace(entry.Product) == "" && strings.TrimSpace(dnsInfo.ProductHint) != "" {
+			setIdentityField(entry, "product", strings.TrimSpace(dnsInfo.ProductHint), sourceDNSNative, 0.75)
+		}
+		if strings.TrimSpace(entry.Vendor) == "" && strings.TrimSpace(dnsInfo.VendorHint) != "" {
+			setIdentityField(entry, "vendor", strings.TrimSpace(dnsInfo.VendorHint), sourceDNSNative, 0.70)
+		}
+		if strings.TrimSpace(entry.Version) == "" && strings.TrimSpace(dnsInfo.VersionHint) != "" {
+			setIdentityField(entry, "version", strings.TrimSpace(dnsInfo.VersionHint), sourceDNSNative, 0.65)
+		}
+		entry.TechTags = NormalizeTechTags(append(entry.TechTags, TagDNS))
 	}
 }
 
@@ -957,6 +998,8 @@ func setIdentityField(entry *ServiceIdentityInfo, field, value, source string, c
 	switch field {
 	case "service_name":
 		entry.ServiceName = cleanValue
+	case "protocol":
+		entry.Protocol = cleanValue
 	case "product":
 		entry.Product = cleanValue
 	case "vendor":
@@ -973,6 +1016,19 @@ func setIdentityField(entry *ServiceIdentityInfo, field, value, source string, c
 
 	entry.FieldSources[field] = source
 	entry.FieldConfidence[field] = confidence
+}
+
+func preferDNSIdentityRecord(candidate scanpkg.DNSServiceInfo, current scanpkg.DNSServiceInfo) bool {
+	if candidate.VersionBindSupported != current.VersionBindSupported {
+		return candidate.VersionBindSupported
+	}
+	if candidate.DNSProbe != current.DNSProbe {
+		return candidate.DNSProbe
+	}
+	if candidate.Transport != current.Transport {
+		return candidate.Transport == "udp"
+	}
+	return false
 }
 
 func setIdentityOS(entry *ServiceIdentityInfo, hints scanpkg.SMBOSHints, source string, confidence float64) {

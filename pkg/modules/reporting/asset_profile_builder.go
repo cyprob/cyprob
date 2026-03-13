@@ -60,6 +60,7 @@ func buildAssetProfileBuilderConsumes() []engine.DataContractEntry {
 		{Key: "service.ssh.details", DataTypeName: "scan.SSHServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 		{Key: "service.smtp.details", DataTypeName: "scan.SMTPServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 		{Key: "service.snmp.details", DataTypeName: "scan.SNMPServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
+		{Key: "service.dns.details", DataTypeName: "scan.DNSServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 		{Key: "service.fingerprint.details", DataTypeName: "parse.FingerprintParsedInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 		{Key: "service.tech.tags", DataTypeName: "parse.TechTagResult", Cardinality: engine.CardinalityList, IsOptional: true},
 		{Key: "service.rdp.details", DataTypeName: "scan.RDPServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
@@ -228,6 +229,19 @@ func (m *AssetProfileBuilderModule) Execute(ctx context.Context, inputs map[stri
 			}
 		} else if typed, typedOk := rawSNMP.([]scan.SNMPServiceInfo); typedOk {
 			snmpDetails = append(snmpDetails, typed...)
+		}
+	}
+
+	dnsDetails := []scan.DNSServiceInfo{}
+	if rawDNS, ok := inputs["service.dns.details"]; ok {
+		if list, listOk := rawDNS.([]any); listOk {
+			for _, item := range list {
+				if casted, castOk := item.(scan.DNSServiceInfo); castOk {
+					dnsDetails = append(dnsDetails, casted)
+				}
+			}
+		} else if typed, typedOk := rawDNS.([]scan.DNSServiceInfo); typedOk {
+			dnsDetails = append(dnsDetails, typed...)
 		}
 	}
 
@@ -541,6 +555,10 @@ func (m *AssetProfileBuilderModule) Execute(ctx context.Context, inputs map[stri
 					if mysqlNative := findMySQLDetails(mysqlDetails, targetIP, portNum); mysqlNative != nil {
 						applyMySQLDetails(&portProfile, *mysqlNative)
 					}
+					if dnsNative := findDNSDetails(dnsDetails, targetIP, portNum, "tcp"); dnsNative != nil {
+						applyDNSDetails(&portProfile, *dnsNative)
+					}
+
 					identity := findServiceIdentity(identityDetails, targetIP, portNum)
 					if identity != nil {
 						applyServiceIdentity(asset, &portProfile, *identity)
@@ -584,6 +602,10 @@ func (m *AssetProfileBuilderModule) Execute(ctx context.Context, inputs map[stri
 				if snmpNative := findSNMPDetails(snmpDetails, targetIP, portNum); snmpNative != nil {
 					applySNMPDetails(&portProfile, *snmpNative)
 				}
+				if dnsNative := findDNSDetails(dnsDetails, targetIP, portNum, "udp"); dnsNative != nil {
+					applyDNSDetails(&portProfile, *dnsNative)
+				}
+
 				identity := findServiceIdentity(identityDetails, targetIP, portNum)
 				if identity != nil {
 					applyServiceIdentity(asset, &portProfile, *identity)
@@ -1013,6 +1035,15 @@ func findSNMPDetails(items []scan.SNMPServiceInfo, target string, port int) *sca
 	return nil
 }
 
+func findDNSDetails(items []scan.DNSServiceInfo, target string, port int, transport string) *scan.DNSServiceInfo {
+	for i := range items {
+		if items[i].Target == target && items[i].Port == port && strings.EqualFold(strings.TrimSpace(items[i].Transport), transport) {
+			return &items[i]
+		}
+	}
+	return nil
+}
+
 //nolint:gocyclo // SNMP attribute emission is intentionally explicit to preserve JSON contract names.
 func applySNMPDetails(portProfile *engine.PortProfile, details scan.SNMPServiceInfo) {
 	if portProfile.Service.ParsedAttributes == nil {
@@ -1054,6 +1085,44 @@ func applySNMPDetails(portProfile *engine.PortProfile, details scan.SNMPServiceI
 	portProfile.Service.ParsedAttributes["snmp_weak_community"] = details.WeakCommunity
 	if strings.TrimSpace(details.ProbeError) != "" {
 		portProfile.Service.ParsedAttributes["snmp_probe_error"] = strings.TrimSpace(details.ProbeError)
+	}
+}
+
+func applyDNSDetails(portProfile *engine.PortProfile, details scan.DNSServiceInfo) {
+	if portProfile.Service.ParsedAttributes == nil {
+		portProfile.Service.ParsedAttributes = make(map[string]any)
+	}
+
+	if details.DNSProbe && strings.TrimSpace(portProfile.Service.Name) == "" {
+		portProfile.Service.Name = "dns"
+	}
+	if strings.TrimSpace(details.ProductHint) != "" && strings.TrimSpace(portProfile.Service.Product) == "" {
+		portProfile.Service.Product = strings.TrimSpace(details.ProductHint)
+	}
+	if strings.TrimSpace(details.VersionHint) != "" && strings.TrimSpace(portProfile.Service.Version) == "" {
+		portProfile.Service.Version = strings.TrimSpace(details.VersionHint)
+	}
+
+	if strings.TrimSpace(details.Transport) != "" {
+		portProfile.Service.ParsedAttributes["dns_transport"] = strings.TrimSpace(details.Transport)
+	}
+	if strings.TrimSpace(details.ResponseCode) != "" {
+		portProfile.Service.ParsedAttributes["dns_response_code"] = strings.TrimSpace(details.ResponseCode)
+	}
+	portProfile.Service.ParsedAttributes["dns_recursion_available"] = details.RecursionAvailable
+	portProfile.Service.ParsedAttributes["dns_authoritative_answer"] = details.AuthoritativeAnswer
+	portProfile.Service.ParsedAttributes["dns_truncated_response"] = details.TruncatedResponse
+	portProfile.Service.ParsedAttributes["dns_ns_query_responded"] = details.NSQueryResponded
+	portProfile.Service.ParsedAttributes["dns_version_bind_responded"] = details.VersionBindResponded
+	portProfile.Service.ParsedAttributes["dns_version_bind_supported"] = details.VersionBindSupported
+	if strings.TrimSpace(details.VersionBind) != "" {
+		portProfile.Service.ParsedAttributes["dns_version_bind"] = strings.TrimSpace(details.VersionBind)
+	}
+	if len(details.NSRecords) > 0 {
+		portProfile.Service.ParsedAttributes["dns_ns_records"] = append([]string(nil), details.NSRecords...)
+	}
+	if strings.TrimSpace(details.ProbeError) != "" {
+		portProfile.Service.ParsedAttributes["dns_probe_error"] = strings.TrimSpace(details.ProbeError)
 	}
 }
 

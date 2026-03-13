@@ -119,6 +119,21 @@ type scanDebugTestOutput struct {
 		Ciphers     []string `json:"ciphers"`
 		ProbeError  string   `json:"probe_error"`
 	} `json:"ssh_details"`
+	DNSDetails []struct {
+		Target               string   `json:"target"`
+		Port                 int      `json:"port"`
+		Transport            string   `json:"transport"`
+		DNSProbe             bool     `json:"dns_probe"`
+		NSQueryResponded     bool     `json:"ns_query_responded"`
+		VersionBindResponded bool     `json:"version_bind_responded"`
+		VersionBindSupported bool     `json:"version_bind_supported"`
+		ResponseCode         string   `json:"response_code"`
+		NSRecords            []string `json:"ns_records"`
+		VersionBind          string   `json:"version_bind"`
+		ProductHint          string   `json:"product_hint"`
+		VendorHint           string   `json:"vendor_hint"`
+		ProbeError           string   `json:"probe_error"`
+	} `json:"dns_details"`
 	SNMPDetails []struct {
 		Target        string `json:"target"`
 		Port          int    `json:"port"`
@@ -389,6 +404,45 @@ func TestRunDebugSNMPNativeProbeStageWithModule(t *testing.T) {
 	require.Empty(t, steps.values()[0].Errors)
 }
 
+func TestRunDebugDNSNativeProbeStageWithModule(t *testing.T) {
+	const moduleType = "test-scan-debug-dns-native-probe"
+	engine.RegisterModuleFactory(moduleType, func() engine.Module {
+		return &testScanDebugDNSModule{
+			meta: engine.ModuleMetadata{
+				ID:   "test-scan-debug-dns-native-probe-instance",
+				Name: moduleType,
+				Type: engine.ScanModuleType,
+				Consumes: []engine.DataContractEntry{
+					{Key: "discovery.open_tcp_ports", DataTypeName: "discovery.TCPPortDiscoveryResult", Cardinality: engine.CardinalityList, IsOptional: true},
+					{Key: "discovery.open_udp_ports", DataTypeName: "discovery.UDPPortDiscoveryResult", Cardinality: engine.CardinalityList, IsOptional: true},
+				},
+				Produces: []engine.DataContractEntry{
+					{Key: "service.dns.details", DataTypeName: "scan.DNSServiceInfo", Cardinality: engine.CardinalityList},
+				},
+			},
+		}
+	})
+
+	steps := newScanDebugSteps("dns-native-probe")
+	results, err := runDebugDNSNativeProbeStageWithModule(
+		context.Background(),
+		scanDebugTargetOptions{Timeout: "2s"},
+		steps,
+		[]discovery.TCPPortDiscoveryResult{
+			{Target: "127.0.0.1", OpenPorts: []int{53}},
+		},
+		[]discovery.UDPPortDiscoveryResult{
+			{Target: "127.0.0.1", OpenPorts: []int{53}},
+		},
+		"test_scan_debug_dns_module",
+		moduleType,
+		"dns-native-probe",
+	)
+	require.NoError(t, err)
+	require.Len(t, results, 2)
+	require.Empty(t, steps.values()[0].Errors)
+}
+
 func TestDebugTLSExtraPortsFromBanners(t *testing.T) {
 	require.Empty(t, debugTLSExtraPortsFromBanners([]scanpkg.BannerGrabResult{
 		{IP: "127.0.0.1", Port: 10443, Protocol: "tcp", Banner: "HELLO"},
@@ -600,7 +654,59 @@ func (m *testScanDebugMySQLModule) Execute(ctx context.Context, inputs map[strin
 			AuthPluginName:  "caching_sha2_password",
 			ProductHint:     "MySQL",
 			VendorHint:      "Oracle",
-			VersionHint:     "8.0.36",
+			VersionHint:     "8.0.36-MySQL Community Server",
+		},
+		Timestamp: time.Now(),
+		Target:    "127.0.0.1",
+	}
+	return nil
+}
+
+type testScanDebugDNSModule struct {
+	meta engine.ModuleMetadata
+}
+
+func (m *testScanDebugDNSModule) Metadata() engine.ModuleMetadata {
+	return m.meta
+}
+
+func (m *testScanDebugDNSModule) Init(instanceID string, config map[string]any) error {
+	m.meta.ID = instanceID
+	return nil
+}
+
+func (m *testScanDebugDNSModule) Execute(ctx context.Context, inputs map[string]any, outputChan chan<- engine.ModuleOutput) error {
+	_ = ctx
+	_ = inputs
+	outputChan <- engine.ModuleOutput{
+		FromModuleName: m.meta.ID,
+		DataKey:        "service.dns.details",
+		Data: scanpkg.DNSServiceInfo{
+			Target:               "127.0.0.1",
+			Port:                 53,
+			Transport:            "udp",
+			DNSProbe:             true,
+			NSQueryResponded:     true,
+			VersionBindResponded: true,
+			VersionBindSupported: true,
+			ResponseCode:         "NOERROR",
+			VersionBind:          "BIND 9.16.23",
+			ProductHint:          "BIND",
+			VendorHint:           "ISC",
+		},
+		Timestamp: time.Now(),
+		Target:    "127.0.0.1",
+	}
+	outputChan <- engine.ModuleOutput{
+		FromModuleName: m.meta.ID,
+		DataKey:        "service.dns.details",
+		Data: scanpkg.DNSServiceInfo{
+			Target:           "127.0.0.1",
+			Port:             53,
+			Transport:        "tcp",
+			DNSProbe:         true,
+			NSQueryResponded: true,
+			ResponseCode:     "NOERROR",
 		},
 		Timestamp: time.Now(),
 		Target:    "127.0.0.1",

@@ -6,6 +6,7 @@ import (
 )
 
 const (
+	TagDNS          = "dns"
 	TagFTP          = "ftp"
 	TagMailService  = "mail_service"
 	TagWebmail      = "webmail"
@@ -49,6 +50,7 @@ var canonicalTechTagSet = map[string]struct{}{
 	"consul":         {},
 	"database":       {},
 	"debian":         {},
+	TagDNS:           {},
 	"dgraph":         {},
 	"django":         {},
 	"docker":         {},
