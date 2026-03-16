@@ -1193,8 +1193,65 @@ func applyRDPDetails(portProfile *engine.PortProfile, details scan.RDPServiceInf
 	if details.TLSCapable != nil {
 		portProfile.Service.ParsedAttributes["rdp_tls_capable"] = *details.TLSCapable
 	}
+	if details.HybridExCapable != nil {
+		portProfile.Service.ParsedAttributes["rdp_hybridex_capable"] = *details.HybridExCapable
+	}
+	if details.RestrictedAdminCapable != nil {
+		portProfile.Service.ParsedAttributes["rdp_restrictedadmin_capable"] = *details.RestrictedAdminCapable
+	}
+	if details.RestrictedAuthCapable != nil {
+		portProfile.Service.ParsedAttributes["rdp_restrictedauth_capable"] = *details.RestrictedAuthCapable
+	}
 	if strings.TrimSpace(details.NegFailureCode) != "" {
 		portProfile.Service.ParsedAttributes["rdp_neg_failure_code"] = strings.TrimSpace(details.NegFailureCode)
+	}
+	if strings.TrimSpace(details.CertSubjectCN) != "" {
+		portProfile.Service.ParsedAttributes["rdp_cert_subject_cn"] = strings.TrimSpace(details.CertSubjectCN)
+	}
+	if strings.TrimSpace(details.CertIssuer) != "" {
+		portProfile.Service.ParsedAttributes["rdp_cert_issuer"] = strings.TrimSpace(details.CertIssuer)
+	}
+	if len(details.CertDNSNames) > 0 {
+		portProfile.Service.ParsedAttributes["rdp_cert_dns_names"] = append([]string(nil), details.CertDNSNames...)
+	}
+	if !details.CertNotBefore.IsZero() {
+		portProfile.Service.ParsedAttributes["rdp_cert_not_before"] = details.CertNotBefore
+	}
+	if !details.CertNotAfter.IsZero() {
+		portProfile.Service.ParsedAttributes["rdp_cert_not_after"] = details.CertNotAfter
+	}
+	if details.CertIsSelfSigned {
+		portProfile.Service.ParsedAttributes["rdp_cert_is_self_signed"] = details.CertIsSelfSigned
+	}
+	if strings.TrimSpace(details.CertSHA256) != "" {
+		portProfile.Service.ParsedAttributes["rdp_cert_sha256"] = strings.TrimSpace(details.CertSHA256)
+	}
+	if strings.TrimSpace(details.NTLMComputerName) != "" {
+		portProfile.Service.ParsedAttributes["rdp_ntlm_computer_name"] = strings.TrimSpace(details.NTLMComputerName)
+	}
+	if strings.TrimSpace(details.NTLMDomainName) != "" {
+		portProfile.Service.ParsedAttributes["rdp_ntlm_domain_name"] = strings.TrimSpace(details.NTLMDomainName)
+	}
+	if strings.TrimSpace(details.NTLMDNSComputerName) != "" {
+		portProfile.Service.ParsedAttributes["rdp_ntlm_dns_computer_name"] = strings.TrimSpace(details.NTLMDNSComputerName)
+	}
+	if strings.TrimSpace(details.NTLMDNSDomainName) != "" {
+		portProfile.Service.ParsedAttributes["rdp_ntlm_dns_domain_name"] = strings.TrimSpace(details.NTLMDNSDomainName)
+	}
+	if strings.TrimSpace(details.NTLMDNSForestName) != "" {
+		portProfile.Service.ParsedAttributes["rdp_ntlm_dns_forest_name"] = strings.TrimSpace(details.NTLMDNSForestName)
+	}
+	if !details.LocalTime.IsZero() {
+		portProfile.Service.ParsedAttributes["rdp_local_time"] = details.LocalTime
+	}
+	if details.OSBuild > 0 {
+		portProfile.Service.ParsedAttributes["rdp_os_build"] = details.OSBuild
+	}
+	if strings.TrimSpace(details.OSMajorVersion) != "" {
+		portProfile.Service.ParsedAttributes["rdp_os_major_version"] = strings.TrimSpace(details.OSMajorVersion)
+	}
+	if strings.TrimSpace(details.OSMinorVersion) != "" {
+		portProfile.Service.ParsedAttributes["rdp_os_minor_version"] = strings.TrimSpace(details.OSMinorVersion)
 	}
 	if strings.TrimSpace(details.Error) != "" {
 		portProfile.Service.ParsedAttributes["rdp_probe_error"] = strings.TrimSpace(details.Error)

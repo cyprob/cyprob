@@ -587,8 +587,53 @@ func (m *serviceIdentityNormalizerModule) ingestRDPDetails(
 		if strings.TrimSpace(entry.Product) == "" {
 			setIdentityField(entry, "product", "RDP", sourceRDPNative, 0.70)
 		}
+		if strings.TrimSpace(entry.HostnameHint) == "" {
+			if hostnameHint := chooseRDPHostnameHint(rdp); hostnameHint != "" {
+				setIdentityField(entry, "hostname_hint", hostnameHint, sourceRDPNative, 0.82)
+			}
+		}
+		if entry.OSHints.Family == "" {
+			if osHints, ok := rdpOSHints(rdp); ok {
+				entry.OSHints = osHints
+			}
+		}
 		entry.TechTags = NormalizeTechTags(append(entry.TechTags, "rdp"))
 	}
+}
+
+func chooseRDPHostnameHint(rdp scanpkg.RDPServiceInfo) string {
+	if host := strings.TrimSpace(rdp.NTLMDNSComputerName); host != "" {
+		return host
+	}
+	if host := strings.TrimSpace(rdp.NTLMComputerName); host != "" {
+		return host
+	}
+	return ""
+}
+
+func rdpOSHints(rdp scanpkg.RDPServiceInfo) (ServiceOSHints, bool) {
+	major := strings.TrimSpace(rdp.OSMajorVersion)
+	minor := strings.TrimSpace(rdp.OSMinorVersion)
+	if major == "" && minor == "" && rdp.OSBuild == 0 {
+		return ServiceOSHints{}, false
+	}
+
+	version := "Windows"
+	if major != "" || minor != "" || rdp.OSBuild > 0 {
+		version = strings.TrimSpace(fmt.Sprintf("%s.%s build %d", zeroDefault(major, "0"), zeroDefault(minor, "0"), rdp.OSBuild))
+	}
+	return ServiceOSHints{
+		Family:  "windows",
+		Name:    "Windows",
+		Version: version,
+	}, true
+}
+
+func zeroDefault(value string, fallback string) string {
+	if strings.TrimSpace(value) == "" {
+		return fallback
+	}
+	return strings.TrimSpace(value)
 }
 
 //nolint:gocyclo // RPC normalization keeps service naming and Windows hinting in one place.

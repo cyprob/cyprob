@@ -102,6 +102,11 @@ func TestAssetProfileBuilder_MapsRDPDetailsToParsedAttributes(t *testing.T) {
 	port := 3389
 	nla := true
 	tls := true
+	hybridEx := true
+	restrictedAdmin := true
+	restrictedAuth := true
+	localTime := time.Date(2026, time.March, 16, 11, 5, 32, 0, time.UTC)
+	notAfter := time.Date(2026, time.May, 22, 19, 37, 17, 0, time.UTC)
 
 	inputs := map[string]any{
 		"config.targets": []string{target},
@@ -110,15 +115,32 @@ func TestAssetProfileBuilder_MapsRDPDetailsToParsedAttributes(t *testing.T) {
 		},
 		"service.rdp.details": []any{
 			scan.RDPServiceInfo{
-				Target:           target,
-				Port:             port,
-				RDPProbe:         true,
-				RDPDetected:      "x224-confirm",
-				SelectedProtocol: "hybrid",
-				NLACapable:       &nla,
-				TLSCapable:       &tls,
-				NegFailureCode:   "",
-				Error:            "",
+				Target:                 target,
+				Port:                   port,
+				RDPProbe:               true,
+				RDPDetected:            "x224-confirm",
+				SelectedProtocol:       "hybrid",
+				NLACapable:             &nla,
+				TLSCapable:             &tls,
+				HybridExCapable:        &hybridEx,
+				RestrictedAdminCapable: &restrictedAdmin,
+				RestrictedAuthCapable:  &restrictedAuth,
+				CertSubjectCN:          "Prod2022",
+				CertIssuer:             "CN=Prod2022",
+				CertDNSNames:           []string{"Prod2022"},
+				CertNotAfter:           notAfter,
+				CertIsSelfSigned:       true,
+				CertSHA256:             "abc123",
+				NTLMComputerName:       "Prod2022",
+				NTLMDomainName:         "Prod2022",
+				NTLMDNSComputerName:    "Prod2022",
+				NTLMDNSDomainName:      "Prod2022",
+				LocalTime:              localTime,
+				OSBuild:                20348,
+				OSMajorVersion:         "10",
+				OSMinorVersion:         "0",
+				NegFailureCode:         "",
+				Error:                  "",
 			},
 		},
 	}
@@ -154,6 +176,30 @@ func TestAssetProfileBuilder_MapsRDPDetailsToParsedAttributes(t *testing.T) {
 	}
 	if got, ok := attrs["rdp_tls_capable"].(bool); !ok || !got {
 		t.Fatalf("expected rdp_tls_capable=true, got %v", attrs["rdp_tls_capable"])
+	}
+	if got, ok := attrs["rdp_hybridex_capable"].(bool); !ok || !got {
+		t.Fatalf("expected rdp_hybridex_capable=true, got %v", attrs["rdp_hybridex_capable"])
+	}
+	if got, ok := attrs["rdp_restrictedadmin_capable"].(bool); !ok || !got {
+		t.Fatalf("expected rdp_restrictedadmin_capable=true, got %v", attrs["rdp_restrictedadmin_capable"])
+	}
+	if got, ok := attrs["rdp_restrictedauth_capable"].(bool); !ok || !got {
+		t.Fatalf("expected rdp_restrictedauth_capable=true, got %v", attrs["rdp_restrictedauth_capable"])
+	}
+	if attrs["rdp_cert_subject_cn"] != "Prod2022" {
+		t.Fatalf("expected rdp_cert_subject_cn=Prod2022, got %v", attrs["rdp_cert_subject_cn"])
+	}
+	if attrs["rdp_cert_issuer"] != "CN=Prod2022" {
+		t.Fatalf("expected rdp_cert_issuer=CN=Prod2022, got %v", attrs["rdp_cert_issuer"])
+	}
+	if attrs["rdp_cert_sha256"] != "abc123" {
+		t.Fatalf("expected rdp_cert_sha256=abc123, got %v", attrs["rdp_cert_sha256"])
+	}
+	if attrs["rdp_ntlm_computer_name"] != "Prod2022" {
+		t.Fatalf("expected rdp_ntlm_computer_name=Prod2022, got %v", attrs["rdp_ntlm_computer_name"])
+	}
+	if attrs["rdp_os_build"] != 20348 {
+		t.Fatalf("expected rdp_os_build=20348, got %v", attrs["rdp_os_build"])
 	}
 }
 

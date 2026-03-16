@@ -279,6 +279,61 @@ func TestServiceIdentityNormalizer_RDPSMBCorrelation_FillsVendorVersionAndProduc
 	}
 }
 
+func TestServiceIdentityNormalizer_RDPMetadataPromotesHostnameAndOSHints(t *testing.T) {
+	module := newServiceIdentityNormalizerModule()
+	if err := module.Init("test-service-identity-rdp-metadata", map[string]any{}); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+
+	inputs := map[string]any{
+		"service.rdp.details": []any{
+			scanpkg.RDPServiceInfo{
+				Target:              "203.0.113.77",
+				Port:                3389,
+				RDPProbe:            true,
+				RDPDetected:         "x224-confirm",
+				SelectedProtocol:    "hybrid",
+				NTLMComputerName:    "WIN-SRV",
+				NTLMDNSComputerName: "win-srv.internal",
+				OSBuild:             20348,
+				OSMajorVersion:      "10",
+				OSMinorVersion:      "0",
+			},
+		},
+	}
+
+	out := make(chan engine.ModuleOutput, 4)
+	if err := module.Execute(context.Background(), inputs, out); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	close(out)
+
+	var identity ServiceIdentityInfo
+	for item := range out {
+		current, ok := item.Data.(ServiceIdentityInfo)
+		if !ok {
+			continue
+		}
+		identity = current
+	}
+
+	if identity.HostnameHint != "win-srv.internal" {
+		t.Fatalf("expected hostname hint win-srv.internal, got %q", identity.HostnameHint)
+	}
+	if identity.FieldSources["hostname_hint"] != sourceRDPNative {
+		t.Fatalf("expected hostname_hint source %q, got %q", sourceRDPNative, identity.FieldSources["hostname_hint"])
+	}
+	if identity.OSHints.Family != "windows" {
+		t.Fatalf("expected windows os family, got %+v", identity.OSHints)
+	}
+	if identity.OSHints.Name != "Windows" {
+		t.Fatalf("expected Windows os name, got %+v", identity.OSHints)
+	}
+	if identity.OSHints.Version != "10.0 build 20348" {
+		t.Fatalf("expected os version 10.0 build 20348, got %+v", identity.OSHints)
+	}
+}
+
 func TestServiceIdentityNormalizer_RPCFallbackIdentity(t *testing.T) {
 	module := newServiceIdentityNormalizerModule()
 	if err := module.Init("test-service-identity-rpc", map[string]any{}); err != nil {
