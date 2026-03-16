@@ -73,6 +73,7 @@ linters:
     - nestif # Nested if depth (conflicts with readable code, 17 violations)
     - funcorder # Function ordering (too opinionated, 12 violations)
     - wsl_v5 # Whitespace linting v5 (too opinionated, 1353 violations)
+    - gosec # Security linting is run separately; too heavy in default golangci run
 
     # Redundant - already covered by other linters
     - cyclop # Cyclomatic complexity (using gocyclo instead)
@@ -196,7 +197,6 @@ linters:
           - errorlint # Error comparison relaxed in tests (Phase 6)
           - thelper # Test helper marking not strict (Phase 6)
           - copyloopvar # Loop variable copying OK in tests (Phase 6)
-          - gosec # Security checks relaxed in tests (file permissions OK) (Phase 6)
 
       # Generated code - exclude ALL linters (Phase 6)
       - path: (.+)_gen\.go
@@ -367,35 +367,6 @@ linters:
         text: 'the sentinel error name.*should conform to the `errXxx` format'
         linters:
           - errname
-
-      # Phase 6: gosec file permission warnings (intentional for user-readable files)
-      - text: 'G301: Expect directory permissions'
-        linters:
-          - gosec # Workspace directories are user-owned, 0755 is appropriate
-
-      - text: 'G306: Expect WriteFile permissions'
-        linters:
-          - gosec # Config/data files need to be user-readable, 0644 is appropriate
-
-      - text: 'G302: Expect file permissions'
-        linters:
-          - gosec # Some files need specific permissions for user access
-
-      - text: 'G304: Potential file inclusion via variable'
-        linters:
-          - gosec # User-provided file paths, validated by application logic
-
-      # Phase 6: gosec TLS skip verify (intentional for banner grabbing)
-      - path: pkg/modules/scan/banner_grab\.go
-        text: 'G402: TLS InsecureSkipVerify'
-        linters:
-          - gosec # Banner grabbing needs to connect to untrusted servers
-
-      # Phase 6: gosec weak RNG (non-cryptographic use)
-      - path: pkg/plugin/retry\.go
-        text: 'G404: Use of weak random number generator'
-        linters:
-          - gosec # Retry jitter doesn't need cryptographic randomness
 
       # Phase 6: gocritic ifElseChain (readable as-is)
       - linters:
