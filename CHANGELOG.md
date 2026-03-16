@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-03-16
+
+### Added
+- Native protocol-aware probes for `ssh`, `smtp`, `ftp`, `mysql`, `snmp`, `dns`, `winrm`, `smb`, `rdp`, `rpc`, and `tls`.
+- Canonical service identity normalization and richer asset profile enrichment for native probe outputs.
+- Extended `scan-debug` coverage for native probe stages, UDP discovery visibility, and protocol-specific debug payloads.
+- New fingerprint coverage for SmarterMail and CrushFTP service banners.
+- Deep RDP metadata enrichment for TLS certificate details, NTLM target info, and security capability flags.
+
+### Fixed
+- Prevented empty scan results when ICMP host discovery returns no live hosts but port discovery succeeds.
+- Decoupled TCP and UDP port scans from ICMP host discovery requirements.
+- Improved HTTP/HTTPS banner capture with proxy-aware origin retry and same-host redirect following.
+- Preserved stronger native SSH detail precedence during reporting and canonical identity generation.
+
+### Changed
+- Simplified canonical service pipeline wiring and centralized service identity normalization.
+- Shared native probe module wiring across scan stages.
+- DNS detection now uses protocol-aware native probing instead of relying only on banner and fingerprint heuristics.
+
 ## [0.5.3] - 2026-03-06
 
 ### Added
@@ -119,7 +139,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Initial release candidate with core scanning capabilities.
 
-[Unreleased]: https://github.com/cyprob/cyprob/compare/v0.5.3...HEAD
+[Unreleased]: https://github.com/cyprob/cyprob/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/cyprob/cyprob/compare/v0.5.3...v0.6.0
 [0.5.3]: https://github.com/cyprob/cyprob/compare/v0.5.2...v0.5.3
 [0.5.1]: https://github.com/cyprob/cyprob/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/cyprob/cyprob/compare/v0.4.0...v0.5.0
