@@ -112,6 +112,29 @@ rules:
     pattern_strength: 0.85
     port_bonuses: [8080, 8443, 8009]
 
+  - id: 'http.jetty'
+    protocol: 'http'
+    description: 'Jetty HTTP server banner'
+    product: 'Jetty'
+    vendor: 'Eclipse'
+    cpe: 'cpe:2.3:a:eclipse:jetty:*:*:*:*:*:*:*:*'
+    match: 'server:\s*(?:eclipse\s+)?jetty(?:\b|\()'
+    version_extraction: 'jetty(?:\(|/|\s+)(\d[\w\.\-]*)'
+
+    exclude_patterns:
+      - "apache"
+      - "nginx"
+      - "iis"
+      - "litespeed"
+
+    soft_exclude_patterns:
+      - "error"
+      - "forbidden"
+      - "unavailable"
+
+    pattern_strength: 0.95
+    port_bonuses: [80, 443, 8080, 8081, 8443]
+
   - id: 'http.smartermail_webui'
     protocol: 'http'
     description: 'SmarterMail web interface'

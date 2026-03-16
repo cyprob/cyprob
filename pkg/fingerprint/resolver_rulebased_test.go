@@ -1605,6 +1605,42 @@ func TestResolve_BuiltinSMTP_Sophos(t *testing.T) {
 	})
 }
 
+func TestResolve_BuiltinHTTP_Jetty(t *testing.T) {
+	rb := NewRuleBasedResolver(loadBuiltinRules())
+	ctx := context.Background()
+
+	t.Run("matches jetty server header and extracts version", func(t *testing.T) {
+		res, err := rb.Resolve(ctx, Input{
+			Protocol: "http",
+			Banner:   "HTTP/1.1 404 Not Found\r\nConnection: close\r\nContent-Type: text/html;charset=utf-8\r\nContent-Length: 850\r\nServer: Jetty(10.0.25)\r\n\r\n",
+			Port:     8081,
+		})
+		if err != nil {
+			t.Fatalf("expected jetty match, got error: %v", err)
+		}
+		if res.Product != "Jetty" {
+			t.Fatalf("expected Jetty, got %s", res.Product)
+		}
+		if res.Vendor != "Eclipse" {
+			t.Fatalf("expected Eclipse vendor, got %s", res.Vendor)
+		}
+		if res.Version != "10.0.25" {
+			t.Fatalf("expected version 10.0.25, got %s", res.Version)
+		}
+	})
+
+	t.Run("does not match near miss header", func(t *testing.T) {
+		_, err := rb.Resolve(ctx, Input{
+			Protocol: "http",
+			Banner:   "HTTP/1.1 200 OK\r\nServer: JettyProxy/10.0.25\r\n\r\n",
+			Port:     8081,
+		})
+		if err == nil {
+			t.Fatalf("expected no match for near-miss jetty header")
+		}
+	})
+}
+
 func TestResolve_BuiltinMySQL_HostNotAllowedBanner(t *testing.T) {
 	rb := NewRuleBasedResolver(loadBuiltinRules())
 
