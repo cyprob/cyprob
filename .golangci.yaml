@@ -106,6 +106,13 @@ linters:
         - fmt.Fprintln
         - fmt.Fprintf
 
+    gosec:
+      # G703/G704 taint analysis hangs on pkg/plugin; path-based exclusions
+      # don't help because golangci-lint still analyzes excluded paths.
+      excludes:
+        - G703
+        - G704
+
     revive:
       # Phase 1: Disable noisy unused-parameter rule
       # Phase 7: Add advanced rules for Go best practices
