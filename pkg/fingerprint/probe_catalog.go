@@ -67,20 +67,30 @@ func (c *ProbeCatalog) ProbesFor(port int, hints []string) []ProbeSpec {
 	return out
 }
 
-// FallbackProbes returns probes to try when no port-specific probes match.
-// This implements Phase 1.5: Probe Fallback for non-standard ports.
-// It searches all probe groups for probes matching the fallback IDs.
+// FallbackProbes returns the legacy unfiltered fallback set.
 func (c *ProbeCatalog) FallbackProbes() []ProbeSpec {
+	return c.FallbackProbesFor(0, nil)
+}
+
+// FallbackProbesFor returns context-aware fallback probes to try when no
+// port-specific probes match. Stateful protocols are only returned when
+// existing hints already point at that protocol family.
+func (c *ProbeCatalog) FallbackProbesFor(port int, hints []string) []ProbeSpec {
 	if c == nil || len(c.FallbackProbeIDs) == 0 {
 		return nil
 	}
 
+	normalizedHints := normalizeHints(hints)
 	out := make([]ProbeSpec, 0, len(c.FallbackProbeIDs))
 	for _, id := range c.FallbackProbeIDs {
 		probe := c.findProbeByID(id)
-		if probe != nil {
-			out = append(out, *probe)
+		if probe == nil {
+			continue
 		}
+		if !shouldIncludeFallbackProbe(*probe, normalizedHints) {
+			continue
+		}
+		out = append(out, *probe)
 	}
 	return out
 }
@@ -148,6 +158,29 @@ func normalizeHints(hints []string) map[string]struct{} {
 		out[strings.ToLower(hint)] = struct{}{}
 	}
 	return out
+}
+
+func shouldIncludeFallbackProbe(probe ProbeSpec, hints map[string]struct{}) bool {
+	switch strings.ToLower(strings.TrimSpace(probe.Protocol)) {
+	case "ftp":
+		return hasAnyHint(hints, "ftp", "ftps")
+	case "redis":
+		return hasAnyHint(hints, "redis", "memcached")
+	default:
+		return true
+	}
+}
+
+func hasAnyHint(hints map[string]struct{}, expected ...string) bool {
+	if len(hints) == 0 {
+		return false
+	}
+	for _, hint := range expected {
+		if _, ok := hints[hint]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 // Validate ensures catalog content is well-formed.

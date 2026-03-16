@@ -107,6 +107,31 @@ func TestProbeCatalog_NormalizeHints_And_ContainsInt(t *testing.T) {
 	}
 }
 
+func TestProbeCatalog_FallbackProbesFor_FiltersStatefulProtocolsWithoutHints(t *testing.T) {
+	catalog := ProbeCatalog{
+		FallbackProbeIDs: []string{"http-get", "https-get", "redis-ping", "ftp-feat"},
+		Groups: []ProbeGroup{
+			{ID: "http", Probes: []ProbeSpec{{ID: "http-get", Protocol: "http", Payload: "GET /"}}},
+			{ID: "https", Probes: []ProbeSpec{{ID: "https-get", Protocol: "https", Payload: "GET /"}}},
+			{ID: "redis", Probes: []ProbeSpec{{ID: "redis-ping", Protocol: "redis", Payload: "PING"}}},
+			{ID: "ftp", Probes: []ProbeSpec{{ID: "ftp-feat", Protocol: "ftp", Payload: "FEAT"}}},
+		},
+	}
+
+	out := catalog.FallbackProbesFor(3389, nil)
+	if len(out) != 2 || out[0].ID != "http-get" || out[1].ID != "https-get" {
+		t.Fatalf("unexpected fallback probes without hints: %#v", out)
+	}
+
+	out = catalog.FallbackProbesFor(2121, []string{"ftp"})
+	if len(out) != 3 {
+		t.Fatalf("expected ftp fallback to be included with ftp hint, got %#v", out)
+	}
+	if out[2].ID != "ftp-feat" {
+		t.Fatalf("expected ftp-feat in fallback set, got %#v", out)
+	}
+}
+
 func TestProbeCatalog_Validate_Errors(t *testing.T) {
 	var nilCat *ProbeCatalog
 	if err := nilCat.Validate(); err == nil {

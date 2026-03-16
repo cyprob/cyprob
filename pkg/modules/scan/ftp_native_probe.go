@@ -394,10 +394,7 @@ func isFTPBannerCandidate(banner BannerGrabResult, explicitCandidatePorts map[in
 		return true
 	}
 	for _, obs := range banner.Evidence {
-		if containsFTPHint(obs.Protocol) ||
-			containsFTPHint(obs.ProbeID) ||
-			containsFTPHint(obs.Description) ||
-			containsFTPHint(obs.Response) {
+		if observationLooksLikeFTP(obs.Protocol, obs.ProbeID, obs.Description, obs.Response) {
 			return true
 		}
 	}
@@ -414,14 +411,29 @@ func mapEvidenceLooksLikeFTP(raw any) bool {
 		if !ok {
 			continue
 		}
-		if containsFTPHint(getMapString(m, "protocol", "Protocol")) ||
-			containsFTPHint(getMapString(m, "probe_id", "ProbeID")) ||
-			containsFTPHint(getMapString(m, "description", "Description")) ||
-			containsFTPHint(getMapString(m, "response", "Response")) {
+		if observationLooksLikeFTP(
+			getMapString(m, "protocol", "Protocol"),
+			getMapString(m, "probe_id", "ProbeID"),
+			getMapString(m, "description", "Description"),
+			getMapString(m, "response", "Response"),
+		) {
 			return true
 		}
 	}
 	return false
+}
+
+func observationLooksLikeFTP(protocol string, probeID string, description string, response string) bool {
+	trimmedResponse := strings.TrimSpace(response)
+	if containsFTPHint(trimmedResponse) {
+		return true
+	}
+	if trimmedResponse == "" {
+		return false
+	}
+	return containsFTPHint(protocol) ||
+		containsFTPHint(probeID) ||
+		containsFTPHint(description)
 }
 
 func containsFTPHint(value string) bool {

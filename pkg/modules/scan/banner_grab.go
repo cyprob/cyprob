@@ -364,7 +364,7 @@ func (m *BannerGrabModule) runActiveProbes(
 	// If no port-specific probes matched AND we still do not have a usable primary banner,
 	// try fallback probes for non-standard ports.
 	if len(candidateProbes) == 0 && selectPrimaryBannerObservation(*observations).Banner == "" {
-		candidateProbes = catalog.FallbackProbes()
+		candidateProbes = catalog.FallbackProbesFor(port, hintAcc.slice())
 		if len(candidateProbes) > 0 {
 			m.logger.Debug().
 				Int("port", port).

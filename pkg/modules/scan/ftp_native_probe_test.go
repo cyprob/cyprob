@@ -61,6 +61,66 @@ func TestFTPNativeProbeModule_ExecuteFiltersCandidates(t *testing.T) {
 	require.Len(t, outputs, 2)
 }
 
+func TestIsFTPBannerCandidate_IgnoresFailedFallbackEvidenceOnNonFTPPort(t *testing.T) {
+	candidate := BannerGrabResult{
+		IP:       "198.51.100.77",
+		Port:     3389,
+		Protocol: "tcp",
+		Banner:   "",
+		Evidence: []engine.ProbeObservation{
+			{
+				ProbeID:     "ftp-feat",
+				Protocol:    "ftp",
+				Description: "Active FTP FEAT probe",
+				Response:    "",
+				Error:       "timeout",
+			},
+		},
+	}
+
+	require.False(t, isFTPBannerCandidate(candidate, nil))
+}
+
+func TestIsFTPBannerCandidate_AcceptsFallbackEvidenceWithActualFTPResponse(t *testing.T) {
+	candidate := BannerGrabResult{
+		IP:       "198.51.100.78",
+		Port:     2121,
+		Protocol: "tcp",
+		Banner:   "",
+		Evidence: []engine.ProbeObservation{
+			{
+				ProbeID:     "ftp-feat",
+				Protocol:    "ftp",
+				Description: "Active FTP FEAT probe",
+				Response:    "211-Extensions supported:\r\n UTF8\r\n211 End\r\n",
+			},
+		},
+	}
+
+	require.True(t, isFTPBannerCandidate(candidate, nil))
+}
+
+func TestMapEvidenceLooksLikeFTP_RequiresObservedFTPResponse(t *testing.T) {
+	require.False(t, mapEvidenceLooksLikeFTP([]any{
+		map[string]any{
+			"probe_id":    "ftp-feat",
+			"protocol":    "ftp",
+			"description": "Active FTP FEAT probe",
+			"response":    "",
+			"error":       "timeout",
+		},
+	}))
+
+	require.True(t, mapEvidenceLooksLikeFTP([]any{
+		map[string]any{
+			"probe_id":    "ftp-feat",
+			"protocol":    "ftp",
+			"description": "Active FTP FEAT probe",
+			"response":    "220 FTP Server Ready",
+		},
+	}))
+}
+
 func TestProbeFTPDetails_PlainExplicitTLS(t *testing.T) {
 	host, port, cleanup := startFTPExplicitTLSTestServer(t, "ftp.test")
 	defer cleanup()
