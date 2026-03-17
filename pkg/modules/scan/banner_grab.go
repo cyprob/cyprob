@@ -1198,6 +1198,9 @@ func (m *BannerGrabModule) runRedirectProbe(ctx context.Context, dialHost string
 	if errors.Is(ctx.Err(), context.DeadlineExceeded) || errors.Is(ctx.Err(), context.Canceled) {
 		obs.Error = "redirect_budget_exceeded"
 	}
+	if obs.Error == "" && strings.TrimSpace(obs.Response) == "" && m.exhaustedContextBudget(ctx, obs.Duration, m.config.ReadTimeout) {
+		obs.Error = "redirect_budget_exceeded"
+	}
 	return obs
 }
 
@@ -1326,7 +1329,7 @@ func classifyConnectTunnelStatus(statusCode int) string {
 	}
 }
 
-func (m *BannerGrabModule) effectiveTimeout(ctx context.Context, fallback time.Duration) time.Duration {
+func (m *BannerGrabModule) timeoutForContext(ctx context.Context, fallback time.Duration) (time.Duration, bool) {
 	if fallback <= 0 {
 		fallback = time.Second
 	}
@@ -1334,12 +1337,32 @@ func (m *BannerGrabModule) effectiveTimeout(ctx context.Context, fallback time.D
 		remaining := time.Until(deadline)
 		switch {
 		case remaining <= 0:
-			return time.Millisecond
+			return time.Millisecond, true
 		case remaining < fallback:
-			return remaining
+			return remaining, true
 		}
 	}
-	return fallback
+	return fallback, false
+}
+
+func (m *BannerGrabModule) effectiveTimeout(ctx context.Context, fallback time.Duration) time.Duration {
+	timeout, _ := m.timeoutForContext(ctx, fallback)
+	return timeout
+}
+
+func (m *BannerGrabModule) exhaustedContextBudget(ctx context.Context, duration time.Duration, fallback time.Duration) bool {
+	timeout, constrained := m.timeoutForContext(ctx, fallback)
+	if !constrained {
+		return false
+	}
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) || errors.Is(ctx.Err(), context.Canceled) {
+		return true
+	}
+	const slack = 15 * time.Millisecond
+	if timeout <= slack {
+		return duration >= timeout
+	}
+	return duration >= timeout-slack
 }
 
 func (m *BannerGrabModule) runPassiveProbe(ctx context.Context, target string, port int) engine.ProbeObservation {
