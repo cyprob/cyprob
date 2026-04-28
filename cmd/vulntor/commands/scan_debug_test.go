@@ -382,6 +382,45 @@ func TestRunDebugMySQLNativeProbeStageWithModule(t *testing.T) {
 	require.Empty(t, steps.values()[0].Errors)
 }
 
+func TestRunDebugTelnetNativeProbeStageWithModule(t *testing.T) {
+	const moduleType = "test-scan-debug-telnet-native-probe"
+	engine.RegisterModuleFactory(moduleType, func() engine.Module {
+		return &testScanDebugTelnetModule{
+			meta: engine.ModuleMetadata{
+				ID:   "test-scan-debug-telnet-native-probe-instance",
+				Name: moduleType,
+				Type: engine.ScanModuleType,
+				Consumes: []engine.DataContractEntry{
+					{Key: "discovery.open_tcp_ports", DataTypeName: "discovery.TCPPortDiscoveryResult", Cardinality: engine.CardinalityList},
+					{Key: "service.banner.tcp", DataTypeName: "scan.BannerGrabResult", Cardinality: engine.CardinalityList, IsOptional: true},
+				},
+				Produces: []engine.DataContractEntry{
+					{Key: "service.telnet.details", DataTypeName: "scan.TelnetServiceInfo", Cardinality: engine.CardinalityList},
+				},
+			},
+		}
+	})
+
+	steps := newScanDebugSteps("telnet-native-probe")
+	results, err := runDebugTelnetNativeProbeStageWithModule(
+		context.Background(),
+		scanDebugTargetOptions{Timeout: "2s"},
+		steps,
+		[]discovery.TCPPortDiscoveryResult{
+			{Target: "127.0.0.1", OpenPorts: []int{23}},
+		},
+		nil,
+		"test_scan_debug_telnet_module",
+		moduleType,
+		"telnet-native-probe",
+	)
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	require.True(t, results[0].TelnetProbe)
+	require.Equal(t, 23, results[0].Port)
+	require.Empty(t, steps.values()[0].Errors)
+}
+
 func TestRunDebugSNMPNativeProbeStageWithModule(t *testing.T) {
 	const moduleType = "test-scan-debug-snmp-native-probe"
 	engine.RegisterModuleFactory(moduleType, func() engine.Module {
@@ -654,11 +693,19 @@ type testScanDebugMySQLModule struct {
 	meta engine.ModuleMetadata
 }
 
+type testScanDebugTelnetModule struct {
+	meta engine.ModuleMetadata
+}
+
 func (m *testScanDebugSNMPModule) Metadata() engine.ModuleMetadata {
 	return m.meta
 }
 
 func (m *testScanDebugMySQLModule) Metadata() engine.ModuleMetadata {
+	return m.meta
+}
+
+func (m *testScanDebugTelnetModule) Metadata() engine.ModuleMetadata {
 	return m.meta
 }
 
@@ -668,6 +715,11 @@ func (m *testScanDebugSNMPModule) Init(instanceID string, config map[string]any)
 }
 
 func (m *testScanDebugMySQLModule) Init(instanceID string, config map[string]any) error {
+	m.meta.ID = instanceID
+	return nil
+}
+
+func (m *testScanDebugTelnetModule) Init(instanceID string, config map[string]any) error {
 	m.meta.ID = instanceID
 	return nil
 }
@@ -709,6 +761,29 @@ func (m *testScanDebugMySQLModule) Execute(ctx context.Context, inputs map[strin
 			ProductHint:     "MySQL",
 			VendorHint:      "Oracle",
 			VersionHint:     "8.0.36-MySQL Community Server",
+		},
+		Timestamp: time.Now(),
+		Target:    "127.0.0.1",
+	}
+	return nil
+}
+
+func (m *testScanDebugTelnetModule) Execute(ctx context.Context, inputs map[string]any, outputChan chan<- engine.ModuleOutput) error {
+	_ = ctx
+	_ = inputs
+	outputChan <- engine.ModuleOutput{
+		FromModuleName: m.meta.ID,
+		DataKey:        "service.telnet.details",
+		Data: scanpkg.TelnetServiceInfo{
+			Target:             "127.0.0.1",
+			Port:               23,
+			TelnetProbe:        true,
+			TelnetProtocol:     "telnet",
+			Banner:             "BusyBox telnetd login:",
+			IACDetected:        true,
+			NegotiationOptions: []string{"will-echo"},
+			ProductHint:        "BusyBox telnetd",
+			VendorHint:         "BusyBox",
 		},
 		Timestamp: time.Now(),
 		Target:    "127.0.0.1",

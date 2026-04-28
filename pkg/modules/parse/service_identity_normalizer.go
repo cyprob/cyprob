@@ -29,6 +29,7 @@ const (
 	sourceSNMPNative       = "snmp_native_probe"
 	sourceDNSNative        = "dns_native_probe"
 	sourceFTPNative        = "ftp_native_probe"
+	sourceTelnetNative     = "telnet_native_probe"
 	sourceMySQLNative      = "mysql_native_probe"
 	sourceWinRMNative      = "winrm_native_probe"
 	sourceHTTPIdentityHint = "http_identity_hint"
@@ -149,6 +150,7 @@ func newServiceIdentityNormalizerModule() *serviceIdentityNormalizerModule {
 				{Key: "service.fingerprint.details", DataTypeName: "parse.FingerprintParsedInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 				{Key: "service.tech.tags", DataTypeName: "parse.TechTagResult", Cardinality: engine.CardinalityList, IsOptional: true},
 				{Key: "service.ftp.details", DataTypeName: "scan.FTPServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
+				{Key: "service.telnet.details", DataTypeName: "scan.TelnetServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 				{Key: "service.mysql.details", DataTypeName: "scan.MySQLServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 				{Key: "service.smtp.details", DataTypeName: "scan.SMTPServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 				{Key: "service.ssh.details", DataTypeName: "scan.SSHServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
@@ -199,6 +201,7 @@ func (m *serviceIdentityNormalizerModule) Execute(ctx context.Context, inputs ma
 	m.ingestFingerprints(inputs, getEntry)
 	m.ingestTechTags(inputs, getEntry)
 	m.ingestFTPDetails(inputs, getEntry)
+	m.ingestTelnetDetails(inputs, getEntry)
 	m.ingestMySQLDetails(inputs, getEntry)
 	m.ingestSMTPDetails(inputs, getEntry)
 	m.ingestSNMPDetails(inputs, getEntry)
@@ -405,6 +408,42 @@ func (m *serviceIdentityNormalizerModule) ingestFTPDetails(inputs map[string]any
 			tags = append(tags, TagTLS)
 		}
 		entry.TechTags = NormalizeTechTags(append(entry.TechTags, tags...))
+	}
+}
+
+func (m *serviceIdentityNormalizerModule) ingestTelnetDetails(inputs map[string]any, getEntry func(target string, port int) *ServiceIdentityInfo) {
+	raw, ok := inputs["service.telnet.details"]
+	if !ok {
+		return
+	}
+	items := toAnyList(raw)
+	for _, item := range items {
+		telnetInfo, ok := item.(scanpkg.TelnetServiceInfo)
+		if !ok {
+			continue
+		}
+		if telnetInfo.Target == "" || telnetInfo.Port <= 0 {
+			continue
+		}
+		if !telnetInfo.TelnetProbe && strings.TrimSpace(telnetInfo.Banner) == "" && !telnetInfo.IACDetected {
+			continue
+		}
+
+		entry := getEntry(telnetInfo.Target, telnetInfo.Port)
+		setIdentityField(entry, "service_name", "telnet", sourceTelnetNative, 0.62)
+		if strings.TrimSpace(entry.Product) == "" && strings.TrimSpace(telnetInfo.ProductHint) != "" {
+			setIdentityField(entry, "product", strings.TrimSpace(telnetInfo.ProductHint), sourceTelnetNative, 0.70)
+		}
+		if strings.TrimSpace(entry.Vendor) == "" && strings.TrimSpace(telnetInfo.VendorHint) != "" {
+			setIdentityField(entry, "vendor", strings.TrimSpace(telnetInfo.VendorHint), sourceTelnetNative, 0.68)
+		}
+		if strings.TrimSpace(entry.Version) == "" && strings.TrimSpace(telnetInfo.VersionHint) != "" {
+			setIdentityField(entry, "version", strings.TrimSpace(telnetInfo.VersionHint), sourceTelnetNative, 0.66)
+		}
+		if strings.TrimSpace(entry.Banner) == "" && strings.TrimSpace(telnetInfo.Banner) != "" {
+			setIdentityField(entry, "banner", strings.TrimSpace(telnetInfo.Banner), sourceTelnetNative, 0.56)
+		}
+		entry.TechTags = NormalizeTechTags(append(entry.TechTags, TagTelnet))
 	}
 }
 

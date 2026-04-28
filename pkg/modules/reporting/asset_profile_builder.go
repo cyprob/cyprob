@@ -56,6 +56,7 @@ func buildAssetProfileBuilderConsumes() []engine.DataContractEntry {
 		{Key: "service.banner.tcp", DataTypeName: "scan.BannerGrabResult", Cardinality: engine.CardinalityList, IsOptional: true},
 		{Key: "service.http.details", DataTypeName: "parse.HTTPParsedInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 		{Key: "service.ftp.details", DataTypeName: "scan.FTPServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
+		{Key: "service.telnet.details", DataTypeName: "scan.TelnetServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 		{Key: "service.mysql.details", DataTypeName: "scan.MySQLServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 		{Key: "service.ssh.details", DataTypeName: "scan.SSHServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 		{Key: "service.smtp.details", DataTypeName: "scan.SMTPServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
@@ -178,6 +179,19 @@ func (m *AssetProfileBuilderModule) Execute(ctx context.Context, inputs map[stri
 			}
 		} else if typed, typedOk := rawFTP.([]scan.FTPServiceInfo); typedOk {
 			ftpDetails = append(ftpDetails, typed...)
+		}
+	}
+
+	telnetDetails := []scan.TelnetServiceInfo{}
+	if rawTelnet, ok := inputs["service.telnet.details"]; ok {
+		if list, listOk := rawTelnet.([]any); listOk {
+			for _, item := range list {
+				if casted, castOk := item.(scan.TelnetServiceInfo); castOk {
+					telnetDetails = append(telnetDetails, casted)
+				}
+			}
+		} else if typed, typedOk := rawTelnet.([]scan.TelnetServiceInfo); typedOk {
+			telnetDetails = append(telnetDetails, typed...)
 		}
 	}
 
@@ -512,6 +526,9 @@ func (m *AssetProfileBuilderModule) Execute(ctx context.Context, inputs map[stri
 					if ftpNative := findFTPDetails(ftpDetails, targetIP, portNum); ftpNative != nil {
 						applyFTPDetails(&portProfile, *ftpNative)
 					}
+					if telnetNative := findTelnetDetails(telnetDetails, targetIP, portNum); telnetNative != nil {
+						applyTelnetDetails(&portProfile, *telnetNative)
+					}
 
 					// Bu porta ait tech tagleri bul
 					for _, tags := range techTagResults {
@@ -802,6 +819,15 @@ func findFTPDetails(items []scan.FTPServiceInfo, target string, port int) *scan.
 	return nil
 }
 
+func findTelnetDetails(items []scan.TelnetServiceInfo, target string, port int) *scan.TelnetServiceInfo {
+	for i := range items {
+		if items[i].Target == target && items[i].Port == port {
+			return &items[i]
+		}
+	}
+	return nil
+}
+
 func findMySQLDetails(items []scan.MySQLServiceInfo, target string, port int) *scan.MySQLServiceInfo {
 	for i := range items {
 		if items[i].Target == target && items[i].Port == port {
@@ -809,6 +835,47 @@ func findMySQLDetails(items []scan.MySQLServiceInfo, target string, port int) *s
 		}
 	}
 	return nil
+}
+
+func applyTelnetDetails(portProfile *engine.PortProfile, details scan.TelnetServiceInfo) {
+	if portProfile.Service.ParsedAttributes == nil {
+		portProfile.Service.ParsedAttributes = make(map[string]any)
+	}
+
+	if details.TelnetProbe && strings.TrimSpace(portProfile.Service.Name) == "" {
+		portProfile.Service.Name = "telnet"
+	}
+	if strings.TrimSpace(details.ProductHint) != "" && strings.TrimSpace(portProfile.Service.Product) == "" {
+		portProfile.Service.Product = strings.TrimSpace(details.ProductHint)
+	}
+	if strings.TrimSpace(details.VersionHint) != "" && strings.TrimSpace(portProfile.Service.Version) == "" {
+		portProfile.Service.Version = strings.TrimSpace(details.VersionHint)
+	}
+	if strings.TrimSpace(details.Banner) != "" && strings.TrimSpace(portProfile.Service.RawBanner) == "" {
+		portProfile.Service.RawBanner = strings.TrimSpace(details.Banner)
+	}
+	if strings.TrimSpace(details.Banner) != "" {
+		portProfile.Service.ParsedAttributes["telnet_banner"] = strings.TrimSpace(details.Banner)
+	}
+	if strings.TrimSpace(details.TelnetProtocol) != "" {
+		portProfile.Service.ParsedAttributes["telnet_protocol"] = strings.TrimSpace(details.TelnetProtocol)
+	}
+	portProfile.Service.ParsedAttributes["telnet_iac_detected"] = details.IACDetected
+	if len(details.NegotiationOptions) > 0 {
+		portProfile.Service.ParsedAttributes["telnet_negotiation_options"] = append([]string(nil), details.NegotiationOptions...)
+	}
+	if strings.TrimSpace(details.ProductHint) != "" {
+		portProfile.Service.ParsedAttributes["telnet_product_hint"] = strings.TrimSpace(details.ProductHint)
+	}
+	if strings.TrimSpace(details.VendorHint) != "" {
+		portProfile.Service.ParsedAttributes["telnet_vendor_hint"] = strings.TrimSpace(details.VendorHint)
+	}
+	if strings.TrimSpace(details.VersionHint) != "" {
+		portProfile.Service.ParsedAttributes["telnet_version_hint"] = strings.TrimSpace(details.VersionHint)
+	}
+	if strings.TrimSpace(details.ProbeError) != "" {
+		portProfile.Service.ParsedAttributes["telnet_probe_error"] = strings.TrimSpace(details.ProbeError)
+	}
 }
 
 //nolint:gocyclo // FTP attribute emission is intentionally explicit to preserve JSON contract names.

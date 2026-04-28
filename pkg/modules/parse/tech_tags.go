@@ -10,6 +10,7 @@ const (
 	TagFTP          = "ftp"
 	TagMailService  = "mail_service"
 	TagWebmail      = "webmail"
+	TagTelnet       = "telnet"
 	TagSMTP         = "smtp"
 	TagIMAP         = "imap"
 	TagPOP3         = "pop3"
@@ -62,6 +63,7 @@ var canonicalTechTagSet = map[string]struct{}{
 	"express":        {},
 	"fedora":         {},
 	TagFTP:           {},
+	TagTelnet:        {},
 	"flask":          {},
 	"freebsd":        {},
 	"gitlab":         {},

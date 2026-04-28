@@ -47,6 +47,7 @@ type scanDebugPayload struct {
 	Fingerprints    []parsepkg.FingerprintParsedInfo   `json:"fingerprints"`
 	TechTags        []parsepkg.TechTagResult           `json:"tech_tags"`
 	FTPDetails      []scanpkg.FTPServiceInfo           `json:"ftp_details"`
+	TelnetDetails   []scanpkg.TelnetServiceInfo        `json:"telnet_details"`
 	MySQLDetails    []scanpkg.MySQLServiceInfo         `json:"mysql_details"`
 	SMTPDetails     []scanpkg.SMTPServiceInfo          `json:"smtp_details"`
 	SSHDetails      []scanpkg.SSHServiceInfo           `json:"ssh_details"`
@@ -117,6 +118,7 @@ func runScanDebugTarget(cmd *cobra.Command, target string, opts scanDebugTargetO
 	stepNames = append(stepNames,
 		"banner-grabber",
 		"ftp-native-probe",
+		"telnet-native-probe",
 		"mysql-native-probe",
 		"smtp-native-probe",
 		"ssh-native-probe",
@@ -183,6 +185,10 @@ func runScanDebugTarget(cmd *cobra.Command, target string, opts scanDebugTargetO
 	if err != nil {
 		return err
 	}
+	telnetDetails, err := runDebugTelnetNativeProbeStageWithModule(ctx, opts, steps, openPorts, banners, "scan_debug_telnet_native_probe", "telnet-native-probe", "telnet-native-probe")
+	if err != nil {
+		return err
+	}
 	mysqlDetails, err := runDebugMySQLNativeProbeStageWithModule(ctx, target, opts, steps, openPorts, banners, "scan_debug_mysql_native_probe", "mysql-native-probe", "mysql-native-probe")
 	if err != nil {
 		return err
@@ -244,6 +250,7 @@ func runScanDebugTarget(cmd *cobra.Command, target string, opts scanDebugTargetO
 		"service.fingerprint.details": toAnySlice(fingerprints),
 		"service.tech.tags":           toAnySlice(techTags),
 		"service.ftp.details":         toAnySlice(ftpDetails),
+		"service.telnet.details":      toAnySlice(telnetDetails),
 		"service.mysql.details":       toAnySlice(mysqlDetails),
 		"service.smtp.details":        toAnySlice(smtpDetails),
 		"service.ssh.details":         toAnySlice(sshDetails),
@@ -277,6 +284,7 @@ func runScanDebugTarget(cmd *cobra.Command, target string, opts scanDebugTargetO
 		Fingerprints:    fingerprints,
 		TechTags:        techTags,
 		FTPDetails:      ftpDetails,
+		TelnetDetails:   telnetDetails,
 		MySQLDetails:    mysqlDetails,
 		SMTPDetails:     smtpDetails,
 		SSHDetails:      sshDetails,
@@ -491,6 +499,48 @@ func runDebugFTPNativeProbeStageWithModule(
 			steps.addWarning(stepName, reason)
 		} else {
 			steps.addWarning(stepName, "no ftp metadata generated")
+		}
+	}
+	return results, nil
+}
+
+func runDebugTelnetNativeProbeStageWithModule(
+	ctx context.Context,
+	opts scanDebugTargetOptions,
+	steps *scanDebugStepCollection,
+	openPorts []discovery.TCPPortDiscoveryResult,
+	banners []scanpkg.BannerGrabResult,
+	instanceID string,
+	moduleType string,
+	stepName string,
+) ([]scanpkg.TelnetServiceInfo, error) {
+	telnetConfig := map[string]any{}
+	if opts.Timeout != "" {
+		telnetConfig["timeout"] = opts.Timeout
+		telnetConfig["connect_timeout"] = opts.Timeout
+		telnetConfig["io_timeout"] = opts.Timeout
+		telnetConfig["retries"] = 0
+	}
+
+	telnetModule, err := engine.GetModuleInstance(instanceID, moduleType, telnetConfig)
+	if err != nil {
+		return nil, fmt.Errorf("create %s module: %w", moduleType, err)
+	}
+
+	telnetOutputs, telnetExecErr := executeDebugModule(ctx, telnetModule, map[string]any{
+		"discovery.open_tcp_ports": toAnySlice(openPorts),
+		"service.banner.tcp":       toAnySlice(banners),
+	})
+	if telnetExecErr != nil {
+		steps.addError(stepName, telnetExecErr.Error())
+	}
+	steps.addErrors(stepName, collectOutputErrors(telnetOutputs))
+	results := collectTelnetDetailsResults(telnetOutputs)
+	if len(results) == 0 {
+		if reason := debugTelnetCandidateWarning(openPorts, banners); reason != "" {
+			steps.addWarning(stepName, reason)
+		} else {
+			steps.addWarning(stepName, "no telnet metadata generated")
 		}
 	}
 	return results, nil
@@ -1096,6 +1146,16 @@ func debugFTPCandidateWarning(openPorts []discovery.TCPPortDiscoveryResult, bann
 	return "no_candidate"
 }
 
+func debugTelnetCandidateWarning(openPorts []discovery.TCPPortDiscoveryResult, banners []scanpkg.BannerGrabResult) string {
+	if debugHasTelnetCandidate(openPorts, banners) {
+		return ""
+	}
+	if debugHasOpenPorts(openPorts) {
+		return "non_family_port_without_banner_hint"
+	}
+	return "no_candidate"
+}
+
 func debugTLSCandidateWarning(openPorts []discovery.TCPPortDiscoveryResult, banners []scanpkg.BannerGrabResult) string {
 	if debugHasTLSCandidate(openPorts, banners) {
 		return ""
@@ -1181,6 +1241,20 @@ func debugHasFTPCandidate(openPorts []discovery.TCPPortDiscoveryResult, banners 
 	}
 	for _, banner := range banners {
 		if debugIsFTPPort(banner.Port) || debugBannerLooksLikeFTP(banner) {
+			return true
+		}
+	}
+	return false
+}
+
+func debugHasTelnetCandidate(openPorts []discovery.TCPPortDiscoveryResult, banners []scanpkg.BannerGrabResult) bool {
+	for _, result := range openPorts {
+		if slices.ContainsFunc(result.OpenPorts, debugIsTelnetPort) {
+			return true
+		}
+	}
+	for _, banner := range banners {
+		if debugIsTelnetPort(banner.Port) || debugBannerLooksLikeTelnet(banner) {
 			return true
 		}
 	}
@@ -1283,6 +1357,10 @@ func debugIsFTPPort(port int) bool {
 	}
 }
 
+func debugIsTelnetPort(port int) bool {
+	return port == 23
+}
+
 func debugIsMySQLPort(port int) bool {
 	return port == 3306
 }
@@ -1321,6 +1399,12 @@ func debugBannerLooksLikeFTP(banner scanpkg.BannerGrabResult) bool {
 	return debugContainsAnyHint(banner.Protocol, "ftp", "ftps") ||
 		debugContainsAnyHint(banner.Banner, "crushftp", "pure-ftpd", "proftpd", "vsftpd", "ftp server ready", "filezilla server") ||
 		debugEvidenceLooksLike(banner.Evidence, []string{"ftp", "ftps", "crushftp", "pure-ftpd", "proftpd", "vsftpd", "filezilla"})
+}
+
+func debugBannerLooksLikeTelnet(banner scanpkg.BannerGrabResult) bool {
+	return debugContainsAnyHint(banner.Protocol, "telnet") ||
+		debugContainsAnyHint(banner.Banner, "telnet", "login:", "username:", "password:", "busybox", "routeros", "cisco ios", "microsoft telnet service") ||
+		debugEvidenceLooksLike(banner.Evidence, []string{"telnet", "login:", "username:", "password:"})
 }
 
 func debugBannerLooksLikeMySQL(banner scanpkg.BannerGrabResult) bool {
@@ -1545,6 +1629,25 @@ func collectFTPDetailsResults(outputs []engine.ModuleOutput) []scanpkg.FTPServic
 		case scanpkg.FTPServiceInfo:
 			results = append(results, data)
 		case []scanpkg.FTPServiceInfo:
+			results = append(results, data...)
+		}
+	}
+	sort.Slice(results, func(i, j int) bool {
+		if results[i].Target == results[j].Target {
+			return results[i].Port < results[j].Port
+		}
+		return results[i].Target < results[j].Target
+	})
+	return results
+}
+
+func collectTelnetDetailsResults(outputs []engine.ModuleOutput) []scanpkg.TelnetServiceInfo {
+	results := make([]scanpkg.TelnetServiceInfo, 0)
+	for _, output := range outputs {
+		switch data := output.Data.(type) {
+		case scanpkg.TelnetServiceInfo:
+			results = append(results, data)
+		case []scanpkg.TelnetServiceInfo:
 			results = append(results, data...)
 		}
 	}
@@ -1860,6 +1963,7 @@ func writeScanDebugPretty(w io.Writer, payload scanDebugPayload) error {
 	fmt.Fprintf(w, "Fingerprints: %d\n", len(payload.Fingerprints))
 	fmt.Fprintf(w, "Tech Tags: %d\n", len(payload.TechTags))
 	fmt.Fprintf(w, "FTP Details: %d\n", len(payload.FTPDetails))
+	fmt.Fprintf(w, "Telnet Details: %d\n", len(payload.TelnetDetails))
 	fmt.Fprintf(w, "SMTP Details: %d\n", len(payload.SMTPDetails))
 	fmt.Fprintf(w, "SSH Details: %d\n", len(payload.SSHDetails))
 	fmt.Fprintf(w, "SNMP Details: %d\n", len(payload.SNMPDetails))
