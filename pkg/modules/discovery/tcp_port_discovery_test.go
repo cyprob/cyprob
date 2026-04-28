@@ -172,6 +172,7 @@ func TestTCPPortDiscoveryModule_Init(t *testing.T) {
 				Ports:           []string{"1-1024"},
 				Timeout:         defaultTCPPortDiscoveryTimeout,
 				Concurrency:     defaultTCPConcurrency,
+				Retries:         0,
 				StopOnFirstOpen: false,
 			},
 		},
@@ -186,6 +187,7 @@ func TestTCPPortDiscoveryModule_Init(t *testing.T) {
 				Ports:           []string{"22", "80-81"},
 				Timeout:         defaultTCPPortDiscoveryTimeout,
 				Concurrency:     defaultTCPConcurrency,
+				Retries:         0,
 				StopOnFirstOpen: false,
 			},
 		},
@@ -200,6 +202,21 @@ func TestTCPPortDiscoveryModule_Init(t *testing.T) {
 				Ports:           []string{"1-1024"},
 				Timeout:         2 * time.Second,
 				Concurrency:     50,
+				Retries:         0,
+				StopOnFirstOpen: false,
+			},
+		},
+		{
+			name: "set retries",
+			input: map[string]any{
+				"retries": 1,
+			},
+			wantConfig: TCPPortDiscoveryConfig{
+				Targets:         nil,
+				Ports:           []string{"1-1024"},
+				Timeout:         defaultTCPPortDiscoveryTimeout,
+				Concurrency:     defaultTCPConcurrency,
+				Retries:         1,
 				StopOnFirstOpen: false,
 			},
 		},
@@ -213,6 +230,7 @@ func TestTCPPortDiscoveryModule_Init(t *testing.T) {
 				Ports:           []string{"1-1024"},
 				Timeout:         defaultTCPPortDiscoveryTimeout,
 				Concurrency:     defaultTCPConcurrency,
+				Retries:         0,
 				StopOnFirstOpen: false,
 			},
 		},
@@ -226,6 +244,7 @@ func TestTCPPortDiscoveryModule_Init(t *testing.T) {
 				Ports:           []string{"1-1024"},
 				Timeout:         defaultTCPPortDiscoveryTimeout,
 				Concurrency:     defaultTCPConcurrency,
+				Retries:         0,
 				StopOnFirstOpen: false,
 			},
 		},
@@ -282,6 +301,38 @@ func TestTCPPortDiscoveryModule_Init(t *testing.T) {
 				t.Errorf("StopOnFirstOpen: got %v, want %v", got.StopOnFirstOpen, tt.wantConfig.StopOnFirstOpen)
 			}
 		})
+	}
+}
+
+func TestTCPPortDiscoveryModule_DialWithRetries(t *testing.T) {
+	module := newTCPPortDiscoveryModule()
+	module.config.Timeout = 10 * time.Millisecond
+	module.config.Retries = 1
+
+	originalDial := dialTimeout
+	defer func() { dialTimeout = originalDial }()
+
+	attempts := 0
+	dialTimeout = func(network, address string, timeout time.Duration) (net.Conn, error) {
+		attempts++
+		if attempts == 1 {
+			return nil, errors.New("temporary timeout")
+		}
+		c1, c2 := net.Pipe()
+		_ = c2.Close()
+		return c1, nil
+	}
+
+	conn, err := module.dialWithRetries(context.Background(), "127.0.0.1:80")
+	if conn != nil {
+		_ = conn.Close()
+	}
+
+	if err != nil {
+		t.Fatalf("expected retry to succeed, got error: %v", err)
+	}
+	if attempts != 2 {
+		t.Fatalf("expected 2 dial attempts, got %d", attempts)
 	}
 }
 

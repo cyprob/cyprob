@@ -32,6 +32,7 @@ type TCPPortDiscoveryConfig struct {
 	Ports           []string      `json:"ports"`   // Port ranges and lists (e.g., "1-1024", "80,443,8080")
 	Timeout         time.Duration `json:"timeout"` // Connection timeout for each port
 	Concurrency     int           `json:"concurrency"`
+	Retries         int           `json:"retries"`
 	StopOnFirstOpen bool          `json:"stop_on_first_open"`
 }
 
@@ -62,6 +63,7 @@ func newTCPPortDiscoveryModule() *TCPPortDiscoveryModule {
 		Ports:           []string{defaultTCPPorts},
 		Timeout:         defaultTCPPortDiscoveryTimeout,
 		Concurrency:     defaultTCPConcurrency,
+		Retries:         0,
 		StopOnFirstOpen: false,
 	}
 	return &TCPPortDiscoveryModule{
@@ -132,6 +134,12 @@ func newTCPPortDiscoveryModule() *TCPPortDiscoveryModule {
 					Required:    false,
 					Default:     defaultTCPConcurrency,
 				},
+				"retries": {
+					Description: "Number of additional connection attempts per port before giving up.",
+					Type:        "int",
+					Required:    false,
+					Default:     0,
+				},
 				"stop_on_first_open": {
 					Description: "Stop scanning remaining ports for a target after the first open port is found.",
 					Type:        "bool",
@@ -178,6 +186,13 @@ func (m *TCPPortDiscoveryModule) Init(instanceID string, moduleConfig map[string
 		if cfg.Concurrency < 1 {
 			fmt.Printf("[WARN] Module '%s': Concurrency in config is < 1 (%d). Setting to default: %d.\n", m.meta.Name, cfg.Concurrency, defaultTCPConcurrency)
 			cfg.Concurrency = defaultTCPConcurrency
+		}
+	}
+	if retriesVal, ok := moduleConfig["retries"]; ok {
+		cfg.Retries = cast.ToInt(retriesVal)
+		if cfg.Retries < 0 {
+			fmt.Printf("[WARN] Module '%s': Retries in config is < 0 (%d). Setting to default: 0.\n", m.meta.Name, cfg.Retries)
+			cfg.Retries = 0
 		}
 	}
 	if stopVal, ok := moduleConfig["stop_on_first_open"]; ok {
@@ -260,8 +275,8 @@ func (m *TCPPortDiscoveryModule) Execute(ctx context.Context, inputs map[string]
 	}
 
 	logger.Info().Msgf(
-		"Starting TCP Port Discovery for %d targets on %d unique ports. Concurrency: %d, Timeout per port: %s, stop_on_first_open: %t",
-		len(targetsToScan), len(parsedPorts), m.config.Concurrency, m.config.Timeout, m.config.StopOnFirstOpen,
+		"Starting TCP Port Discovery for %d targets on %d unique ports. Concurrency: %d, Timeout per port: %s, Retries: %d, stop_on_first_open: %t",
+		len(targetsToScan), len(parsedPorts), m.config.Concurrency, m.config.Timeout, m.config.Retries, m.config.StopOnFirstOpen,
 	)
 
 	var wg sync.WaitGroup
@@ -365,7 +380,7 @@ func (m *TCPPortDiscoveryModule) scanTargetPortsStopOnFirstOpen(
 
 		sem <- struct{}{}
 		address := net.JoinHostPort(ip, strconv.Itoa(p))
-		conn, err := dialTimeout("tcp", address, m.config.Timeout)
+		conn, err := m.dialWithRetries(ctx, address)
 		<-sem
 		if err != nil {
 			continue
@@ -420,7 +435,7 @@ func (m *TCPPortDiscoveryModule) scanTargetPortsAll(
 			}
 
 			address := net.JoinHostPort(ip, strconv.Itoa(p))
-			conn, err := dialTimeout("tcp", address, m.config.Timeout)
+			conn, err := m.dialWithRetries(ctx, address)
 			if err != nil {
 				return
 			}
@@ -443,6 +458,27 @@ func (m *TCPPortDiscoveryModule) scanTargetPortsAll(
 
 	portWg.Wait()
 	return ipPorts
+}
+
+func (m *TCPPortDiscoveryModule) dialWithRetries(ctx context.Context, address string) (net.Conn, error) {
+	attempts := m.config.Retries + 1
+	var lastErr error
+
+	for attempt := 0; attempt < attempts; attempt++ {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
+
+		conn, err := dialTimeout("tcp", address, m.config.Timeout)
+		if err == nil {
+			return conn, nil
+		}
+		lastErr = err
+	}
+
+	return nil, lastErr
 }
 
 // TCPPortDiscoveryModuleFactory creates a new TCPPortDiscoveryModule instance.
