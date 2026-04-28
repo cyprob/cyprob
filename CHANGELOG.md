@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-04-28
+
+### Added
+- Native Telnet probe coverage with structured banner, negotiation, vendor, product, and version metadata.
+- `scan-debug` visibility for Telnet native probe outputs.
+- Telnet-aware service identity normalization, tech tagging, and asset profile enrichment.
+
+### Changed
+- TCP port discovery now supports configurable per-port retries for transient connection failures.
+
 ## [0.6.0] - 2026-03-16
 
 ### Added
@@ -139,7 +149,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Initial release candidate with core scanning capabilities.
 
-[Unreleased]: https://github.com/cyprob/cyprob/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/cyprob/cyprob/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/cyprob/cyprob/compare/v0.6.1...v0.7.0
 [0.6.0]: https://github.com/cyprob/cyprob/compare/v0.5.3...v0.6.0
 [0.5.3]: https://github.com/cyprob/cyprob/compare/v0.5.2...v0.5.3
 [0.5.1]: https://github.com/cyprob/cyprob/compare/v0.5.0...v0.5.1
