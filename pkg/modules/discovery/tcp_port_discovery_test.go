@@ -6,12 +6,22 @@ import (
 	"net"
 	"reflect"
 	"strconv"
+	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
 	"github.com/cyprob/cyprob/pkg/engine"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+type timeoutTestError struct{}
+
+func (timeoutTestError) Error() string   { return "i/o timeout" }
+func (timeoutTestError) Timeout() bool   { return true }
+func (timeoutTestError) Temporary() bool { return true }
 
 func TestTCPPortDiscoveryModule_Metadata(t *testing.T) {
 	module := newTCPPortDiscoveryModule()
@@ -168,12 +178,13 @@ func TestTCPPortDiscoveryModule_Init(t *testing.T) {
 			name:  "empty config uses defaults",
 			input: map[string]any{},
 			wantConfig: TCPPortDiscoveryConfig{
-				Targets:         nil,
-				Ports:           []string{"1-1024"},
-				Timeout:         defaultTCPPortDiscoveryTimeout,
-				Concurrency:     defaultTCPConcurrency,
-				Retries:         0,
-				StopOnFirstOpen: false,
+				Targets:                 nil,
+				Ports:                   []string{"1-1024"},
+				Timeout:                 defaultTCPPortDiscoveryTimeout,
+				Concurrency:             defaultTCPConcurrency,
+				Retries:                 0,
+				StopOnFirstOpen:         false,
+				VerificationPassEnabled: true,
 			},
 		},
 		{
@@ -183,12 +194,13 @@ func TestTCPPortDiscoveryModule_Init(t *testing.T) {
 				"ports":   []string{"22", "80-81"},
 			},
 			wantConfig: TCPPortDiscoveryConfig{
-				Targets:         []string{"127.0.0.1", "192.168.1.1"},
-				Ports:           []string{"22", "80-81"},
-				Timeout:         defaultTCPPortDiscoveryTimeout,
-				Concurrency:     defaultTCPConcurrency,
-				Retries:         0,
-				StopOnFirstOpen: false,
+				Targets:                 []string{"127.0.0.1", "192.168.1.1"},
+				Ports:                   []string{"22", "80-81"},
+				Timeout:                 defaultTCPPortDiscoveryTimeout,
+				Concurrency:             defaultTCPConcurrency,
+				Retries:                 0,
+				StopOnFirstOpen:         false,
+				VerificationPassEnabled: true,
 			},
 		},
 		{
@@ -198,12 +210,37 @@ func TestTCPPortDiscoveryModule_Init(t *testing.T) {
 				"concurrency": 50,
 			},
 			wantConfig: TCPPortDiscoveryConfig{
-				Targets:         nil,
-				Ports:           []string{"1-1024"},
-				Timeout:         2 * time.Second,
-				Concurrency:     50,
-				Retries:         0,
-				StopOnFirstOpen: false,
+				Targets:                 nil,
+				Ports:                   []string{"1-1024"},
+				Timeout:                 2 * time.Second,
+				Concurrency:             50,
+				Retries:                 0,
+				StopOnFirstOpen:         false,
+				VerificationPassEnabled: true,
+			},
+		},
+		{
+			name: "set port timeout overrides",
+			input: map[string]any{
+				"port_timeout_overrides": map[string]any{
+					"135": "8s",
+					"139": "8s",
+					"bad": "9s",
+					"445": "0s",
+				},
+			},
+			wantConfig: TCPPortDiscoveryConfig{
+				Targets: nil,
+				Ports:   []string{"1-1024"},
+				Timeout: defaultTCPPortDiscoveryTimeout,
+				PortTimeoutOverrides: map[int]time.Duration{
+					135: 8 * time.Second,
+					139: 8 * time.Second,
+				},
+				Concurrency:             defaultTCPConcurrency,
+				Retries:                 0,
+				StopOnFirstOpen:         false,
+				VerificationPassEnabled: true,
 			},
 		},
 		{
@@ -212,12 +249,13 @@ func TestTCPPortDiscoveryModule_Init(t *testing.T) {
 				"retries": 1,
 			},
 			wantConfig: TCPPortDiscoveryConfig{
-				Targets:         nil,
-				Ports:           []string{"1-1024"},
-				Timeout:         defaultTCPPortDiscoveryTimeout,
-				Concurrency:     defaultTCPConcurrency,
-				Retries:         1,
-				StopOnFirstOpen: false,
+				Targets:                 nil,
+				Ports:                   []string{"1-1024"},
+				Timeout:                 defaultTCPPortDiscoveryTimeout,
+				Concurrency:             defaultTCPConcurrency,
+				Retries:                 1,
+				StopOnFirstOpen:         false,
+				VerificationPassEnabled: true,
 			},
 		},
 		{
@@ -226,12 +264,13 @@ func TestTCPPortDiscoveryModule_Init(t *testing.T) {
 				"timeout": "notaduration",
 			},
 			wantConfig: TCPPortDiscoveryConfig{
-				Targets:         nil,
-				Ports:           []string{"1-1024"},
-				Timeout:         defaultTCPPortDiscoveryTimeout,
-				Concurrency:     defaultTCPConcurrency,
-				Retries:         0,
-				StopOnFirstOpen: false,
+				Targets:                 nil,
+				Ports:                   []string{"1-1024"},
+				Timeout:                 defaultTCPPortDiscoveryTimeout,
+				Concurrency:             defaultTCPConcurrency,
+				Retries:                 0,
+				StopOnFirstOpen:         false,
+				VerificationPassEnabled: true,
 			},
 		},
 		{
@@ -240,12 +279,13 @@ func TestTCPPortDiscoveryModule_Init(t *testing.T) {
 				"concurrency": 0,
 			},
 			wantConfig: TCPPortDiscoveryConfig{
-				Targets:         nil,
-				Ports:           []string{"1-1024"},
-				Timeout:         defaultTCPPortDiscoveryTimeout,
-				Concurrency:     defaultTCPConcurrency,
-				Retries:         0,
-				StopOnFirstOpen: false,
+				Targets:                 nil,
+				Ports:                   []string{"1-1024"},
+				Timeout:                 defaultTCPPortDiscoveryTimeout,
+				Concurrency:             defaultTCPConcurrency,
+				Retries:                 0,
+				StopOnFirstOpen:         false,
+				VerificationPassEnabled: true,
 			},
 		},
 		{
@@ -254,11 +294,12 @@ func TestTCPPortDiscoveryModule_Init(t *testing.T) {
 				"ports": []string{""},
 			},
 			wantConfig: TCPPortDiscoveryConfig{
-				Targets:         nil,
-				Ports:           []string{"1-1024"},
-				Timeout:         defaultTCPPortDiscoveryTimeout,
-				Concurrency:     defaultTCPConcurrency,
-				StopOnFirstOpen: false,
+				Targets:                 nil,
+				Ports:                   []string{"1-1024"},
+				Timeout:                 defaultTCPPortDiscoveryTimeout,
+				Concurrency:             defaultTCPConcurrency,
+				StopOnFirstOpen:         false,
+				VerificationPassEnabled: true,
 			},
 		},
 		{
@@ -267,11 +308,26 @@ func TestTCPPortDiscoveryModule_Init(t *testing.T) {
 				"stop_on_first_open": true,
 			},
 			wantConfig: TCPPortDiscoveryConfig{
-				Targets:         nil,
-				Ports:           []string{"1-1024"},
-				Timeout:         defaultTCPPortDiscoveryTimeout,
-				Concurrency:     defaultTCPConcurrency,
-				StopOnFirstOpen: true,
+				Targets:                 nil,
+				Ports:                   []string{"1-1024"},
+				Timeout:                 defaultTCPPortDiscoveryTimeout,
+				Concurrency:             defaultTCPConcurrency,
+				StopOnFirstOpen:         true,
+				VerificationPassEnabled: true,
+			},
+		},
+		{
+			name: "set verification_pass_enabled",
+			input: map[string]any{
+				"verification_pass_enabled": false,
+			},
+			wantConfig: TCPPortDiscoveryConfig{
+				Targets:                 nil,
+				Ports:                   []string{"1-1024"},
+				Timeout:                 defaultTCPPortDiscoveryTimeout,
+				Concurrency:             defaultTCPConcurrency,
+				StopOnFirstOpen:         false,
+				VerificationPassEnabled: false,
 			},
 		},
 	}
@@ -294,11 +350,17 @@ func TestTCPPortDiscoveryModule_Init(t *testing.T) {
 			if got.Timeout != tt.wantConfig.Timeout {
 				t.Errorf("Timeout: got %v, want %v", got.Timeout, tt.wantConfig.Timeout)
 			}
+			if !reflect.DeepEqual(got.PortTimeoutOverrides, tt.wantConfig.PortTimeoutOverrides) {
+				t.Errorf("PortTimeoutOverrides: got %v, want %v", got.PortTimeoutOverrides, tt.wantConfig.PortTimeoutOverrides)
+			}
 			if got.Concurrency != tt.wantConfig.Concurrency {
 				t.Errorf("Concurrency: got %v, want %v", got.Concurrency, tt.wantConfig.Concurrency)
 			}
 			if got.StopOnFirstOpen != tt.wantConfig.StopOnFirstOpen {
 				t.Errorf("StopOnFirstOpen: got %v, want %v", got.StopOnFirstOpen, tt.wantConfig.StopOnFirstOpen)
+			}
+			if got.VerificationPassEnabled != tt.wantConfig.VerificationPassEnabled {
+				t.Errorf("VerificationPassEnabled: got %v, want %v", got.VerificationPassEnabled, tt.wantConfig.VerificationPassEnabled)
 			}
 		})
 	}
@@ -323,7 +385,7 @@ func TestTCPPortDiscoveryModule_DialWithRetries(t *testing.T) {
 		return c1, nil
 	}
 
-	conn, err := module.dialWithRetries(context.Background(), "127.0.0.1:80")
+	conn, err := module.dialWithRetries(context.Background(), "127.0.0.1:80", 80)
 	if conn != nil {
 		_ = conn.Close()
 	}
@@ -334,6 +396,186 @@ func TestTCPPortDiscoveryModule_DialWithRetries(t *testing.T) {
 	if attempts != 2 {
 		t.Fatalf("expected 2 dial attempts, got %d", attempts)
 	}
+}
+
+func TestTCPPortDiscoveryModule_DialWithRetriesUsesPortTimeoutOverride(t *testing.T) {
+	module := newTCPPortDiscoveryModule()
+	module.config.Timeout = time.Second
+	module.config.PortTimeoutOverrides = map[int]time.Duration{
+		445: 8 * time.Second,
+	}
+
+	originalDial := dialTimeout
+	t.Cleanup(func() { dialTimeout = originalDial })
+
+	var gotTimeout time.Duration
+	dialTimeout = func(network, address string, timeout time.Duration) (net.Conn, error) {
+		gotTimeout = timeout
+		return nil, timeoutTestError{}
+	}
+
+	_, err := module.dialWithRetries(context.Background(), "127.0.0.1:445", 445)
+	require.Error(t, err)
+	require.Equal(t, 8*time.Second, gotTimeout)
+}
+
+func TestTCPPortDiscoveryModule_ScanTargetPortsAll_AppliesPortTimeoutOverrideOnlyToMatchingPort(t *testing.T) {
+	module := newTCPPortDiscoveryModule()
+	module.config.Timeout = time.Second
+	module.config.Retries = 0
+	module.config.VerificationPassEnabled = false
+	module.config.PortTimeoutOverrides = map[int]time.Duration{
+		445: 8 * time.Second,
+	}
+
+	originalDial := dialTimeout
+	t.Cleanup(func() { dialTimeout = originalDial })
+
+	var timeoutsMu sync.Mutex
+	timeouts := make(map[string]time.Duration)
+	dialTimeout = func(network, address string, timeout time.Duration) (net.Conn, error) {
+		timeoutsMu.Lock()
+		timeouts[address] = timeout
+		timeoutsMu.Unlock()
+		return nil, timeoutTestError{}
+	}
+
+	openPortsByTarget := make(map[string][]int)
+	timedOutPortsByTarget := make(map[string][]int)
+	refusedPortsByTarget := make(map[string][]int)
+	otherErrorPortsByTarget := make(map[string][]int)
+	var mapMutex sync.Mutex
+
+	module.scanTargetPortsAll(
+		context.Background(),
+		"127.0.0.1",
+		[]int{80, 445},
+		make(chan struct{}, 2),
+		&mapMutex,
+		openPortsByTarget,
+		timedOutPortsByTarget,
+		refusedPortsByTarget,
+		otherErrorPortsByTarget,
+	)
+
+	timeoutsMu.Lock()
+	defer timeoutsMu.Unlock()
+	require.Equal(t, time.Second, timeouts["127.0.0.1:80"])
+	require.Equal(t, 8*time.Second, timeouts["127.0.0.1:445"])
+}
+
+func TestTCPPortDiscoveryModule_ScanTargetPortsAll_TargetedSecondPassRecoversMissedPort(t *testing.T) {
+	module := newTCPPortDiscoveryModule()
+	module.config.Timeout = 10 * time.Millisecond
+	module.config.Retries = 0
+	module.config.VerificationPassEnabled = true
+
+	originalDial := dialTimeout
+	defer func() { dialTimeout = originalDial }()
+
+	var attemptsMu sync.Mutex
+	attempts := make(map[string]int)
+
+	dialTimeout = func(network, address string, timeout time.Duration) (net.Conn, error) {
+		attemptsMu.Lock()
+		attempts[address]++
+		attempt := attempts[address]
+		attemptsMu.Unlock()
+
+		if strings.HasSuffix(address, ":80") && attempt == 1 {
+			return nil, timeoutTestError{}
+		}
+
+		c1, c2 := net.Pipe()
+		_ = c2.Close()
+		return c1, nil
+	}
+
+	openPortsByTarget := make(map[string][]int)
+	timedOutPortsByTarget := make(map[string][]int)
+	refusedPortsByTarget := make(map[string][]int)
+	otherErrorPortsByTarget := make(map[string][]int)
+	var mapMutex sync.Mutex
+
+	ipPorts := module.scanTargetPortsAll(
+		context.Background(),
+		"127.0.0.1",
+		[]int{80, 443},
+		make(chan struct{}, 4),
+		&mapMutex,
+		openPortsByTarget,
+		timedOutPortsByTarget,
+		refusedPortsByTarget,
+		otherErrorPortsByTarget,
+	)
+
+	assert.Equal(t, []int{80, 443}, ipPorts)
+	assert.Equal(t, []int{80, 443}, openPortsByTarget["127.0.0.1"])
+	assert.Empty(t, timedOutPortsByTarget["127.0.0.1"])
+	assert.Empty(t, refusedPortsByTarget["127.0.0.1"])
+	assert.Empty(t, otherErrorPortsByTarget["127.0.0.1"])
+
+	attemptsMu.Lock()
+	assert.Equal(t, 2, attempts["127.0.0.1:80"])
+	assert.Equal(t, 1, attempts["127.0.0.1:443"])
+	attemptsMu.Unlock()
+}
+
+func TestTCPPortDiscoveryModule_ScanTargetPortsAll_VerificationPassDisabledLeavesMiss(t *testing.T) {
+	module := newTCPPortDiscoveryModule()
+	module.config.Timeout = 10 * time.Millisecond
+	module.config.Retries = 0
+	module.config.VerificationPassEnabled = false
+
+	originalDial := dialTimeout
+	defer func() { dialTimeout = originalDial }()
+
+	var attemptsMu sync.Mutex
+	attempts := make(map[string]int)
+
+	dialTimeout = func(network, address string, timeout time.Duration) (net.Conn, error) {
+		attemptsMu.Lock()
+		attempts[address]++
+		attempt := attempts[address]
+		attemptsMu.Unlock()
+
+		if strings.HasSuffix(address, ":80") && attempt == 1 {
+			return nil, timeoutTestError{}
+		}
+
+		c1, c2 := net.Pipe()
+		_ = c2.Close()
+		return c1, nil
+	}
+
+	openPortsByTarget := make(map[string][]int)
+	timedOutPortsByTarget := make(map[string][]int)
+	refusedPortsByTarget := make(map[string][]int)
+	otherErrorPortsByTarget := make(map[string][]int)
+	var mapMutex sync.Mutex
+
+	ipPorts := module.scanTargetPortsAll(
+		context.Background(),
+		"127.0.0.1",
+		[]int{80, 443},
+		make(chan struct{}, 4),
+		&mapMutex,
+		openPortsByTarget,
+		timedOutPortsByTarget,
+		refusedPortsByTarget,
+		otherErrorPortsByTarget,
+	)
+
+	assert.Equal(t, []int{443}, ipPorts)
+	assert.Equal(t, []int{443}, openPortsByTarget["127.0.0.1"])
+	assert.Equal(t, []int{80}, timedOutPortsByTarget["127.0.0.1"])
+	assert.Empty(t, refusedPortsByTarget["127.0.0.1"])
+	assert.Empty(t, otherErrorPortsByTarget["127.0.0.1"])
+
+	attemptsMu.Lock()
+	assert.Equal(t, 1, attempts["127.0.0.1:80"])
+	assert.Equal(t, 1, attempts["127.0.0.1:443"])
+	attemptsMu.Unlock()
 }
 
 func TestTCPPortDiscoveryModule_Execute_NoTargets(t *testing.T) {
@@ -570,6 +812,7 @@ func TestTCPPortDiscoveryModule_StopOnFirstOpenDisabledScansAll(t *testing.T) {
 	module.config.Timeout = 20 * time.Millisecond
 	module.config.Concurrency = 8
 	module.config.StopOnFirstOpen = false
+	module.config.VerificationPassEnabled = false
 
 	originalDial := dialTimeout
 	t.Cleanup(func() { dialTimeout = originalDial })
@@ -611,4 +854,110 @@ func TestTCPPortDiscoveryModule_StopOnFirstOpenDisabledScansAll(t *testing.T) {
 	if attempts != 4 {
 		t.Fatalf("attempt count = %d, want 4", attempts)
 	}
+}
+
+func TestTCPPortDiscoveryModule_Execute_ReportsTimedOutPorts(t *testing.T) {
+	module := newTCPPortDiscoveryModule()
+	module.meta.ID = "test-timeout-instance"
+	module.config.Targets = []string{"198.51.100.30"}
+	module.config.Ports = []string{"301", "302", "303"}
+	module.config.Timeout = 20 * time.Millisecond
+	module.config.Concurrency = 3
+
+	originalDial := dialTimeout
+	t.Cleanup(func() { dialTimeout = originalDial })
+
+	dialTimeout = func(network, address string, timeout time.Duration) (net.Conn, error) {
+		_, portStr, err := net.SplitHostPort(address)
+		if err != nil {
+			return nil, err
+		}
+		port, err := strconv.Atoi(portStr)
+		if err != nil {
+			return nil, err
+		}
+
+		switch port {
+		case 301:
+			c1, c2 := net.Pipe()
+			_ = c2.Close()
+			return c1, nil
+		case 302:
+			return nil, timeoutTestError{}
+		default:
+			return nil, errors.New("closed")
+		}
+	}
+
+	outputs := make(chan engine.ModuleOutput, 8)
+	err := module.Execute(context.Background(), map[string]any{}, outputs)
+	require.NoError(t, err)
+	close(outputs)
+
+	found := false
+	for out := range outputs {
+		result, ok := out.Data.(TCPPortDiscoveryResult)
+		if !ok || result.Target != "198.51.100.30" {
+			continue
+		}
+		assert.Equal(t, []int{301}, result.OpenPorts)
+		assert.Equal(t, []int{302}, result.TimedOutPorts)
+		found = true
+	}
+
+	assert.True(t, found, "expected timeout-aware TCP discovery result")
+}
+
+func TestTCPPortDiscoveryModule_Execute_ReportsRefusedAndOtherErrorPorts(t *testing.T) {
+	module := newTCPPortDiscoveryModule()
+	module.meta.ID = "test-negative-instance"
+	module.config.Targets = []string{"198.51.100.31"}
+	module.config.Ports = []string{"401", "402", "403"}
+	module.config.Timeout = 20 * time.Millisecond
+	module.config.Concurrency = 3
+
+	originalDial := dialTimeout
+	t.Cleanup(func() { dialTimeout = originalDial })
+
+	dialTimeout = func(network, address string, timeout time.Duration) (net.Conn, error) {
+		_, portStr, err := net.SplitHostPort(address)
+		if err != nil {
+			return nil, err
+		}
+		port, err := strconv.Atoi(portStr)
+		if err != nil {
+			return nil, err
+		}
+
+		switch port {
+		case 401:
+			return nil, syscall.ECONNREFUSED
+		case 402:
+			return nil, errors.New("other socket failure")
+		default:
+			c1, c2 := net.Pipe()
+			_ = c2.Close()
+			return c1, nil
+		}
+	}
+
+	outputs := make(chan engine.ModuleOutput, 8)
+	err := module.Execute(context.Background(), map[string]any{}, outputs)
+	require.NoError(t, err)
+	close(outputs)
+
+	found := false
+	for out := range outputs {
+		result, ok := out.Data.(TCPPortDiscoveryResult)
+		if !ok || result.Target != "198.51.100.31" {
+			continue
+		}
+		assert.Equal(t, []int{403}, result.OpenPorts)
+		assert.Equal(t, []int{401}, result.RefusedPorts)
+		assert.Equal(t, []int{402}, result.OtherErrorPorts)
+		assert.Empty(t, result.TimedOutPorts)
+		found = true
+	}
+
+	assert.True(t, found, "expected refused/other-aware TCP discovery result")
 }

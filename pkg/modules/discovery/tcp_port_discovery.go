@@ -3,11 +3,14 @@ package discovery
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	// Utilities like target and port parsing
@@ -21,19 +24,24 @@ import (
 
 // TCPPortDiscoveryResult stores the outcome of the TCP port discovery for a single target.
 type TCPPortDiscoveryResult struct {
-	Target    string `json:"target"`   // IP address
-	Hostname  string `json:"hostname"` // Original hostname (if target was a domain)
-	OpenPorts []int  `json:"open_ports"`
+	Target          string `json:"target"`   // IP address
+	Hostname        string `json:"hostname"` // Original hostname (if target was a domain)
+	OpenPorts       []int  `json:"open_ports"`
+	TimedOutPorts   []int  `json:"timed_out_ports,omitempty"`
+	RefusedPorts    []int  `json:"refused_ports,omitempty"`
+	OtherErrorPorts []int  `json:"other_error_ports,omitempty"`
 }
 
 // TCPPortDiscoveryConfig holds configuration for the TCP port discovery module.
 type TCPPortDiscoveryConfig struct {
-	Targets         []string      `json:"targets"`
-	Ports           []string      `json:"ports"`   // Port ranges and lists (e.g., "1-1024", "80,443,8080")
-	Timeout         time.Duration `json:"timeout"` // Connection timeout for each port
-	Concurrency     int           `json:"concurrency"`
-	Retries         int           `json:"retries"`
-	StopOnFirstOpen bool          `json:"stop_on_first_open"`
+	Targets                 []string              `json:"targets"`
+	Ports                   []string              `json:"ports"`   // Port ranges and lists (e.g., "1-1024", "80,443,8080")
+	Timeout                 time.Duration         `json:"timeout"` // Connection timeout for each port
+	PortTimeoutOverrides    map[int]time.Duration `json:"port_timeout_overrides,omitempty"`
+	Concurrency             int                   `json:"concurrency"`
+	Retries                 int                   `json:"retries"`
+	StopOnFirstOpen         bool                  `json:"stop_on_first_open"`
+	VerificationPassEnabled bool                  `json:"verification_pass_enabled"`
 }
 
 // TCPPortDiscoveryModule implements the engine.Module interface for TCP port discovery.
@@ -47,12 +55,22 @@ const (
 	defaultTCPPortDiscoveryTimeout = 1 * time.Second
 	defaultTCPConcurrency          = 100
 	defaultTCPPorts                = "1-1024" // Default common ports or a well-known range
+	experimentalInterProbeDelay    = 0 * time.Millisecond
 )
 
 var (
-	lookupHost  = net.LookupHost
-	dialTimeout = net.DialTimeout
+	lookupHost               = net.LookupHost
+	dialTimeout              = net.DialTimeout
+	experimentalGlobalPPSCap = 0
+	globalProbeTicker        = newGlobalProbeTicker()
 )
+
+func newGlobalProbeTicker() *time.Ticker {
+	if experimentalGlobalPPSCap > 0 {
+		return time.NewTicker(time.Second / time.Duration(experimentalGlobalPPSCap))
+	}
+	return nil
+}
 
 // newTCPPortDiscoveryModule is the internal constructor for the module.
 // It sets up metadata and initializes the config with default values.
@@ -60,11 +78,12 @@ var (
 //nolint:dupl // TCP/UDP discovery module metadata is intentionally parallel for maintainability.
 func newTCPPortDiscoveryModule() *TCPPortDiscoveryModule {
 	defaultConfig := TCPPortDiscoveryConfig{
-		Ports:           []string{defaultTCPPorts},
-		Timeout:         defaultTCPPortDiscoveryTimeout,
-		Concurrency:     defaultTCPConcurrency,
-		Retries:         0,
-		StopOnFirstOpen: false,
+		Ports:                   []string{defaultTCPPorts},
+		Timeout:                 defaultTCPPortDiscoveryTimeout,
+		Concurrency:             defaultTCPConcurrency,
+		Retries:                 0,
+		StopOnFirstOpen:         false,
+		VerificationPassEnabled: true,
 	}
 	return &TCPPortDiscoveryModule{
 		meta: engine.ModuleMetadata{
@@ -128,6 +147,12 @@ func newTCPPortDiscoveryModule() *TCPPortDiscoveryModule {
 					Required:    false,
 					Default:     defaultTCPPortDiscoveryTimeout.String(),
 				},
+				"port_timeout_overrides": {
+					Description: "Per-port timeout overrides keyed by port number (e.g., {\"445\":\"8s\"}).",
+					Type:        "map",
+					Required:    false,
+					Default:     map[string]string{},
+				},
 				"concurrency": {
 					Description: "Number of concurrent port scanning goroutines.",
 					Type:        "int",
@@ -142,6 +167,12 @@ func newTCPPortDiscoveryModule() *TCPPortDiscoveryModule {
 				},
 				"stop_on_first_open": {
 					Description: "Stop scanning remaining ports for a target after the first open port is found.",
+					Type:        "bool",
+					Required:    false,
+					Default:     true,
+				},
+				"verification_pass_enabled": {
+					Description: "Run a targeted verification pass only for ports not found open in the first pass.",
 					Type:        "bool",
 					Required:    false,
 					Default:     false,
@@ -181,6 +212,9 @@ func (m *TCPPortDiscoveryModule) Init(instanceID string, moduleConfig map[string
 			fmt.Printf("[WARN] Module '%s': Invalid 'timeout' format in config: '%s'. Using default: %s\n", m.meta.Name, timeoutStr, cfg.Timeout)
 		}
 	}
+	if timeoutOverrides, ok := parsePortTimeoutOverrides(moduleConfig["port_timeout_overrides"]); ok {
+		cfg.PortTimeoutOverrides = timeoutOverrides
+	}
 	if concurrencyVal, ok := moduleConfig["concurrency"]; ok {
 		cfg.Concurrency = cast.ToInt(concurrencyVal)
 		if cfg.Concurrency < 1 {
@@ -197,6 +231,9 @@ func (m *TCPPortDiscoveryModule) Init(instanceID string, moduleConfig map[string
 	}
 	if stopVal, ok := moduleConfig["stop_on_first_open"]; ok {
 		cfg.StopOnFirstOpen = cast.ToBool(stopVal)
+	}
+	if verificationPassEnabled, ok := moduleConfig["verification_pass_enabled"]; ok {
+		cfg.VerificationPassEnabled = cast.ToBool(verificationPassEnabled)
 	}
 
 	// Sanitize final values
@@ -215,6 +252,51 @@ func (m *TCPPortDiscoveryModule) Init(instanceID string, moduleConfig map[string
 		Str("module", m.meta.Name).
 		Str("instance_id", m.meta.ID).Interface("config", m.config).Msg("Module configuration initialized with config.")
 	return nil
+}
+
+func parsePortTimeoutOverrides(raw any) (map[int]time.Duration, bool) {
+	if raw == nil {
+		return nil, false
+	}
+
+	rawMap, ok := raw.(map[string]any)
+	if !ok {
+		if stringMap, stringOK := raw.(map[string]string); stringOK {
+			rawMap = make(map[string]any, len(stringMap))
+			for port, timeout := range stringMap {
+				rawMap[port] = timeout
+			}
+			ok = true
+		}
+	}
+	if !ok {
+		return nil, false
+	}
+
+	overrides := make(map[int]time.Duration, len(rawMap))
+	for portKey, timeoutValue := range rawMap {
+		port, err := strconv.Atoi(strings.TrimSpace(portKey))
+		if err != nil || port < 1 || port > 65535 {
+			continue
+		}
+		timeoutStr := strings.TrimSpace(cast.ToString(timeoutValue))
+		if timeoutStr == "" {
+			continue
+		}
+		timeout, err := time.ParseDuration(timeoutStr)
+		if err != nil || timeout <= 0 {
+			continue
+		}
+		overrides[port] = timeout
+	}
+	return overrides, true
+}
+
+func (m *TCPPortDiscoveryModule) timeoutForPort(port int) time.Duration {
+	if timeout, ok := m.config.PortTimeoutOverrides[port]; ok && timeout > 0 {
+		return timeout
+	}
+	return m.config.Timeout
 }
 
 // Execute performs the TCP port discovery.
@@ -284,6 +366,9 @@ func (m *TCPPortDiscoveryModule) Execute(ctx context.Context, inputs map[string]
 
 	// Group results by target
 	openPortsByTarget := make(map[string][]int)
+	timedOutPortsByTarget := make(map[string][]int)
+	refusedPortsByTarget := make(map[string][]int)
+	otherErrorPortsByTarget := make(map[string][]int)
 	var mapMutex sync.Mutex // To protect openPortsByTarget map
 
 	// Per-target streaming: Launch goroutine for each IP (no batch waiting)
@@ -306,7 +391,17 @@ func (m *TCPPortDiscoveryModule) Execute(ctx context.Context, inputs map[string]
 			// Streaming event: Target started
 			engine.PublishEvent(ctx, engine.NewTargetStartedEvent(ip, "port_scan"))
 
-			ipPorts := m.scanTargetPorts(ctx, ip, parsedPorts, sem, &mapMutex, openPortsByTarget)
+			ipPorts := m.scanTargetPorts(
+				ctx,
+				ip,
+				parsedPorts,
+				sem,
+				&mapMutex,
+				openPortsByTarget,
+				timedOutPortsByTarget,
+				refusedPortsByTarget,
+				otherErrorPortsByTarget,
+			)
 
 			duration := time.Since(startTime)
 			logger.Debug().Msgf("Completed target: %s (duration: %v, open ports: %d)", ip, duration, len(ipPorts))
@@ -319,26 +414,44 @@ func (m *TCPPortDiscoveryModule) Execute(ctx context.Context, inputs map[string]
 endLoops:
 	wg.Wait() // Wait for all targets to complete or be canceled
 	// Send aggregated results per target
-	for target, openPorts := range openPortsByTarget {
-		if len(openPorts) > 0 {
-			// Sort openPorts for consistent output if necessary
-			// sort.Ints(openPorts)
-			result := TCPPortDiscoveryResult{
-				Target:    target,
-				Hostname:  hostnameByIP[target],
-				OpenPorts: openPorts,
-			}
-			outputChan <- engine.ModuleOutput{
-				FromModuleName: m.meta.ID,
-				DataKey:        m.meta.Produces[0].Key, // "discovery.open_tcp_ports"
-				Data:           result,
-				Timestamp:      time.Now(),
-				Target:         target,
-			}
-			logger.Info().
-				Str("target", target).
-				Ints("open_ports", openPorts).Msgf("Target %s - Open TCP Ports: %v", target, openPorts)
+	for _, target := range targetsToScan {
+		openPorts := openPortsByTarget[target]
+		timedOutPorts := timedOutPortsByTarget[target]
+		refusedPorts := refusedPortsByTarget[target]
+		otherErrorPorts := otherErrorPortsByTarget[target]
+		if len(openPorts) == 0 && len(timedOutPorts) == 0 && len(refusedPorts) == 0 && len(otherErrorPorts) == 0 {
+			continue
 		}
+
+		result := TCPPortDiscoveryResult{
+			Target:          target,
+			Hostname:        hostnameByIP[target],
+			OpenPorts:       openPorts,
+			TimedOutPorts:   timedOutPorts,
+			RefusedPorts:    refusedPorts,
+			OtherErrorPorts: otherErrorPorts,
+		}
+		outputChan <- engine.ModuleOutput{
+			FromModuleName: m.meta.ID,
+			DataKey:        m.meta.Produces[0].Key, // "discovery.open_tcp_ports"
+			Data:           result,
+			Timestamp:      time.Now(),
+			Target:         target,
+		}
+		logger.Info().
+			Str("target", target).
+			Ints("open_ports", openPorts).
+			Ints("timed_out_ports", timedOutPorts).
+			Ints("refused_ports", refusedPorts).
+			Ints("other_error_ports", otherErrorPorts).
+			Msgf(
+				"Target %s - Open TCP Ports: %v, Timed Out TCP Ports: %v, Refused TCP Ports: %v, Other Error TCP Ports: %v",
+				target,
+				openPorts,
+				timedOutPorts,
+				refusedPorts,
+				otherErrorPorts,
+			)
 	}
 	// If no open ports were found for any target, we might still want to send an empty aggregate or signal completion.
 	// The current logic sends per-target results, so if all targets have no open ports, nothing is sent from this loop.
@@ -354,11 +467,34 @@ func (m *TCPPortDiscoveryModule) scanTargetPorts(
 	sem chan struct{},
 	mapMutex *sync.Mutex,
 	openPortsByTarget map[string][]int,
+	timedOutPortsByTarget map[string][]int,
+	refusedPortsByTarget map[string][]int,
+	otherErrorPortsByTarget map[string][]int,
 ) []int {
 	if m.config.StopOnFirstOpen {
-		return m.scanTargetPortsStopOnFirstOpen(ctx, ip, parsedPorts, sem, mapMutex, openPortsByTarget)
+		return m.scanTargetPortsStopOnFirstOpen(
+			ctx,
+			ip,
+			parsedPorts,
+			sem,
+			mapMutex,
+			openPortsByTarget,
+			timedOutPortsByTarget,
+			refusedPortsByTarget,
+			otherErrorPortsByTarget,
+		)
 	}
-	return m.scanTargetPortsAll(ctx, ip, parsedPorts, sem, mapMutex, openPortsByTarget)
+	return m.scanTargetPortsAll(
+		ctx,
+		ip,
+		parsedPorts,
+		sem,
+		mapMutex,
+		openPortsByTarget,
+		timedOutPortsByTarget,
+		refusedPortsByTarget,
+		otherErrorPortsByTarget,
+	)
 }
 
 func (m *TCPPortDiscoveryModule) scanTargetPortsStopOnFirstOpen(
@@ -368,6 +504,9 @@ func (m *TCPPortDiscoveryModule) scanTargetPortsStopOnFirstOpen(
 	sem chan struct{},
 	mapMutex *sync.Mutex,
 	openPortsByTarget map[string][]int,
+	timedOutPortsByTarget map[string][]int,
+	refusedPortsByTarget map[string][]int,
+	otherErrorPortsByTarget map[string][]int,
 ) []int {
 	ipPorts := make([]int, 0, 1)
 
@@ -380,9 +519,10 @@ func (m *TCPPortDiscoveryModule) scanTargetPortsStopOnFirstOpen(
 
 		sem <- struct{}{}
 		address := net.JoinHostPort(ip, strconv.Itoa(p))
-		conn, err := m.dialWithRetries(ctx, address)
+		conn, err := m.dialWithRetries(ctx, address, p)
 		<-sem
 		if err != nil {
+			recordNegativeOutcome(mapMutex, ip, p, err, timedOutPortsByTarget, refusedPortsByTarget, otherErrorPortsByTarget)
 			continue
 		}
 		_ = conn.Close()
@@ -410,15 +550,56 @@ func (m *TCPPortDiscoveryModule) scanTargetPortsAll(
 	sem chan struct{},
 	mapMutex *sync.Mutex,
 	openPortsByTarget map[string][]int,
+	timedOutPortsByTarget map[string][]int,
+	refusedPortsByTarget map[string][]int,
+	otherErrorPortsByTarget map[string][]int,
 ) []int {
-	var portWg sync.WaitGroup
-	ipPorts := make([]int, 0)
-	var ipMutex sync.Mutex
+	outcomes := newTCPPortScanOutcomes()
+	m.scanPortBatch(ctx, ip, parsedPorts, sem, outcomes)
 
-	for _, port := range parsedPorts {
+	if m.config.VerificationPassEnabled {
+		missedPorts := outcomes.missedPorts(parsedPorts)
+		if len(missedPorts) > 0 {
+			m.scanPortBatch(ctx, ip, missedPorts, sem, outcomes)
+		}
+	}
+
+	openPorts := outcomes.openPorts()
+	timedOutPorts := outcomes.timedOutPorts()
+	refusedPorts := outcomes.refusedPorts()
+	otherErrorPorts := outcomes.otherErrorPorts()
+
+	mapMutex.Lock()
+	if len(openPorts) > 0 {
+		openPortsByTarget[ip] = openPorts
+	}
+	if len(timedOutPorts) > 0 {
+		timedOutPortsByTarget[ip] = timedOutPorts
+	}
+	if len(refusedPorts) > 0 {
+		refusedPortsByTarget[ip] = refusedPorts
+	}
+	if len(otherErrorPorts) > 0 {
+		otherErrorPortsByTarget[ip] = otherErrorPorts
+	}
+	mapMutex.Unlock()
+
+	return openPorts
+}
+
+func (m *TCPPortDiscoveryModule) scanPortBatch(
+	ctx context.Context,
+	ip string,
+	ports []int,
+	sem chan struct{},
+	outcomes *tcpPortScanOutcomes,
+) {
+	var portWg sync.WaitGroup
+
+	for _, port := range ports {
 		select {
 		case <-ctx.Done():
-			return ipPorts
+			return
 		default:
 		}
 
@@ -435,19 +616,14 @@ func (m *TCPPortDiscoveryModule) scanTargetPortsAll(
 			}
 
 			address := net.JoinHostPort(ip, strconv.Itoa(p))
-			conn, err := m.dialWithRetries(ctx, address)
+			conn, err := m.dialWithRetries(ctx, address, p)
 			if err != nil {
+				outcomes.recordNegative(p, err)
 				return
 			}
 			_ = conn.Close()
 
-			ipMutex.Lock()
-			ipPorts = append(ipPorts, p)
-			ipMutex.Unlock()
-
-			mapMutex.Lock()
-			openPortsByTarget[ip] = append(openPortsByTarget[ip], p)
-			mapMutex.Unlock()
+			outcomes.recordOpen(p)
 
 			if out, ok := ctx.Value(output.OutputKey).(output.Output); ok {
 				out.Diag(output.LevelNormal, fmt.Sprintf("Open port: %s:%d/tcp", ip, p), nil)
@@ -457,12 +633,12 @@ func (m *TCPPortDiscoveryModule) scanTargetPortsAll(
 	}
 
 	portWg.Wait()
-	return ipPorts
 }
 
-func (m *TCPPortDiscoveryModule) dialWithRetries(ctx context.Context, address string) (net.Conn, error) {
+func (m *TCPPortDiscoveryModule) dialWithRetries(ctx context.Context, address string, port int) (net.Conn, error) {
 	attempts := m.config.Retries + 1
 	var lastErr error
+	timeout := m.timeoutForPort(port)
 
 	for attempt := 0; attempt < attempts; attempt++ {
 		select {
@@ -471,7 +647,25 @@ func (m *TCPPortDiscoveryModule) dialWithRetries(ctx context.Context, address st
 		default:
 		}
 
-		conn, err := dialTimeout("tcp", address, m.config.Timeout)
+		if experimentalInterProbeDelay > 0 {
+			timer := time.NewTimer(experimentalInterProbeDelay)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return nil, ctx.Err()
+			case <-timer.C:
+			}
+		}
+
+		if globalProbeTicker != nil {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-globalProbeTicker.C:
+			}
+		}
+
+		conn, err := dialTimeout("tcp", address, timeout)
 		if err == nil {
 			return conn, nil
 		}
@@ -479,6 +673,137 @@ func (m *TCPPortDiscoveryModule) dialWithRetries(ctx context.Context, address st
 	}
 
 	return nil, lastErr
+}
+
+func isTimeoutLikeError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var netErr net.Error
+	return errors.As(err, &netErr) && netErr.Timeout()
+}
+
+func isRefusedLikeError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return errors.Is(err, syscall.ECONNREFUSED)
+}
+
+func recordNegativeOutcome(
+	mapMutex *sync.Mutex,
+	ip string,
+	port int,
+	err error,
+	timedOutPortsByTarget map[string][]int,
+	refusedPortsByTarget map[string][]int,
+	otherErrorPortsByTarget map[string][]int,
+) {
+	mapMutex.Lock()
+	defer mapMutex.Unlock()
+
+	switch {
+	case isTimeoutLikeError(err):
+		timedOutPortsByTarget[ip] = append(timedOutPortsByTarget[ip], port)
+	case isRefusedLikeError(err):
+		refusedPortsByTarget[ip] = append(refusedPortsByTarget[ip], port)
+	default:
+		otherErrorPortsByTarget[ip] = append(otherErrorPortsByTarget[ip], port)
+	}
+}
+
+type tcpPortScanOutcomes struct {
+	mu          sync.Mutex
+	open        map[int]struct{}
+	timedOut    map[int]struct{}
+	refused     map[int]struct{}
+	otherErrors map[int]struct{}
+}
+
+func newTCPPortScanOutcomes() *tcpPortScanOutcomes {
+	return &tcpPortScanOutcomes{
+		open:        make(map[int]struct{}),
+		timedOut:    make(map[int]struct{}),
+		refused:     make(map[int]struct{}),
+		otherErrors: make(map[int]struct{}),
+	}
+}
+
+func (o *tcpPortScanOutcomes) recordOpen(port int) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	o.open[port] = struct{}{}
+	delete(o.timedOut, port)
+	delete(o.refused, port)
+	delete(o.otherErrors, port)
+}
+
+func (o *tcpPortScanOutcomes) recordNegative(port int, err error) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	if _, ok := o.open[port]; ok {
+		return
+	}
+
+	delete(o.timedOut, port)
+	delete(o.refused, port)
+	delete(o.otherErrors, port)
+
+	switch {
+	case isTimeoutLikeError(err):
+		o.timedOut[port] = struct{}{}
+	case isRefusedLikeError(err):
+		o.refused[port] = struct{}{}
+	default:
+		o.otherErrors[port] = struct{}{}
+	}
+}
+
+func (o *tcpPortScanOutcomes) missedPorts(parsedPorts []int) []int {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	missed := make([]int, 0, len(parsedPorts))
+	for _, port := range parsedPorts {
+		if _, ok := o.open[port]; ok {
+			continue
+		}
+		missed = append(missed, port)
+	}
+	return missed
+}
+
+func (o *tcpPortScanOutcomes) openPorts() []int {
+	return sortedPortsFromSet(o.open)
+}
+
+func (o *tcpPortScanOutcomes) timedOutPorts() []int {
+	return sortedPortsFromSet(o.timedOut)
+}
+
+func (o *tcpPortScanOutcomes) refusedPorts() []int {
+	return sortedPortsFromSet(o.refused)
+}
+
+func (o *tcpPortScanOutcomes) otherErrorPorts() []int {
+	return sortedPortsFromSet(o.otherErrors)
+}
+
+func sortedPortsFromSet(set map[int]struct{}) []int {
+	if len(set) == 0 {
+		return nil
+	}
+	ports := make([]int, 0, len(set))
+	for port := range set {
+		ports = append(ports, port)
+	}
+	sort.Ints(ports)
+	return ports
 }
 
 // TCPPortDiscoveryModuleFactory creates a new TCPPortDiscoveryModule instance.
