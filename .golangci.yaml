@@ -187,7 +187,8 @@ linters:
 
     misspell:
       locale: US
-      # Note: ignore-words not supported, use .misspell_ignore file if needed
+      ignore-rules:
+        - routeros # MikroTik RouterOS product name, not a misspelling of "routers"
 
   # Exclusion rules for test files
   exclusions:
