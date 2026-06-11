@@ -6,34 +6,37 @@ import (
 )
 
 const (
-	TagDNS          = "dns"
-	TagFTP          = "ftp"
-	TagMailService  = "mail_service"
-	TagWebmail      = "webmail"
-	TagTelnet       = "telnet"
-	TagSMTP         = "smtp"
-	TagIMAP         = "imap"
-	TagPOP3         = "pop3"
-	TagExchange     = "exchange"
-	TagOWA          = "owa"
-	TagSmarterMail  = "smartermail"
-	TagRoundcube    = "roundcube"
-	TagZimbra       = "zimbra"
-	TagSOGo         = "sogo"
-	TagRainLoop     = "rainloop"
-	TagPostfix      = "postfix"
-	TagExim         = "exim"
-	TagDovecot      = "dovecot"
-	TagMicrosoftIIS = "microsoft_iis"
-	TagRDP          = "rdp"
-	TagSNMP         = "snmp"
-	TagTLS          = "tls"
-	TagHTTPS        = "https"
-	TagRPC          = "rpc"
-	TagMSRPC        = "msrpc"
-	TagWinRM        = "winrm"
-	TagWSMAN        = "wsman"
-	TagWindowsHint  = "windows_hint"
+	TagDNS           = "dns"
+	TagFTP           = "ftp"
+	TagMailService   = "mail_service"
+	TagWebmail       = "webmail"
+	TagTelnet        = "telnet"
+	TagSMTP          = "smtp"
+	TagIMAP          = "imap"
+	TagPOP3          = "pop3"
+	TagExchange      = "exchange"
+	TagOWA           = "owa"
+	TagSmarterMail   = "smartermail"
+	TagRoundcube     = "roundcube"
+	TagZimbra        = "zimbra"
+	TagSOGo          = "sogo"
+	TagRainLoop      = "rainloop"
+	TagCPanel        = "cpanel"
+	TagWHM           = "whm"
+	TagCPanelWebmail = "cpanel_webmail"
+	TagPostfix       = "postfix"
+	TagExim          = "exim"
+	TagDovecot       = "dovecot"
+	TagMicrosoftIIS  = "microsoft_iis"
+	TagRDP           = "rdp"
+	TagSNMP          = "snmp"
+	TagTLS           = "tls"
+	TagHTTPS         = "https"
+	TagRPC           = "rpc"
+	TagMSRPC         = "msrpc"
+	TagWinRM         = "winrm"
+	TagWSMAN         = "wsman"
+	TagWindowsHint   = "windows_hint"
 )
 
 var canonicalTechTagSet = map[string]struct{}{
@@ -122,37 +125,42 @@ var canonicalTechTagSet = map[string]struct{}{
 	"wordpress":      {},
 	"zipkin":         {},
 
-	TagMailService:  {},
-	TagWebmail:      {},
-	TagSMTP:         {},
-	TagIMAP:         {},
-	TagPOP3:         {},
-	TagExchange:     {},
-	TagOWA:          {},
-	TagSmarterMail:  {},
-	TagRoundcube:    {},
-	TagZimbra:       {},
-	TagSOGo:         {},
-	TagRainLoop:     {},
-	TagPostfix:      {},
-	TagExim:         {},
-	TagDovecot:      {},
-	TagMicrosoftIIS: {},
-	TagRDP:          {},
-	TagSNMP:         {},
-	TagTLS:          {},
-	TagHTTPS:        {},
-	TagRPC:          {},
-	TagMSRPC:        {},
-	TagWinRM:        {},
-	TagWSMAN:        {},
-	TagWindowsHint:  {},
+	TagMailService:   {},
+	TagWebmail:       {},
+	TagSMTP:          {},
+	TagIMAP:          {},
+	TagPOP3:          {},
+	TagExchange:      {},
+	TagOWA:           {},
+	TagSmarterMail:   {},
+	TagRoundcube:     {},
+	TagZimbra:        {},
+	TagSOGo:          {},
+	TagRainLoop:      {},
+	TagCPanel:        {},
+	TagWHM:           {},
+	TagCPanelWebmail: {},
+	TagPostfix:       {},
+	TagExim:          {},
+	TagDovecot:       {},
+	TagMicrosoftIIS:  {},
+	TagRDP:           {},
+	TagSNMP:          {},
+	TagTLS:           {},
+	TagHTTPS:         {},
+	TagRPC:           {},
+	TagMSRPC:         {},
+	TagWinRM:         {},
+	TagWSMAN:         {},
+	TagWindowsHint:   {},
 }
 
 var techTagAliases = map[string]string{
 	"asp.net":       "asp_net",
 	"asp_net":       "asp_net",
 	"backbone.js":   "backbonejs",
+	"c-panel":       TagCPanel,
+	"c_panel":       TagCPanel,
 	"iis":           TagMicrosoftIIS,
 	"mail_server":   TagMailService,
 	"microsoft_iis": TagMicrosoftIIS,

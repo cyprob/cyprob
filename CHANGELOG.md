@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-06-11
+
+### Added
+- cPanel-family service identity coverage in HTTP identity parsing: cPanel, WHM, and cPanel Webmail are recognized as separate services via login/session markers (`cprelogin`, `whostmgrrelogin`, `webmailrelogin`) and port-aware redirect matchers (`2082/2083 -> cpanel`, `2086/2087 -> whm`, `2095/2096 -> cpanel_webmail`), including slashless `Location` redirects.
+- Exact cPanel-family tech tags: `cpanel`, `whm`, `cpanel_webmail`.
+- Tests covering cPanel-family identity hints, normalization, and tech tagging.
+
+### Changed
+- Control WebPanel (CWP) responses (`cwpsrv`, `cwp_theme`) are excluded from cPanel redirect rules to prevent false positives.
+
+### Removed
+- `hosting_panel` generated tech tag; consumers must select on exact cPanel-family tags.
+
 ## [0.8.0] - 2026-05-05
 
 ### Added

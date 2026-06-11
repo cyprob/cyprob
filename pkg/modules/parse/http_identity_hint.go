@@ -3,6 +3,7 @@ package parse
 import (
 	"html"
 	"net"
+	"net/url"
 	"regexp"
 	"sort"
 	"strings"
@@ -11,32 +12,44 @@ import (
 )
 
 const (
-	httpIdentitySkipProxyOnly            = "proxy_only"
-	httpIdentitySkipNoSignature          = "no_signature"
-	httpIdentitySkipStrongerSource       = "stronger_source_exists"
-	bannerResponseClassOrigin            = "origin"
-	bannerResponseClassProxy             = "proxy"
-	bannerResponseClassProxyOnly         = "proxy_only"
-	httpIdentitySignalGitHubHost         = "host:github"
-	httpIdentitySignalGitHubTitle        = "title:github"
-	httpIdentitySignalGitHubBody         = "body:github"
-	httpIdentitySignalGitHubCookie       = "cookie:_octo"
-	httpIdentitySignalSmarterMailTitle   = "title:smartermail"
-	httpIdentitySignalSmarterMailBody    = "body:smartermail"
-	httpIdentitySignalSmarterMailRoute   = "location:/interface/root"
-	httpIdentitySignalWordPressBody      = "body:wordpress"
-	httpIdentitySignalWordPressContent   = "body:wp-content"
-	httpIdentitySignalWordPressTitle     = "title:wordpress"
-	httpIdentitySignalDrupalBody         = "body:drupal"
-	httpIdentitySignalDrupalSitesAll     = "body:sites/all"
-	httpIdentitySignalDrupalSitesDefault = "body:sites/default"
-	httpIdentitySignalJoomlaBody         = "body:joomla"
-	httpIdentitySignalJoomlaContent      = "body:com_content"
-	httpIdentityConfidenceGitHub         = 0.90
-	httpIdentityConfidenceSmarterMail    = 0.75
-	httpIdentityConfidenceCMS            = 0.80
-	httpIdentityConfidenceXPoweredBy     = 0.70
-	httpIdentityConfidenceServerHeader   = 0.65
+	httpIdentitySkipProxyOnly               = "proxy_only"
+	httpIdentitySkipNoSignature             = "no_signature"
+	httpIdentitySkipStrongerSource          = "stronger_source_exists"
+	bannerResponseClassOrigin               = "origin"
+	bannerResponseClassProxy                = "proxy"
+	bannerResponseClassProxyOnly            = "proxy_only"
+	httpIdentitySignalGitHubHost            = "host:github"
+	httpIdentitySignalGitHubTitle           = "title:github"
+	httpIdentitySignalGitHubBody            = "body:github"
+	httpIdentitySignalGitHubCookie          = "cookie:_octo"
+	httpIdentitySignalSmarterMailTitle      = "title:smartermail"
+	httpIdentitySignalSmarterMailBody       = "body:smartermail"
+	httpIdentitySignalSmarterMailRoute      = "location:/interface/root"
+	httpIdentitySignalWordPressBody         = "body:wordpress"
+	httpIdentitySignalWordPressContent      = "body:wp-content"
+	httpIdentitySignalWordPressTitle        = "title:wordpress"
+	httpIdentitySignalDrupalBody            = "body:drupal"
+	httpIdentitySignalDrupalSitesAll        = "body:sites/all"
+	httpIdentitySignalDrupalSitesDefault    = "body:sites/default"
+	httpIdentitySignalJoomlaBody            = "body:joomla"
+	httpIdentitySignalJoomlaContent         = "body:com_content"
+	httpIdentitySignalCPanelMagic           = "body:cpanel_magic_revision"
+	httpIdentitySignalCPanelLoginForm       = "body:cpanel_login_form"
+	httpIdentitySignalCPanelCookie          = "cookie:cpanel"
+	httpIdentitySignalCPanelTitle           = "title:cpanel"
+	httpIdentitySignalCPanelPortRedirect    = "location:cpanel_port"
+	httpIdentitySignalWHMCookie             = "cookie:whostmgr"
+	httpIdentitySignalWHMTitle              = "title:whm_login"
+	httpIdentitySignalWHMPortRedirect       = "location:whm_port"
+	httpIdentitySignalCPanelWebmailCookie   = "cookie:cpanel_webmail"
+	httpIdentitySignalCPanelWebmailTitle    = "title:cpanel_webmail_login"
+	httpIdentitySignalCPanelWebmailRedirect = "location:cpanel_webmail_port"
+	httpIdentityConfidenceGitHub            = 0.90
+	httpIdentityConfidenceSmarterMail       = 0.75
+	httpIdentityConfidenceCMS               = 0.80
+	httpIdentityConfidenceCPanel            = 0.88
+	httpIdentityConfidenceXPoweredBy        = 0.70
+	httpIdentityConfidenceServerHeader      = 0.65
 )
 
 var (
@@ -94,7 +107,7 @@ func detectHTTPIdentitySignals(banner scanpkg.BannerGrabResult) ([]httpIdentityS
 		if !ok {
 			continue
 		}
-		signals := inferHTTPIdentitySignals(parsed, host)
+		signals := inferHTTPIdentitySignals(parsed, host, banner.Port)
 		for _, signal := range signals {
 			if existing, ok := signalSet[signal.Token]; !ok || signal.Confidence > existing.Confidence {
 				signalSet[signal.Token] = signal
@@ -132,7 +145,7 @@ func shouldEvaluateHTTPIdentity(entry *ServiceIdentityInfo, banner scanpkg.Banne
 
 func isHTTPIdentityPort(port int) bool {
 	switch port {
-	case 80, 443, 8443, 9443:
+	case 80, 443, 2082, 2083, 2086, 2087, 2095, 2096, 8443, 9443:
 		return true
 	default:
 		return false
@@ -247,7 +260,7 @@ func parseHTTPIdentityResponse(raw string) (httpIdentityResponse, bool) {
 	}, true
 }
 
-func inferHTTPIdentitySignals(response httpIdentityResponse, host string) []httpIdentitySignal {
+func inferHTTPIdentitySignals(response httpIdentityResponse, host string, port int) []httpIdentitySignal {
 	bodyLower := strings.ToLower(response.Body)
 	titleLower := strings.ToLower(response.Title)
 	hostLower := strings.ToLower(strings.TrimSpace(host))
@@ -318,6 +331,34 @@ func inferHTTPIdentitySignals(response httpIdentityResponse, host string) []http
 		add(httpIdentitySignalJoomlaContent, httpIdentityConfidenceCMS)
 	}
 
+	if strings.Contains(bodyLower, "cpanel_magic_revision") {
+		add(httpIdentitySignalCPanelMagic, httpIdentityConfidenceCPanel)
+	}
+	if strings.Contains(bodyLower, `id="login_form"`) && strings.Contains(bodyLower, `action="/login/"`) {
+		add(httpIdentitySignalCPanelLoginForm, httpIdentityConfidenceCPanel)
+	}
+	if strings.Contains(setCookie, "cprelogin=") || strings.Contains(setCookie, "cpsession=") {
+		add(httpIdentitySignalCPanelCookie, httpIdentityConfidenceCPanel)
+	}
+	if strings.Contains(titleLower, "cpanel") {
+		add(httpIdentitySignalCPanelTitle, httpIdentityConfidenceCPanel)
+	}
+	if strings.Contains(setCookie, "whostmgrrelogin=") || strings.Contains(setCookie, "whostmgrsession=") {
+		add(httpIdentitySignalWHMCookie, httpIdentityConfidenceCPanel)
+	}
+	if strings.Contains(titleLower, "whm login") || strings.Contains(bodyLower, "whm login") {
+		add(httpIdentitySignalWHMTitle, httpIdentityConfidenceCPanel)
+	}
+	if strings.Contains(setCookie, "webmailrelogin=") || strings.Contains(setCookie, "webmailsession=") {
+		add(httpIdentitySignalCPanelWebmailCookie, httpIdentityConfidenceCPanel)
+	}
+	if strings.Contains(titleLower, "webmail login") || strings.Contains(bodyLower, "webmail login") {
+		add(httpIdentitySignalCPanelWebmailTitle, httpIdentityConfidenceCPanel)
+	}
+	if signal := cpanelPortRedirectSignal(port, location); signal != "" && !isControlWebPanelResponse(response, bodyLower) {
+		add(signal, httpIdentityConfidenceCPanel)
+	}
+
 	if token := normalizeHTTPIdentityHeaderToken(xPoweredBy); token != "" {
 		add("x-powered-by:"+token, httpIdentityConfidenceXPoweredBy)
 	}
@@ -326,6 +367,51 @@ func inferHTTPIdentitySignals(response httpIdentityResponse, host string) []http
 	}
 
 	return signals
+}
+
+func isControlWebPanelResponse(response httpIdentityResponse, bodyLower string) bool {
+	server := strings.ToLower(strings.TrimSpace(response.Headers["server"]))
+	return strings.Contains(server, "cwpsrv") ||
+		strings.Contains(bodyLower, "cwp_theme") ||
+		strings.Contains(bodyLower, "control webpanel")
+}
+
+func cpanelPortRedirectSignal(port int, location string) string {
+	location = strings.ToLower(strings.TrimSpace(location))
+	if location == "" {
+		return ""
+	}
+	redirectPort := httpIdentityRedirectPort(location)
+	switch port {
+	case 2082, 2083:
+		if redirectPort == "2083" {
+			return httpIdentitySignalCPanelPortRedirect
+		}
+	case 2086, 2087:
+		if redirectPort == "2087" {
+			return httpIdentitySignalWHMPortRedirect
+		}
+	case 2095, 2096:
+		if redirectPort == "2096" {
+			return httpIdentitySignalCPanelWebmailRedirect
+		}
+	}
+	return ""
+}
+
+func httpIdentityRedirectPort(location string) string {
+	parsed, err := url.Parse(location)
+	if err == nil {
+		if port := parsed.Port(); port != "" {
+			return port
+		}
+	}
+	for _, port := range []string{"2083", "2087", "2096"} {
+		if strings.Contains(location, ":"+port+"/") || strings.HasSuffix(location, ":"+port) {
+			return port
+		}
+	}
+	return ""
 }
 
 func normalizeHTTPIdentityHeaderToken(value string) string {

@@ -69,6 +69,178 @@ func TestDetectHTTPIdentitySignals_SmarterMailOriginResponse(t *testing.T) {
 	}
 }
 
+func TestDetectHTTPIdentitySignals_CPanelOriginResponse(t *testing.T) {
+	t.Parallel()
+
+	signals, reason := detectHTTPIdentitySignals(scanpkg.BannerGrabResult{
+		IP:            "95.173.184.54",
+		Port:          2082,
+		ProbeHost:     "95.173.184.54",
+		ResponseClass: bannerResponseClassOrigin,
+		Banner: "HTTP/1.1 200 OK\r\nSet-Cookie: cprelogin=no; path=/; port=2082\r\n\r\n" +
+			`<html><head><title>cPanel Login</title></head><body>` +
+			`<link href="/cPanel_magic_revision_1677093441/unprotected/cpanel/style.css">` +
+			`<form id="login_form" action="/login/" method="post">` +
+			`<input name="user"><input name="pass"></form></body></html>`,
+	})
+	if reason != "" {
+		t.Fatalf("expected no skip reason, got %q", reason)
+	}
+	if !hasHTTPIdentitySignal(signals, httpIdentitySignalCPanelMagic) ||
+		!hasHTTPIdentitySignal(signals, httpIdentitySignalCPanelLoginForm) ||
+		!hasHTTPIdentitySignal(signals, httpIdentitySignalCPanelCookie) {
+		t.Fatalf("expected cPanel signals, got %+v", signals)
+	}
+}
+
+func TestDetectHTTPIdentitySignals_CPanelPortRedirect(t *testing.T) {
+	t.Parallel()
+
+	signals, reason := detectHTTPIdentitySignals(scanpkg.BannerGrabResult{
+		IP:            "188.34.185.206",
+		Port:          2082,
+		ProbeHost:     "188.34.185.206",
+		ResponseClass: bannerResponseClassOrigin,
+		Banner: "HTTP/1.1 301 Moved\r\n" +
+			"Location: https://portal.example.test:2083/\r\n" +
+			"Content-Type: text/html; charset=\"utf-8\"\r\n\r\n" +
+			`<html><head><META HTTP-EQUIV="refresh" CONTENT="2;URL=https://portal.example.test:2083/"></head></html>`,
+	})
+	if reason != "" {
+		t.Fatalf("expected no skip reason, got %q", reason)
+	}
+	if !hasHTTPIdentitySignal(signals, httpIdentitySignalCPanelPortRedirect) {
+		t.Fatalf("expected cPanel port redirect signal, got %+v", signals)
+	}
+}
+
+func TestDetectHTTPIdentitySignals_CPanelPortRedirectWithoutTrailingSlash(t *testing.T) {
+	t.Parallel()
+
+	signals, reason := detectHTTPIdentitySignals(scanpkg.BannerGrabResult{
+		IP:            "188.34.185.206",
+		Port:          2083,
+		ProbeHost:     "188.34.185.206",
+		ResponseClass: bannerResponseClassOrigin,
+		Banner: "HTTP/1.1 301 Moved\r\n" +
+			"Location: https://portal.example.test:2083\r\n" +
+			"Content-Type: text/html; charset=\"utf-8\"\r\n\r\n" +
+			`<html><head><META HTTP-EQUIV="refresh" CONTENT="2;URL=https://portal.example.test:2083"></head></html>`,
+	})
+	if reason != "" {
+		t.Fatalf("expected no skip reason, got %q", reason)
+	}
+	if !hasHTTPIdentitySignal(signals, httpIdentitySignalCPanelPortRedirect) {
+		t.Fatalf("expected cPanel port redirect signal, got %+v", signals)
+	}
+}
+
+func TestDetectHTTPIdentitySignals_WHMPortRedirectWithoutTrailingSlash(t *testing.T) {
+	t.Parallel()
+
+	signals, reason := detectHTTPIdentitySignals(scanpkg.BannerGrabResult{
+		IP:            "188.34.185.206",
+		Port:          2087,
+		ProbeHost:     "188.34.185.206",
+		ResponseClass: bannerResponseClassOrigin,
+		Banner: "HTTP/1.1 301 Moved\r\n" +
+			"Location: https://portal.example.test:2087\r\n" +
+			"Content-Type: text/html; charset=\"utf-8\"\r\n\r\n" +
+			`<html><head><META HTTP-EQUIV="refresh" CONTENT="2;URL=https://portal.example.test:2087"></head></html>`,
+	})
+	if reason != "" {
+		t.Fatalf("expected no skip reason, got %q", reason)
+	}
+	if !hasHTTPIdentitySignal(signals, httpIdentitySignalWHMPortRedirect) {
+		t.Fatalf("expected WHM port redirect signal, got %+v", signals)
+	}
+}
+
+func TestDetectHTTPIdentitySignals_CPanelWebmailPortRedirectWithoutTrailingSlash(t *testing.T) {
+	t.Parallel()
+
+	signals, reason := detectHTTPIdentitySignals(scanpkg.BannerGrabResult{
+		IP:            "188.34.185.206",
+		Port:          2096,
+		ProbeHost:     "188.34.185.206",
+		ResponseClass: bannerResponseClassOrigin,
+		Banner: "HTTP/1.1 301 Moved\r\n" +
+			"Location: https://portal.example.test:2096\r\n" +
+			"Content-Type: text/html; charset=\"utf-8\"\r\n\r\n" +
+			`<html><head><META HTTP-EQUIV="refresh" CONTENT="2;URL=https://portal.example.test:2096"></head></html>`,
+	})
+	if reason != "" {
+		t.Fatalf("expected no skip reason, got %q", reason)
+	}
+	if !hasHTTPIdentitySignal(signals, httpIdentitySignalCPanelWebmailRedirect) {
+		t.Fatalf("expected cPanel webmail port redirect signal, got %+v", signals)
+	}
+}
+
+func TestDetectHTTPIdentitySignals_WHMSignals(t *testing.T) {
+	t.Parallel()
+
+	signals, reason := detectHTTPIdentitySignals(scanpkg.BannerGrabResult{
+		IP:            "95.173.184.54",
+		Port:          2086,
+		ProbeHost:     "95.173.184.54",
+		ResponseClass: bannerResponseClassOrigin,
+		Banner: "HTTP/1.1 200 OK\r\nSet-Cookie: whostmgrrelogin=no; path=/; port=2086\r\n" +
+			"Set-Cookie: whostmgrsession=abc; path=/; port=2086\r\n\r\n" +
+			`<html><head><title>WHM Login</title></head><body>` +
+			`<link href="/cPanel_magic_revision_1677093441/unprotected/cpanel/style.css">` +
+			`</body></html>`,
+	})
+	if reason != "" {
+		t.Fatalf("expected no skip reason, got %q", reason)
+	}
+	if !hasHTTPIdentitySignal(signals, httpIdentitySignalWHMCookie) ||
+		!hasHTTPIdentitySignal(signals, httpIdentitySignalWHMTitle) {
+		t.Fatalf("expected WHM signals, got %+v", signals)
+	}
+}
+
+func TestDetectHTTPIdentitySignals_CPanelWebmailSignals(t *testing.T) {
+	t.Parallel()
+
+	signals, reason := detectHTTPIdentitySignals(scanpkg.BannerGrabResult{
+		IP:            "95.173.184.54",
+		Port:          2095,
+		ProbeHost:     "95.173.184.54",
+		ResponseClass: bannerResponseClassOrigin,
+		Banner: "HTTP/1.1 200 OK\r\nSet-Cookie: webmailrelogin=no; path=/; port=2095\r\n" +
+			"Set-Cookie: webmailsession=abc; path=/; port=2095\r\n\r\n" +
+			`<html><head><title>Webmail Login</title></head><body>` +
+			`<link href="/cPanel_magic_revision_1677093441/unprotected/cpanel/style.css">` +
+			`</body></html>`,
+	})
+	if reason != "" {
+		t.Fatalf("expected no skip reason, got %q", reason)
+	}
+	if !hasHTTPIdentitySignal(signals, httpIdentitySignalCPanelWebmailCookie) ||
+		!hasHTTPIdentitySignal(signals, httpIdentitySignalCPanelWebmailTitle) {
+		t.Fatalf("expected cPanel webmail signals, got %+v", signals)
+	}
+}
+
+func TestDetectHTTPIdentitySignals_ControlWebPanelRedirectDoesNotBecomeCPanel(t *testing.T) {
+	t.Parallel()
+
+	signals, _ := detectHTTPIdentitySignals(scanpkg.BannerGrabResult{
+		IP:            "78.47.198.245",
+		Port:          2082,
+		ProbeHost:     "78.47.198.245",
+		ResponseClass: bannerResponseClassOrigin,
+		Banner: "HTTP/1.1 301 Moved Permanently\r\n" +
+			"Server: cwpsrv\r\n" +
+			"Location: https://78.47.198.245:2083/\r\n\r\n" +
+			`<html><body><link href="/login/cwp_theme/original/css/style.css"></body></html>`,
+	})
+	if hasHTTPIdentitySignal(signals, httpIdentitySignalCPanelPortRedirect) {
+		t.Fatalf("did not expect cPanel signal for CWP redirect, got %+v", signals)
+	}
+}
+
 func TestDetectHTTPIdentitySignals_GenericServerIgnored(t *testing.T) {
 	t.Parallel()
 

@@ -1182,6 +1182,72 @@ func TestServiceIdentityNormalizer_HTTPIdentityHintFillsSmarterMailProductVendor
 	}
 }
 
+func TestServiceIdentityNormalizer_HTTPIdentityHintFillsCPanelIdentityAndTags(t *testing.T) {
+	module := newServiceIdentityNormalizerModule()
+	if err := module.Init("test-service-identity-http-cpanel", map[string]any{}); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+
+	inputs := map[string]any{
+		"service.banner.tcp": []any{
+			scanpkg.BannerGrabResult{
+				IP:            "95.173.184.54",
+				Port:          2087,
+				Protocol:      "tcp",
+				ProbeHost:     "95.173.184.54",
+				ResponseClass: bannerResponseClassOrigin,
+				Banner: "HTTP/1.1 200 OK\r\nSet-Cookie: whostmgrrelogin=no; path=/; port=2087\r\n\r\n" +
+					`<html><head><title>WHM Login</title></head><body>` +
+					`<link href="/cPanel_magic_revision_1677093441/unprotected/cpanel/style.css">` +
+					`<form id="login_form" action="/login/" method="post">` +
+					`<input name="user"><input name="pass"></form></body></html>`,
+			},
+		},
+	}
+
+	out := make(chan engine.ModuleOutput, 8)
+	if err := module.Execute(context.Background(), inputs, out); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	close(out)
+
+	var identity ServiceIdentityInfo
+	found := false
+	for item := range out {
+		candidate, ok := item.Data.(ServiceIdentityInfo)
+		if !ok {
+			continue
+		}
+		if candidate.Target == "95.173.184.54" && candidate.Port == 2087 {
+			identity = candidate
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected cPanel identity output")
+	}
+	if identity.ServiceName != "whm" {
+		t.Fatalf("expected whm service name, got %q", identity.ServiceName)
+	}
+	if identity.Product != "cPanel & WHM" || identity.Vendor != "cPanel" {
+		t.Fatalf("expected cPanel identity, got product=%q vendor=%q", identity.Product, identity.Vendor)
+	}
+	for _, tag := range []string{TagWHM} {
+		if !hasTag(identity.TechTags, tag) {
+			t.Fatalf("expected tag %q in %+v", tag, identity.TechTags)
+		}
+	}
+	for _, tag := range []string{TagCPanel, "hosting_panel"} {
+		if hasTag(identity.TechTags, tag) {
+			t.Fatalf("did not expect broad tag %q in %+v", tag, identity.TechTags)
+		}
+	}
+	if identity.FieldSources["service_name"] != sourceHTTPIdentityHint {
+		t.Fatalf("expected http identity hint service source, got %+v", identity.FieldSources)
+	}
+}
+
 func TestServiceIdentityNormalizer_HTTPIdentityHintDoesNotUseHeaderOnlySignals(t *testing.T) {
 	module := newServiceIdentityNormalizerModule()
 	if err := module.Init("test-service-identity-http-header-only", map[string]any{}); err != nil {

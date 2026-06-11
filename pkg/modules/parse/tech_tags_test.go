@@ -18,6 +18,7 @@ func TestNormalizeTechTag_Aliases(t *testing.T) {
 		{input: "Node.js", want: "nodejs"},
 		{input: "mail_server", want: TagMailService},
 		{input: "Roundcube", want: TagRoundcube},
+		{input: "c-panel", want: TagCPanel},
 	}
 
 	for _, tc := range tests {
@@ -54,6 +55,9 @@ func TestCanonicalTechTags_MailSetLocked(t *testing.T) {
 		TagZimbra,
 		TagSOGo,
 		TagRainLoop,
+		TagCPanel,
+		TagWHM,
+		TagCPanelWebmail,
 		TagPostfix,
 		TagExim,
 		TagDovecot,

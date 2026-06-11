@@ -73,14 +73,57 @@ type smbHostEvidence struct {
 }
 
 type httpIdentityDecision struct {
-	Rule       string
-	Signals    []string
-	Product    string
-	Vendor     string
-	Confidence float64
+	Rule                 string
+	Signals              []string
+	Product              string
+	Vendor               string
+	ServiceName          string
+	TechTags             []string
+	UseCPanelPortVariant bool
+	Confidence           float64
 }
 
 var httpIdentityDecisionTable = []httpIdentityDecision{
+	{
+		Rule: httpIdentitySignalWHMCookie,
+		Signals: []string{
+			httpIdentitySignalWHMCookie,
+			httpIdentitySignalWHMTitle,
+			httpIdentitySignalWHMPortRedirect,
+		},
+		Product:     "cPanel & WHM",
+		Vendor:      "cPanel",
+		ServiceName: "whm",
+		TechTags:    []string{TagWHM},
+		Confidence:  httpIdentityConfidenceCPanel,
+	},
+	{
+		Rule: httpIdentitySignalCPanelWebmailCookie,
+		Signals: []string{
+			httpIdentitySignalCPanelWebmailCookie,
+			httpIdentitySignalCPanelWebmailTitle,
+			httpIdentitySignalCPanelWebmailRedirect,
+		},
+		Product:     "cPanel & WHM",
+		Vendor:      "cPanel",
+		ServiceName: "cpanel_webmail",
+		TechTags:    []string{TagCPanelWebmail},
+		Confidence:  httpIdentityConfidenceCPanel,
+	},
+	{
+		Rule: httpIdentitySignalCPanelMagic,
+		Signals: []string{
+			httpIdentitySignalCPanelMagic,
+			httpIdentitySignalCPanelLoginForm,
+			httpIdentitySignalCPanelCookie,
+			httpIdentitySignalCPanelTitle,
+			httpIdentitySignalCPanelPortRedirect,
+		},
+		Product:              "cPanel & WHM",
+		Vendor:               "cPanel",
+		UseCPanelPortVariant: true,
+		Confidence:           httpIdentityConfidenceCPanel,
+	},
 	{
 		Rule: httpIdentitySignalGitHubHost,
 		Signals: []string{
@@ -891,6 +934,12 @@ func applyHTTPIdentitySignals(entry *ServiceIdentityInfo, banner scanpkg.BannerG
 		setIdentityField(entry, "vendor", decision.Vendor, sourceHTTPIdentityHint, decision.Confidence)
 		applied = true
 	}
+	serviceName, techTags := decisionServiceIdentity(decision, entry.Port)
+	if serviceName != "" {
+		setIdentityField(entry, "service_name", serviceName, sourceHTTPIdentityHint, decision.Confidence)
+		entry.TechTags = NormalizeTechTags(append(entry.TechTags, techTags...))
+		applied = true
+	}
 
 	if !applied {
 		log.Debug().
@@ -1108,6 +1157,46 @@ func (m *serviceIdentityNormalizerModule) applyHeuristics(entries map[string]*Se
 			setIdentityField(entry, "product", "smb", sourceHeuristic, 0.35)
 		}
 	}
+}
+
+func cpanelServiceNameFromPort(port int) string {
+	switch port {
+	case 2086, 2087:
+		return "whm"
+	case 2095, 2096:
+		return "cpanel_webmail"
+	case 2082, 2083:
+		return "cpanel"
+	default:
+		return "cpanel"
+	}
+}
+
+func cpanelTechTagsForService(serviceName string) []string {
+	switch serviceName {
+	case "whm":
+		return []string{TagWHM}
+	case "cpanel_webmail":
+		return []string{TagCPanelWebmail}
+	case "cpanel":
+		return []string{TagCPanel}
+	default:
+		return nil
+	}
+}
+
+func decisionServiceIdentity(decision httpIdentityDecision, port int) (string, []string) {
+	if decision.UseCPanelPortVariant {
+		serviceName := cpanelServiceNameFromPort(port)
+		return serviceName, cpanelTechTagsForService(serviceName)
+	}
+	if decision.ServiceName == "" {
+		return "", nil
+	}
+	if len(decision.TechTags) > 0 {
+		return decision.ServiceName, decision.TechTags
+	}
+	return decision.ServiceName, cpanelTechTagsForService(decision.ServiceName)
 }
 
 func setIdentityField(entry *ServiceIdentityInfo, field, value, source string, confidence float64) {
