@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Native Redis probe (port 6379): unauthenticated `INFO` parsing for
+  `redis_version`, mode, os, arch; identifies auth-required Redis without a
+  version. Feeds canonical service identity (product/vendor/version + tech
+  tag `redis`).
+- Native PostgreSQL probe (port 5432): v3 startup handshake that extracts
+  `server_version` from ParameterStatus when the server leaks it (trust /
+  pre-auth), and identifies auth-required PostgreSQL otherwise. Feeds
+  canonical service identity (product/vendor/version + tech tag
+  `postgresql`).
+
 ## [0.9.0] - 2026-06-11
 
 ### Added

@@ -31,6 +31,8 @@ const (
 	sourceFTPNative        = "ftp_native_probe"
 	sourceTelnetNative     = "telnet_native_probe"
 	sourceMySQLNative      = "mysql_native_probe"
+	sourceRedisNative      = "redis_native_probe"
+	sourcePostgresNative   = "postgres_native_probe"
 	sourceWinRMNative      = "winrm_native_probe"
 	sourceHTTPIdentityHint = "http_identity_hint"
 	sourceFingerprint      = "fingerprint"
@@ -195,6 +197,8 @@ func newServiceIdentityNormalizerModule() *serviceIdentityNormalizerModule {
 				{Key: "service.ftp.details", DataTypeName: "scan.FTPServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 				{Key: "service.telnet.details", DataTypeName: "scan.TelnetServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 				{Key: "service.mysql.details", DataTypeName: "scan.MySQLServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
+				{Key: "service.redis.details", DataTypeName: "scan.RedisServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
+				{Key: "service.postgres.details", DataTypeName: "scan.PostgresServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 				{Key: "service.smtp.details", DataTypeName: "scan.SMTPServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 				{Key: "service.ssh.details", DataTypeName: "scan.SSHServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 				{Key: "service.snmp.details", DataTypeName: "scan.SNMPServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
@@ -246,6 +250,8 @@ func (m *serviceIdentityNormalizerModule) Execute(ctx context.Context, inputs ma
 	m.ingestFTPDetails(inputs, getEntry)
 	m.ingestTelnetDetails(inputs, getEntry)
 	m.ingestMySQLDetails(inputs, getEntry)
+	m.ingestRedisDetails(inputs, getEntry)
+	m.ingestPostgresDetails(inputs, getEntry)
 	m.ingestSMTPDetails(inputs, getEntry)
 	m.ingestSNMPDetails(inputs, getEntry)
 	m.ingestDNSDetails(inputs, getEntry)
@@ -517,6 +523,66 @@ func (m *serviceIdentityNormalizerModule) ingestMySQLDetails(inputs map[string]a
 			setIdentityField(entry, "version", strings.TrimSpace(mysqlInfo.VersionHint), sourceMySQLNative, 0.66)
 		}
 		entry.TechTags = NormalizeTechTags(append(entry.TechTags, "mysql"))
+	}
+}
+
+func (m *serviceIdentityNormalizerModule) ingestRedisDetails(inputs map[string]any, getEntry func(target string, port int) *ServiceIdentityInfo) {
+	raw, ok := inputs["service.redis.details"]
+	if !ok {
+		return
+	}
+	items := toAnyList(raw)
+	for _, item := range items {
+		redisInfo, ok := item.(scanpkg.RedisServiceInfo)
+		if !ok {
+			continue
+		}
+		if redisInfo.Target == "" || redisInfo.Port <= 0 || !redisInfo.RedisProbe {
+			continue
+		}
+
+		entry := getEntry(redisInfo.Target, redisInfo.Port)
+		setIdentityField(entry, "service_name", "redis", sourceRedisNative, 0.68)
+		if strings.TrimSpace(entry.Product) == "" && strings.TrimSpace(redisInfo.ProductHint) != "" {
+			setIdentityField(entry, "product", strings.TrimSpace(redisInfo.ProductHint), sourceRedisNative, 0.74)
+		}
+		if strings.TrimSpace(entry.Vendor) == "" && strings.TrimSpace(redisInfo.VendorHint) != "" {
+			setIdentityField(entry, "vendor", strings.TrimSpace(redisInfo.VendorHint), sourceRedisNative, 0.72)
+		}
+		if strings.TrimSpace(entry.Version) == "" && strings.TrimSpace(redisInfo.VersionHint) != "" {
+			setIdentityField(entry, "version", strings.TrimSpace(redisInfo.VersionHint), sourceRedisNative, 0.66)
+		}
+		entry.TechTags = NormalizeTechTags(append(entry.TechTags, "redis"))
+	}
+}
+
+func (m *serviceIdentityNormalizerModule) ingestPostgresDetails(inputs map[string]any, getEntry func(target string, port int) *ServiceIdentityInfo) {
+	raw, ok := inputs["service.postgres.details"]
+	if !ok {
+		return
+	}
+	items := toAnyList(raw)
+	for _, item := range items {
+		pgInfo, ok := item.(scanpkg.PostgresServiceInfo)
+		if !ok {
+			continue
+		}
+		if pgInfo.Target == "" || pgInfo.Port <= 0 || !pgInfo.PostgresProbe {
+			continue
+		}
+
+		entry := getEntry(pgInfo.Target, pgInfo.Port)
+		setIdentityField(entry, "service_name", "postgresql", sourcePostgresNative, 0.68)
+		if strings.TrimSpace(entry.Product) == "" && strings.TrimSpace(pgInfo.ProductHint) != "" {
+			setIdentityField(entry, "product", strings.TrimSpace(pgInfo.ProductHint), sourcePostgresNative, 0.74)
+		}
+		if strings.TrimSpace(entry.Vendor) == "" && strings.TrimSpace(pgInfo.VendorHint) != "" {
+			setIdentityField(entry, "vendor", strings.TrimSpace(pgInfo.VendorHint), sourcePostgresNative, 0.72)
+		}
+		if strings.TrimSpace(entry.Version) == "" && strings.TrimSpace(pgInfo.VersionHint) != "" {
+			setIdentityField(entry, "version", strings.TrimSpace(pgInfo.VersionHint), sourcePostgresNative, 0.66)
+		}
+		entry.TechTags = NormalizeTechTags(append(entry.TechTags, "postgresql"))
 	}
 }
 
