@@ -35,6 +35,7 @@ const (
 	httpIdentitySignalJoomlaContent         = "body:com_content"
 	httpIdentitySignalCPanelMagic           = "body:cpanel_magic_revision"
 	httpIdentitySignalCPanelLoginForm       = "body:cpanel_login_form"
+	httpIdentitySignalTomcatBody            = "body:apache_tomcat"
 	httpIdentitySignalCPanelCookie          = "cookie:cpanel"
 	httpIdentitySignalCPanelTitle           = "title:cpanel"
 	httpIdentitySignalCPanelPortRedirect    = "location:cpanel_port"
@@ -50,6 +51,7 @@ const (
 	httpIdentityConfidenceCPanel            = 0.88
 	httpIdentityConfidenceXPoweredBy        = 0.70
 	httpIdentityConfidenceServerHeader      = 0.65
+	httpIdentityConfidenceTomcat            = 0.82
 )
 
 var (
@@ -77,7 +79,16 @@ var (
 type httpIdentitySignal struct {
 	Token      string
 	Confidence float64
+	// Value optionally carries an extracted payload for the signal, e.g. a
+	// version string pulled from the response body/title. Empty for pure
+	// presence signals.
+	Value string
 }
+
+// tomcatBodyVersionPattern extracts the Tomcat version from the default
+// error-page/footer marker "Apache Tomcat/9.0.30" (Tomcat sends no Server
+// header, so the version only appears in the body/title).
+var tomcatBodyVersionPattern = regexp.MustCompile(`(?i)apache tomcat/([0-9][0-9a-z._-]*)`)
 
 type httpIdentityResponse struct {
 	StatusLine string
@@ -109,7 +120,13 @@ func detectHTTPIdentitySignals(banner scanpkg.BannerGrabResult) ([]httpIdentityS
 		}
 		signals := inferHTTPIdentitySignals(parsed, host, banner.Port)
 		for _, signal := range signals {
-			if existing, ok := signalSet[signal.Token]; !ok || signal.Confidence > existing.Confidence {
+			existing, ok := signalSet[signal.Token]
+			switch {
+			case !ok || signal.Confidence > existing.Confidence:
+				signalSet[signal.Token] = signal
+			case signal.Confidence == existing.Confidence && existing.Value == "" && signal.Value != "":
+				// Same confidence but this occurrence carries an extracted
+				// value (e.g. a version) the earlier one lacked.
 				signalSet[signal.Token] = signal
 			}
 		}
@@ -145,7 +162,7 @@ func shouldEvaluateHTTPIdentity(entry *ServiceIdentityInfo, banner scanpkg.Banne
 
 func isHTTPIdentityPort(port int) bool {
 	switch port {
-	case 80, 443, 2082, 2083, 2086, 2087, 2095, 2096, 8443, 9443:
+	case 80, 443, 2082, 2083, 2086, 2087, 2095, 2096, 8000, 8080, 8081, 8443, 9443:
 		return true
 	default:
 		return false
@@ -279,6 +296,30 @@ func inferHTTPIdentitySignals(response httpIdentityResponse, host string, port i
 			Token:      token,
 			Confidence: confidence,
 		})
+	}
+	addValue := func(token string, confidence float64, value string) {
+		token = strings.TrimSpace(token)
+		if token == "" {
+			return
+		}
+		signals = append(signals, httpIdentitySignal{
+			Token:      token,
+			Confidence: confidence,
+			Value:      strings.TrimSpace(value),
+		})
+	}
+
+	// Apache Tomcat exposes no Server header by default; its version leaks in
+	// the default error-page footer ("Apache Tomcat/9.0.30"). Detect the
+	// marker in body or title and carry the extracted version on the signal.
+	if strings.Contains(bodyLower, "apache tomcat") || strings.Contains(titleLower, "apache tomcat") {
+		version := ""
+		if m := tomcatBodyVersionPattern.FindStringSubmatch(response.Body); len(m) > 1 {
+			version = m[1]
+		} else if m := tomcatBodyVersionPattern.FindStringSubmatch(response.Title); len(m) > 1 {
+			version = m[1]
+		}
+		addValue(httpIdentitySignalTomcatBody, httpIdentityConfidenceTomcat, version)
 	}
 
 	if strings.Contains(hostLower, "github") {

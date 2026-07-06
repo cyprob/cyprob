@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Apache Tomcat version detection via HTTP identity hints: Tomcat sends no
+  Server header, so the version is extracted from the default error-page/footer
+  marker `Apache Tomcat/<version>` in the response body/title, yielding
+  product `Apache Tomcat` + version for CVE correlation. HTTP identity hints
+  now also evaluate common HTTP-alt ports (8000/8080/8081).
+
 ## [0.10.0] - 2026-07-06
 
 ### Added

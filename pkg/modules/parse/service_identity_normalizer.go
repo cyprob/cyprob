@@ -83,6 +83,10 @@ type httpIdentityDecision struct {
 	TechTags             []string
 	UseCPanelPortVariant bool
 	Confidence           float64
+	// VersionSignal, when set, names the signal token whose extracted Value
+	// carries a version string to apply to the identity (e.g. Tomcat's body
+	// version). Empty for decisions that do not extract a version.
+	VersionSignal string
 }
 
 var httpIdentityDecisionTable = []httpIdentityDecision{
@@ -125,6 +129,15 @@ var httpIdentityDecisionTable = []httpIdentityDecision{
 		Vendor:               "cPanel",
 		UseCPanelPortVariant: true,
 		Confidence:           httpIdentityConfidenceCPanel,
+	},
+	{
+		Rule:          httpIdentitySignalTomcatBody,
+		Signals:       []string{httpIdentitySignalTomcatBody},
+		Product:       "Apache Tomcat",
+		Vendor:        "Apache",
+		TechTags:      []string{"tomcat"},
+		VersionSignal: httpIdentitySignalTomcatBody,
+		Confidence:    httpIdentityConfidenceTomcat,
 	},
 	{
 		Rule: httpIdentitySignalGitHubHost,
@@ -1007,6 +1020,23 @@ func applyHTTPIdentitySignals(entry *ServiceIdentityInfo, banner scanpkg.BannerG
 		applied = true
 	}
 
+	if decision.VersionSignal != "" && strings.TrimSpace(entry.Version) == "" {
+		if version := httpIdentitySignalValue(signals, decision.VersionSignal); version != "" {
+			setIdentityField(entry, "version", version, sourceHTTPIdentityHint, decision.Confidence)
+			if strings.TrimSpace(entry.Product) == "" && decision.Product != "" {
+				setIdentityField(entry, "product", decision.Product, sourceHTTPIdentityHint, decision.Confidence)
+			}
+			applied = true
+		}
+	}
+
+	// Decisions with no ServiceName (e.g. app-server product detection like
+	// Tomcat) still carry tech tags; apply them here since the service_name
+	// branch above did not run.
+	if applied && serviceName == "" && len(decision.TechTags) > 0 {
+		entry.TechTags = NormalizeTechTags(append(entry.TechTags, decision.TechTags...))
+	}
+
 	if !applied {
 		log.Debug().
 			Str("target", entry.Target).
@@ -1024,6 +1054,15 @@ func applyHTTPIdentitySignals(entry *ServiceIdentityInfo, banner scanpkg.BannerG
 		Str("http_identity_hint_rule", decision.Rule).
 		Float64("http_identity_hint_confidence", decision.Confidence).
 		Msg("http_identity_hint_applied")
+}
+
+func httpIdentitySignalValue(signals []httpIdentitySignal, token string) string {
+	for _, signal := range signals {
+		if signal.Token == token {
+			return strings.TrimSpace(signal.Value)
+		}
+	}
+	return ""
 }
 
 func resolveHTTPIdentityDecision(signals []httpIdentitySignal) (httpIdentityDecision, bool) {
