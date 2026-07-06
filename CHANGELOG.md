@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-07-06
+
 ### Added
 - Native Redis probe (port 6379): unauthenticated `INFO` parsing for
   `redis_version`, mode, os, arch; identifies auth-required Redis without a
