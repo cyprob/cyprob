@@ -97,7 +97,23 @@ type AssetProfile struct {
 	LastObservationTime  time.Time                `json:"last_observation_time" yaml:"last_observation_time"`           // When data for this asset was last updated
 	OpenPorts            map[string][]PortProfile `json:"open_ports_by_ip,omitempty" yaml:"open_ports_by_ip,omitempty"` // Keyed by IP address
 	TotalVulnerabilities int                      `json:"total_vulnerabilities" yaml:"total_vulnerabilities"`
+	// Device is the asset-level device identity (make/model/serial/role),
+	// synthesized from probe evidence — distinct from the per-port service view.
+	Device *DeviceProfile `json:"device,omitempty" yaml:"device,omitempty"`
 	// OperatingSystem string `json:"operating_system,omitempty" yaml:"operating_system,omitempty"`
 	// MACAddress string `json:"mac_address,omitempty" yaml:"mac_address,omitempty"`
 	ErrorsEncountered []string `json:"errors_encountered,omitempty" yaml:"errors_encountered,omitempty"` // Errors specific to this asset during scan
+}
+
+// DeviceProfile answers "what is this device?" at the asset level: manufacturer,
+// product, exact model and serial, and role/type (firewall, switch, printer,
+// ...). It is synthesized from probe evidence (currently SNMP) and is where
+// asset identification lands, as opposed to per-port service details.
+type DeviceProfile struct {
+	Vendor  string `json:"vendor,omitempty" yaml:"vendor,omitempty"`
+	Product string `json:"product,omitempty" yaml:"product,omitempty"`
+	Model   string `json:"model,omitempty" yaml:"model,omitempty"`
+	Serial  string `json:"serial,omitempty" yaml:"serial,omitempty"`
+	Type    string `json:"type,omitempty" yaml:"type,omitempty"` // firewall, switch, router, printer, ups, storage, ...
+	Source  string `json:"source,omitempty" yaml:"source,omitempty"`
 }

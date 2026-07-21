@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Asset-level device identity. `AssetProfile` now carries a `Device` profile
+  (vendor, product, model, serial, type/role) synthesized from probe evidence,
+  so an asset is identified as a device ("Fortinet FortiGate-100F firewall")
+  rather than only as a bag of per-port services. Populated from the SNMP probe;
+  the field is the place where make/model/role identification now lands.
 - SNMP chassis model and serial number via ENTITY-MIB. For SNMP devices that
   expose ENTITY-MIB, the probe now walks `entPhysicalModelName` /
   `entPhysicalSerialNum` (preferring the chassis entry) and reports the exact

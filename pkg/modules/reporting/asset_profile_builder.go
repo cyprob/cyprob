@@ -657,6 +657,14 @@ func (m *AssetProfileBuilderModule) Execute(ctx context.Context, inputs map[stri
 			}
 		}
 		asset.OpenPorts[targetIP] = assetOpenPorts // Haritaya ekle
+
+		// Asset-level device identity (make/model/serial/role) from SNMP.
+		if snmp := findSNMPDetails(snmpDetails, targetIP, 161); snmp != nil {
+			if device := deviceProfileFromSNMP(*snmp); device != nil {
+				asset.Device = device
+			}
+		}
+
 		asset.LastObservationTime = time.Now()
 	}
 
@@ -1110,6 +1118,27 @@ func applySMTPDetails(portProfile *engine.PortProfile, details scan.SMTPServiceI
 	if strings.TrimSpace(details.ProbeError) != "" {
 		portProfile.Service.ParsedAttributes["smtp_probe_error"] = strings.TrimSpace(details.ProbeError)
 	}
+}
+
+// deviceProfileFromSNMP builds an asset-level device identity from an SNMP
+// probe result. Returns nil when there is no usable identity signal.
+func deviceProfileFromSNMP(d scan.SNMPServiceInfo) *engine.DeviceProfile {
+	if !d.SNMPProbe {
+		return nil
+	}
+	device := &engine.DeviceProfile{
+		Vendor:  strings.TrimSpace(d.VendorHint),
+		Product: strings.TrimSpace(d.ProductHint),
+		Model:   strings.TrimSpace(d.Model),
+		Serial:  strings.TrimSpace(d.Serial),
+		Type:    strings.TrimSpace(d.DeviceType),
+	}
+	if device.Vendor == "" && device.Product == "" && device.Model == "" &&
+		device.Serial == "" && device.Type == "" {
+		return nil
+	}
+	device.Source = "snmp"
+	return device
 }
 
 func findSNMPDetails(items []scan.SNMPServiceInfo, target string, port int) *scan.SNMPServiceInfo {
