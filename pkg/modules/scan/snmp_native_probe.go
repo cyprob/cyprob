@@ -67,6 +67,7 @@ type SNMPServiceInfo struct {
 	VendorHint    string             `json:"vendor_hint,omitempty"`
 	ProductHint   string             `json:"product_hint,omitempty"`
 	VersionHint   string             `json:"version_hint,omitempty"`
+	DeviceType    string             `json:"device_type,omitempty"`
 	WeakProtocol  bool               `json:"weak_protocol"`
 	WeakCommunity bool               `json:"weak_community"`
 	ProbeError    string             `json:"probe_error,omitempty"`
@@ -430,6 +431,7 @@ func probeSNMPDetails(ctx context.Context, target string, port int, opts SNMPPro
 			result.VendorHint = outcome.vendorHint
 			result.ProductHint = outcome.productHint
 			result.VersionHint = outcome.versionHint
+			result.DeviceType = classifySNMPDevice(outcome.sysDescr, outcome.vendorHint, outcome.productHint)
 			result.WeakProtocol = outcome.snmpVersion == "SNMPv1"
 			result.WeakCommunity = isWeakSNMPCommunity(outcome.community)
 			return result

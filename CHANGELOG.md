@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- SNMP device type/role classification. The native SNMP probe now emits a coarse
+  `device_type` (firewall, load-balancer, wireless-ap, printer, ups, storage,
+  hypervisor, switch, router, server) inferred from the system description and
+  the PEN-derived vendor. Credential-free; only commits a role when a signal is
+  clear (multi-category vendors like Cisco/Juniper are classified from the
+  description, not the vendor, to avoid wrong labels).
 - SNMP device-vendor identification via IANA Private Enterprise Numbers. The
   native SNMP probe now maps a device's `sysObjectID` enterprise number to a
   manufacturer (Fortinet, Palo Alto, F5, Juniper, HP, Aruba, printers, UPS,
