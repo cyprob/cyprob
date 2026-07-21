@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-07-22
+
 ### Added
 - Asset-level device identity. `AssetProfile` now carries a `Device` profile
   (vendor, product, model, serial, type/role) synthesized from probe evidence,
@@ -226,7 +228,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Initial release candidate with core scanning capabilities.
 
-[Unreleased]: https://github.com/cyprob/cyprob/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/cyprob/cyprob/compare/v0.12.0...HEAD
+[0.12.0]: https://github.com/cyprob/cyprob/compare/v0.11.0...v0.12.0
 [0.8.0]: https://github.com/cyprob/cyprob/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/cyprob/cyprob/compare/v0.6.1...v0.7.0
 [0.6.0]: https://github.com/cyprob/cyprob/compare/v0.5.3...v0.6.0
