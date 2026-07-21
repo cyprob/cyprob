@@ -68,6 +68,8 @@ type SNMPServiceInfo struct {
 	ProductHint   string             `json:"product_hint,omitempty"`
 	VersionHint   string             `json:"version_hint,omitempty"`
 	DeviceType    string             `json:"device_type,omitempty"`
+	Model         string             `json:"model,omitempty"`
+	Serial        string             `json:"serial,omitempty"`
 	WeakProtocol  bool               `json:"weak_protocol"`
 	WeakCommunity bool               `json:"weak_community"`
 	ProbeError    string             `json:"probe_error,omitempty"`
@@ -113,6 +115,8 @@ type snmpProbeOutcome struct {
 	vendorHint    string
 	productHint   string
 	versionHint   string
+	model         string
+	serial        string
 	duration      time.Duration
 }
 
@@ -432,6 +436,8 @@ func probeSNMPDetails(ctx context.Context, target string, port int, opts SNMPPro
 			result.ProductHint = outcome.productHint
 			result.VersionHint = outcome.versionHint
 			result.DeviceType = classifySNMPDevice(outcome.sysDescr, outcome.vendorHint, outcome.productHint)
+			result.Model = outcome.model
+			result.Serial = outcome.serial
 			result.WeakProtocol = outcome.snmpVersion == "SNMPv1"
 			result.WeakCommunity = isWeakSNMPCommunity(outcome.community)
 			return result
@@ -607,6 +613,12 @@ func executeSNMPAttempt(
 		outcome.securityLevel = plan.v3.securityLevel
 	} else {
 		outcome.community = plan.community
+	}
+	// Best-effort model/serial via ENTITY-MIB, only for identified devices (a
+	// vendor hint means it is infra gear more likely to expose ENTITY-MIB, and
+	// avoids a wasted walk on unidentified hosts).
+	if vendorHint != "" {
+		outcome.model, outcome.serial = fetchSNMPEntityFunc(client)
 	}
 	outcome.sysDescr = sysDescr
 	outcome.sysObjectID = sysObjectID

@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- SNMP chassis model and serial number via ENTITY-MIB. For SNMP devices that
+  expose ENTITY-MIB, the probe now walks `entPhysicalModelName` /
+  `entPhysicalSerialNum` (preferring the chassis entry) and reports the exact
+  `model` and `serial`. Best-effort and bounded: only attempted for identified
+  devices, bails early when the device has no ENTITY-MIB, and never fails the
+  probe. Credential-free.
 - SNMP device type/role classification. The native SNMP probe now emits a coarse
   `device_type` (firewall, load-balancer, wireless-ap, printer, ups, storage,
   hypervisor, switch, router, server) inferred from the system description and
