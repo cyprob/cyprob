@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- SNMPv3 (USM) support in the native SNMP probe. When an SNMPv3 username is
+  configured, a v3 attempt is tried before the v1/v2c community fallbacks
+  (hardened targets such as banks disable v1/v2c and mandate v3). Auth protocols
+  MD5/SHA/SHA224/SHA256/SHA384/SHA512 and privacy DES/AES/AES192/AES256 are
+  supported; the security level (authPriv / authNoPriv / noAuthNoPriv) is derived
+  from the supplied passphrases. Probe output records the security name and
+  security level for v3 exchanges.
+
 ## [0.11.0] - 2026-07-06
 
 ### Added

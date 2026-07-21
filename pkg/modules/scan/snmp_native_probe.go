@@ -32,10 +32,21 @@ type SNMPProbeOptions struct {
 	TotalTimeout      time.Duration `json:"total_timeout"`
 	PerAttemptTimeout time.Duration `json:"per_attempt_timeout"`
 	Retries           int           `json:"retries"`
+
+	// SNMPv3 (USM) credentials. When V3Username is set, a v3 attempt is tried
+	// first, before the v1/v2c community fallbacks. The security level is
+	// derived from which passphrases are supplied: authPriv (auth+priv),
+	// authNoPriv (auth only), or noAuthNoPriv (neither).
+	V3Username       string `json:"v3_username,omitempty"`
+	V3AuthProtocol   string `json:"v3_auth_protocol,omitempty"`
+	V3AuthPassphrase string `json:"v3_auth_passphrase,omitempty"`
+	V3PrivProtocol   string `json:"v3_priv_protocol,omitempty"`
+	V3PrivPassphrase string `json:"v3_priv_passphrase,omitempty"`
 }
 
 type SNMPProbeAttempt struct {
 	Community  string `json:"community,omitempty"`
+	User       string `json:"user,omitempty"`
 	VersionTry string `json:"version_try,omitempty"`
 	Success    bool   `json:"success"`
 	DurationMS int64  `json:"duration_ms"`
@@ -48,6 +59,8 @@ type SNMPServiceInfo struct {
 	SNMPProbe     bool               `json:"snmp_probe"`
 	SNMPVersion   string             `json:"snmp_version,omitempty"`
 	Community     string             `json:"community,omitempty"`
+	User          string             `json:"user,omitempty"`
+	SecurityLevel string             `json:"security_level,omitempty"`
 	SysDescr      string             `json:"sys_descr,omitempty"`
 	SysName       string             `json:"sys_name,omitempty"`
 	SysObjectID   string             `json:"sys_object_id,omitempty"`
@@ -73,18 +86,33 @@ type snmpProbeCandidate struct {
 type snmpAttemptPlan struct {
 	community string
 	version   gosnmp.SnmpVersion
+	v3        *snmpV3Credential
+}
+
+// snmpV3Credential holds a resolved SNMPv3 (USM) credential set plus the
+// derived message flags / human-readable security level.
+type snmpV3Credential struct {
+	username       string
+	authProtocol   gosnmp.SnmpV3AuthProtocol
+	authPassphrase string
+	privProtocol   gosnmp.SnmpV3PrivProtocol
+	privPassphrase string
+	msgFlags       gosnmp.SnmpV3MsgFlags
+	securityLevel  string
 }
 
 type snmpProbeOutcome struct {
-	snmpVersion string
-	community   string
-	sysDescr    string
-	sysName     string
-	sysObjectID string
-	vendorHint  string
-	productHint string
-	versionHint string
-	duration    time.Duration
+	snmpVersion   string
+	community     string
+	username      string
+	securityLevel string
+	sysDescr      string
+	sysName       string
+	sysObjectID   string
+	vendorHint    string
+	productHint   string
+	versionHint   string
+	duration      time.Duration
 }
 
 var (
@@ -159,6 +187,36 @@ func newSNMPNativeProbeModule() *snmpNativeProbeModule {
 					Required:    false,
 					Default:     0,
 				},
+				"snmpv3_username": {
+					Description: "SNMPv3 (USM) security name. When set, a v3 attempt is tried before v1/v2c.",
+					Type:        "string",
+					Required:    false,
+					Default:     "",
+				},
+				"snmpv3_auth_protocol": {
+					Description: "SNMPv3 authentication protocol: MD5, SHA, SHA224, SHA256, SHA384, SHA512 (default SHA256).",
+					Type:        "string",
+					Required:    false,
+					Default:     "SHA256",
+				},
+				"snmpv3_auth_pass": {
+					Description: "SNMPv3 authentication passphrase. Omit for noAuthNoPriv.",
+					Type:        "string",
+					Required:    false,
+					Default:     "",
+				},
+				"snmpv3_priv_protocol": {
+					Description: "SNMPv3 privacy protocol: DES, AES, AES192, AES256 (default AES256).",
+					Type:        "string",
+					Required:    false,
+					Default:     "AES256",
+				},
+				"snmpv3_priv_pass": {
+					Description: "SNMPv3 privacy passphrase. Omit for authNoPriv.",
+					Type:        "string",
+					Required:    false,
+					Default:     "",
+				},
 			},
 		},
 		options: defaultSNMPProbeOptions(),
@@ -185,9 +243,23 @@ func (m *snmpNativeProbeModule) Init(instanceID string, configMap map[string]any
 		if retries, ok := configMap["retries"].(float64); ok && retries >= 0 {
 			opts.Retries = int(retries)
 		}
+		opts.V3Username = snmpConfigString(configMap, "snmpv3_username", opts.V3Username)
+		opts.V3AuthProtocol = snmpConfigString(configMap, "snmpv3_auth_protocol", opts.V3AuthProtocol)
+		opts.V3AuthPassphrase = snmpConfigString(configMap, "snmpv3_auth_pass", opts.V3AuthPassphrase)
+		opts.V3PrivProtocol = snmpConfigString(configMap, "snmpv3_priv_protocol", opts.V3PrivProtocol)
+		opts.V3PrivPassphrase = snmpConfigString(configMap, "snmpv3_priv_pass", opts.V3PrivPassphrase)
 	}
 	m.options = opts
 	return nil
+}
+
+func snmpConfigString(configMap map[string]any, key, fallback string) string {
+	if value, ok := configMap[key].(string); ok {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return fallback
 }
 
 func (m *snmpNativeProbeModule) Execute(ctx context.Context, inputs map[string]any, outputChan chan<- engine.ModuleOutput) error {
@@ -317,8 +389,9 @@ func probeSNMPDetails(ctx context.Context, target string, port int, opts SNMPPro
 		Attempts: make([]SNMPProbeAttempt, 0, 4*(opts.Retries+1)),
 	}
 
-	attemptErrors := make([]string, 0, 4*(opts.Retries+1))
-	for _, plan := range buildSNMPAttemptPlan() {
+	plans := buildSNMPAttemptPlan(opts)
+	attemptErrors := make([]string, 0, len(plans)*(opts.Retries+1))
+	for _, plan := range plans {
 		for retry := 0; retry <= opts.Retries; retry++ {
 			outcome, err := executeSNMPAttemptFunc(probeCtx, target, port, plan, opts.PerAttemptTimeout)
 			if err != nil {
@@ -326,6 +399,7 @@ func probeSNMPDetails(ctx context.Context, target string, port int, opts SNMPPro
 				attemptErrors = append(attemptErrors, errorClass)
 				result.Attempts = append(result.Attempts, SNMPProbeAttempt{
 					Community:  plan.community,
+					User:       snmpPlanUser(plan),
 					VersionTry: snmpVersionString(plan.version),
 					Success:    false,
 					DurationMS: outcome.duration.Milliseconds(),
@@ -340,6 +414,7 @@ func probeSNMPDetails(ctx context.Context, target string, port int, opts SNMPPro
 
 			result.Attempts = append(result.Attempts, SNMPProbeAttempt{
 				Community:  plan.community,
+				User:       snmpPlanUser(plan),
 				VersionTry: outcome.snmpVersion,
 				Success:    true,
 				DurationMS: outcome.duration.Milliseconds(),
@@ -347,6 +422,8 @@ func probeSNMPDetails(ctx context.Context, target string, port int, opts SNMPPro
 			result.SNMPProbe = true
 			result.SNMPVersion = outcome.snmpVersion
 			result.Community = outcome.community
+			result.User = outcome.username
+			result.SecurityLevel = outcome.securityLevel
 			result.SysDescr = outcome.sysDescr
 			result.SysName = outcome.sysName
 			result.SysObjectID = outcome.sysObjectID
@@ -366,12 +443,89 @@ func probeSNMPDetails(ctx context.Context, target string, port int, opts SNMPPro
 	return result
 }
 
-func buildSNMPAttemptPlan() []snmpAttemptPlan {
-	return []snmpAttemptPlan{
-		{community: snmpCommunityPub, version: gosnmp.Version2c},
-		{community: snmpCommunityPub, version: gosnmp.Version1},
-		{community: snmpCommunityPriv, version: gosnmp.Version2c},
-		{community: snmpCommunityPriv, version: gosnmp.Version1},
+func buildSNMPAttemptPlan(opts SNMPProbeOptions) []snmpAttemptPlan {
+	plans := make([]snmpAttemptPlan, 0, 5)
+	// SNMPv3 is tried first when configured: hardened targets (e.g. banks)
+	// disable v1/v2c, and v3 credentials cannot be guessed.
+	if cred := opts.resolveV3Credential(); cred != nil {
+		plans = append(plans, snmpAttemptPlan{version: gosnmp.Version3, v3: cred})
+	}
+	plans = append(plans,
+		snmpAttemptPlan{community: snmpCommunityPub, version: gosnmp.Version2c},
+		snmpAttemptPlan{community: snmpCommunityPub, version: gosnmp.Version1},
+		snmpAttemptPlan{community: snmpCommunityPriv, version: gosnmp.Version2c},
+		snmpAttemptPlan{community: snmpCommunityPriv, version: gosnmp.Version1},
+	)
+	return plans
+}
+
+// resolveV3Credential builds a USM credential from the options, deriving the
+// security level from which passphrases were supplied. Returns nil when no
+// SNMPv3 username is configured.
+func (o SNMPProbeOptions) resolveV3Credential() *snmpV3Credential {
+	username := strings.TrimSpace(o.V3Username)
+	if username == "" {
+		return nil
+	}
+	cred := &snmpV3Credential{
+		username:       username,
+		authProtocol:   mapSNMPAuthProtocol(o.V3AuthProtocol),
+		authPassphrase: o.V3AuthPassphrase,
+		privProtocol:   mapSNMPPrivProtocol(o.V3PrivProtocol),
+		privPassphrase: o.V3PrivPassphrase,
+	}
+
+	hasAuth := cred.authProtocol != gosnmp.NoAuth && strings.TrimSpace(cred.authPassphrase) != ""
+	hasPriv := cred.privProtocol != gosnmp.NoPriv && strings.TrimSpace(cred.privPassphrase) != ""
+	switch {
+	case hasAuth && hasPriv:
+		cred.msgFlags = gosnmp.AuthPriv
+		cred.securityLevel = "authPriv"
+	case hasAuth:
+		cred.msgFlags = gosnmp.AuthNoPriv
+		cred.securityLevel = "authNoPriv"
+		cred.privProtocol = gosnmp.NoPriv
+		cred.privPassphrase = ""
+	default:
+		cred.msgFlags = gosnmp.NoAuthNoPriv
+		cred.securityLevel = "noAuthNoPriv"
+		cred.authProtocol = gosnmp.NoAuth
+		cred.authPassphrase = ""
+		cred.privProtocol = gosnmp.NoPriv
+		cred.privPassphrase = ""
+	}
+	return cred
+}
+
+func mapSNMPAuthProtocol(name string) gosnmp.SnmpV3AuthProtocol {
+	switch strings.ToUpper(strings.TrimSpace(name)) {
+	case "MD5":
+		return gosnmp.MD5
+	case "SHA", "SHA1":
+		return gosnmp.SHA
+	case "SHA224":
+		return gosnmp.SHA224
+	case "SHA384":
+		return gosnmp.SHA384
+	case "SHA512":
+		return gosnmp.SHA512
+	default:
+		// SHA256 is the bank-friendly default (also for empty/unknown).
+		return gosnmp.SHA256
+	}
+}
+
+func mapSNMPPrivProtocol(name string) gosnmp.SnmpV3PrivProtocol {
+	switch strings.ToUpper(strings.TrimSpace(name)) {
+	case "DES":
+		return gosnmp.DES
+	case "AES", "AES128":
+		return gosnmp.AES
+	case "AES192":
+		return gosnmp.AES192
+	default:
+		// AES256 is the bank-friendly default (also for empty/unknown).
+		return gosnmp.AES256
 	}
 }
 
@@ -406,11 +560,23 @@ func executeSNMPAttempt(
 		Target:    target,
 		Port:      uint16(port), //nolint:gosec
 		Transport: "udp",
-		Community: plan.community,
 		Version:   plan.version,
 		Timeout:   timeout,
 		Retries:   0,
 		Context:   ctx,
+	}
+	if plan.v3 != nil {
+		client.SecurityModel = gosnmp.UserSecurityModel
+		client.MsgFlags = plan.v3.msgFlags
+		client.SecurityParameters = &gosnmp.UsmSecurityParameters{
+			UserName:                 plan.v3.username,
+			AuthenticationProtocol:   plan.v3.authProtocol,
+			AuthenticationPassphrase: plan.v3.authPassphrase,
+			PrivacyProtocol:          plan.v3.privProtocol,
+			PrivacyPassphrase:        plan.v3.privPassphrase,
+		}
+	} else {
+		client.Community = plan.community
 	}
 	if err := client.Connect(); err != nil {
 		outcome.duration = time.Since(start)
@@ -434,7 +600,12 @@ func executeSNMPAttempt(
 
 	vendorHint, productHint, versionHint := inferSNMPHints(sysDescr, sysObjectID)
 	outcome.snmpVersion = snmpVersionString(plan.version)
-	outcome.community = plan.community
+	if plan.v3 != nil {
+		outcome.username = plan.v3.username
+		outcome.securityLevel = plan.v3.securityLevel
+	} else {
+		outcome.community = plan.community
+	}
 	outcome.sysDescr = sysDescr
 	outcome.sysObjectID = sysObjectID
 	outcome.sysName = sysName
@@ -519,9 +690,18 @@ func snmpVersionString(version gosnmp.SnmpVersion) string {
 		return "SNMPv1"
 	case gosnmp.Version2c:
 		return "SNMPv2c"
+	case gosnmp.Version3:
+		return "SNMPv3"
 	default:
 		return ""
 	}
+}
+
+func snmpPlanUser(plan snmpAttemptPlan) string {
+	if plan.v3 != nil {
+		return plan.v3.username
+	}
+	return ""
 }
 
 func isWeakSNMPCommunity(community string) bool {
