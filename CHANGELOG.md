@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- SNMP device-vendor identification via IANA Private Enterprise Numbers. The
+  native SNMP probe now maps a device's `sysObjectID` enterprise number to a
+  manufacturer (Fortinet, Palo Alto, F5, Juniper, HP, Aruba, printers, UPS,
+  storage, ...) instead of recognizing only four hardcoded vendors. Works on
+  unauthenticated v1/v2c/v3 responses; expands device make coverage for asset
+  inventory. Specific descr-based patterns (Cisco IOS, Windows, MikroTik,
+  Net-SNMP) still take precedence and continue to extract versions.
 - SNMPv3 (USM) support in the native SNMP probe. When an SNMPv3 username is
   configured, a v3 attempt is tried before the v1/v2c community fallbacks
   (hardened targets such as banks disable v1/v2c and mandate v3). Auth protocols

@@ -674,6 +674,14 @@ func inferSNMPHints(sysDescr string, sysObjectID string) (string, string, string
 		return "MikroTik", "MikroTik SNMP", firstRegexGroup(snmpMikroTikPattern.FindStringSubmatch(sysDescr))
 	}
 
+	// Fallback: map the sysObjectID's enterprise number to a manufacturer via
+	// the IANA PEN table. This recognizes the long tail of vendors (Fortinet,
+	// Palo Alto, F5, Juniper, HP, printers, ...) that the specific patterns
+	// above do not, without a version.
+	if vendor, product, ok := lookupSNMPEnterprise(objectID); ok {
+		return vendor, product, ""
+	}
+
 	return "", "", ""
 }
 
