@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Two-phase TCP port discovery via a new `sweep_timeout` option. When set, the
+  first pass sweeps all requested ports at this short timeout (open/refused
+  ports resolve fast; only filtered ports pay the short wait), then a
+  verification pass re-checks only the timed-out ports at the full `timeout` to
+  recover slow-responding open ports. Refused ports (definitively closed) are no
+  longer re-probed. This makes full-range (1-65535) scans practical without a
+  stateless SYN scanner. `sweep_timeout: 0` keeps the classic single pass.
+
 ## [0.12.0] - 2026-07-22
 
 ### Added

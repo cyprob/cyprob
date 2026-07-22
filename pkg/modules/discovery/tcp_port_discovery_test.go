@@ -385,7 +385,7 @@ func TestTCPPortDiscoveryModule_DialWithRetries(t *testing.T) {
 		return c1, nil
 	}
 
-	conn, err := module.dialWithRetries(context.Background(), "127.0.0.1:80", 80)
+	conn, err := module.dialWithRetries(context.Background(), "127.0.0.1:80", 80, module.config.Timeout)
 	if conn != nil {
 		_ = conn.Close()
 	}
@@ -414,7 +414,7 @@ func TestTCPPortDiscoveryModule_DialWithRetriesUsesPortTimeoutOverride(t *testin
 		return nil, timeoutTestError{}
 	}
 
-	_, err := module.dialWithRetries(context.Background(), "127.0.0.1:445", 445)
+	_, err := module.dialWithRetries(context.Background(), "127.0.0.1:445", 445, module.config.Timeout)
 	require.Error(t, err)
 	require.Equal(t, 8*time.Second, gotTimeout)
 }
@@ -462,6 +462,73 @@ func TestTCPPortDiscoveryModule_ScanTargetPortsAll_AppliesPortTimeoutOverrideOnl
 	defer timeoutsMu.Unlock()
 	require.Equal(t, time.Second, timeouts["127.0.0.1:80"])
 	require.Equal(t, 8*time.Second, timeouts["127.0.0.1:445"])
+}
+
+func TestTCPPortDiscoveryModule_ScanTargetPortsAll_TwoPhaseSweepRecoversSlowOpen(t *testing.T) {
+	module := newTCPPortDiscoveryModule()
+	module.config.Timeout = 1 * time.Second
+	module.config.SweepTimeout = 200 * time.Millisecond
+	module.config.Retries = 0
+	module.config.VerificationPassEnabled = false // a sweep implies its own verification
+
+	originalDial := dialTimeout
+	t.Cleanup(func() { dialTimeout = originalDial })
+
+	var mu sync.Mutex
+	dialCount := make(map[int]int)
+	dialTimeout = func(_ string, address string, timeout time.Duration) (net.Conn, error) {
+		_, portStr, _ := net.SplitHostPort(address)
+		port, _ := strconv.Atoi(portStr)
+		mu.Lock()
+		dialCount[port]++
+		mu.Unlock()
+
+		switch port {
+		case 80: // open immediately on the sweep
+			c1, c2 := net.Pipe()
+			_ = c2.Close()
+			return c1, nil
+		case 8080: // slow-open: times out on the short sweep, opens at the full timeout
+			if timeout <= module.config.SweepTimeout {
+				return nil, timeoutTestError{}
+			}
+			c1, c2 := net.Pipe()
+			_ = c2.Close()
+			return c1, nil
+		default: // 81: refused -> definitively closed, must not be re-probed
+			return nil, syscall.ECONNREFUSED
+		}
+	}
+
+	openPortsByTarget := make(map[string][]int)
+	timedOutPortsByTarget := make(map[string][]int)
+	refusedPortsByTarget := make(map[string][]int)
+	otherErrorPortsByTarget := make(map[string][]int)
+	var mapMutex sync.Mutex
+
+	module.scanTargetPortsAll(
+		context.Background(),
+		"127.0.0.1",
+		[]int{80, 81, 8080},
+		make(chan struct{}, 8),
+		&mapMutex,
+		openPortsByTarget,
+		timedOutPortsByTarget,
+		refusedPortsByTarget,
+		otherErrorPortsByTarget,
+	)
+
+	require.ElementsMatch(t, []int{80, 8080}, openPortsByTarget["127.0.0.1"],
+		"slow-open 8080 must be recovered by the full-timeout verification pass")
+	require.Equal(t, []int{81}, refusedPortsByTarget["127.0.0.1"])
+	require.Empty(t, timedOutPortsByTarget["127.0.0.1"],
+		"8080 must move from timed-out to open after verification")
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.Equal(t, 1, dialCount[80], "open port dialed once (sweep)")
+	require.Equal(t, 1, dialCount[81], "refused port must NOT be re-verified")
+	require.Equal(t, 2, dialCount[8080], "slow-open dialed twice: sweep (timeout) + verification (open)")
 }
 
 func TestTCPPortDiscoveryModule_ScanTargetPortsAll_TargetedSecondPassRecoversMissedPort(t *testing.T) {

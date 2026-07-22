@@ -37,6 +37,7 @@ type TCPPortDiscoveryConfig struct {
 	Targets                 []string              `json:"targets"`
 	Ports                   []string              `json:"ports"`   // Port ranges and lists (e.g., "1-1024", "80,443,8080")
 	Timeout                 time.Duration         `json:"timeout"` // Connection timeout for each port
+	SweepTimeout            time.Duration         `json:"sweep_timeout,omitempty"`
 	PortTimeoutOverrides    map[int]time.Duration `json:"port_timeout_overrides,omitempty"`
 	Concurrency             int                   `json:"concurrency"`
 	Retries                 int                   `json:"retries"`
@@ -147,6 +148,12 @@ func newTCPPortDiscoveryModule() *TCPPortDiscoveryModule {
 					Required:    false,
 					Default:     defaultTCPPortDiscoveryTimeout.String(),
 				},
+				"sweep_timeout": {
+					Description: "Short timeout for the first (sweep) pass (e.g. '400ms'). When set (>0), the module runs two-phase: a fast sweep of all ports at this timeout, then a verification pass that re-checks only the timed-out ports at the full 'timeout'. Makes full-range scans practical. 0 disables (single pass at 'timeout').",
+					Type:        "duration",
+					Required:    false,
+					Default:     "",
+				},
 				"port_timeout_overrides": {
 					Description: "Per-port timeout overrides keyed by port number (e.g., {\"445\":\"8s\"}).",
 					Type:        "map",
@@ -210,6 +217,13 @@ func (m *TCPPortDiscoveryModule) Init(instanceID string, moduleConfig map[string
 		} else {
 			// Use fmt.Fprintf(os.Stderr, ...) for warnings/errors in production code for better logging control
 			fmt.Printf("[WARN] Module '%s': Invalid 'timeout' format in config: '%s'. Using default: %s\n", m.meta.Name, timeoutStr, cfg.Timeout)
+		}
+	}
+	if sweepStr, ok := moduleConfig["sweep_timeout"].(string); ok && strings.TrimSpace(sweepStr) != "" {
+		if dur, err := time.ParseDuration(sweepStr); err == nil && dur > 0 {
+			cfg.SweepTimeout = dur
+		} else {
+			fmt.Printf("[WARN] Module '%s': Invalid 'sweep_timeout' format in config: '%s'. Ignoring (single-pass).\n", m.meta.Name, sweepStr)
 		}
 	}
 	if timeoutOverrides, ok := parsePortTimeoutOverrides(moduleConfig["port_timeout_overrides"]); ok {
@@ -290,13 +304,6 @@ func parsePortTimeoutOverrides(raw any) (map[int]time.Duration, bool) {
 		overrides[port] = timeout
 	}
 	return overrides, true
-}
-
-func (m *TCPPortDiscoveryModule) timeoutForPort(port int) time.Duration {
-	if timeout, ok := m.config.PortTimeoutOverrides[port]; ok && timeout > 0 {
-		return timeout
-	}
-	return m.config.Timeout
 }
 
 // Execute performs the TCP port discovery.
@@ -519,7 +526,7 @@ func (m *TCPPortDiscoveryModule) scanTargetPortsStopOnFirstOpen(
 
 		sem <- struct{}{}
 		address := net.JoinHostPort(ip, strconv.Itoa(p))
-		conn, err := m.dialWithRetries(ctx, address, p)
+		conn, err := m.dialWithRetries(ctx, address, p, m.config.Timeout)
 		<-sem
 		if err != nil {
 			recordNegativeOutcome(mapMutex, ip, p, err, timedOutPortsByTarget, refusedPortsByTarget, otherErrorPortsByTarget)
@@ -555,12 +562,27 @@ func (m *TCPPortDiscoveryModule) scanTargetPortsAll(
 	otherErrorPortsByTarget map[string][]int,
 ) []int {
 	outcomes := newTCPPortScanOutcomes()
-	m.scanPortBatch(ctx, ip, parsedPorts, sem, outcomes)
 
-	if m.config.VerificationPassEnabled {
-		missedPorts := outcomes.missedPorts(parsedPorts)
-		if len(missedPorts) > 0 {
-			m.scanPortBatch(ctx, ip, missedPorts, sem, outcomes)
+	// Two-phase sweep: when sweep_timeout is set, run the first pass fast (short
+	// timeout) so open/refused ports resolve quickly and only filtered ports pay
+	// the short wait; then re-check just the timed-out (possibly slow-open) ports
+	// at the full timeout. This makes full-range scans practical without a
+	// stateless SYN scanner. When sweep_timeout is 0, behavior is the classic
+	// single pass at the full timeout.
+	firstPassTimeout := m.config.Timeout
+	if m.config.SweepTimeout > 0 {
+		firstPassTimeout = m.config.SweepTimeout
+	}
+	m.scanPortBatch(ctx, ip, parsedPorts, sem, outcomes, firstPassTimeout)
+
+	// Verification runs when explicitly enabled OR whenever a short sweep ran
+	// (the sweep can miss slow-responding open ports). It re-checks only the
+	// transient-failure ports (timed out / other errors) at the full timeout;
+	// refused ports are definitively closed and are not re-probed.
+	if m.config.VerificationPassEnabled || m.config.SweepTimeout > 0 {
+		reverify := outcomes.reverifyPorts()
+		if len(reverify) > 0 {
+			m.scanPortBatch(ctx, ip, reverify, sem, outcomes, m.config.Timeout)
 		}
 	}
 
@@ -593,6 +615,7 @@ func (m *TCPPortDiscoveryModule) scanPortBatch(
 	ports []int,
 	sem chan struct{},
 	outcomes *tcpPortScanOutcomes,
+	timeout time.Duration,
 ) {
 	var portWg sync.WaitGroup
 
@@ -616,7 +639,7 @@ func (m *TCPPortDiscoveryModule) scanPortBatch(
 			}
 
 			address := net.JoinHostPort(ip, strconv.Itoa(p))
-			conn, err := m.dialWithRetries(ctx, address, p)
+			conn, err := m.dialWithRetries(ctx, address, p, timeout)
 			if err != nil {
 				outcomes.recordNegative(p, err)
 				return
@@ -635,10 +658,16 @@ func (m *TCPPortDiscoveryModule) scanPortBatch(
 	portWg.Wait()
 }
 
-func (m *TCPPortDiscoveryModule) dialWithRetries(ctx context.Context, address string, port int) (net.Conn, error) {
+func (m *TCPPortDiscoveryModule) dialWithRetries(ctx context.Context, address string, port int, timeout time.Duration) (net.Conn, error) {
 	attempts := m.config.Retries + 1
 	var lastErr error
-	timeout := m.timeoutForPort(port)
+	// A per-port override always wins over the pass-level timeout.
+	if override, ok := m.config.PortTimeoutOverrides[port]; ok && override > 0 {
+		timeout = override
+	}
+	if timeout <= 0 {
+		timeout = m.config.Timeout
+	}
 
 	for attempt := 0; attempt < attempts; attempt++ {
 		select {
@@ -764,18 +793,22 @@ func (o *tcpPortScanOutcomes) recordNegative(port int, err error) {
 	}
 }
 
-func (o *tcpPortScanOutcomes) missedPorts(parsedPorts []int) []int {
+// reverifyPorts returns the ports worth a second, full-timeout probe: those
+// that timed out or hit a transient error on the first (possibly short) pass.
+// Open ports need no recheck; refused ports are definitively closed.
+func (o *tcpPortScanOutcomes) reverifyPorts() []int {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 
-	missed := make([]int, 0, len(parsedPorts))
-	for _, port := range parsedPorts {
-		if _, ok := o.open[port]; ok {
-			continue
-		}
-		missed = append(missed, port)
+	ports := make([]int, 0, len(o.timedOut)+len(o.otherErrors))
+	for port := range o.timedOut {
+		ports = append(ports, port)
 	}
-	return missed
+	for port := range o.otherErrors {
+		ports = append(ports, port)
+	}
+	sort.Ints(ports)
+	return ports
 }
 
 func (o *tcpPortScanOutcomes) openPorts() []int {
