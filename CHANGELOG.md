@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-07-22
+
 ### Added
 - Two-phase TCP port discovery via a new `sweep_timeout` option. When set, the
   first pass sweeps all requested ports at this short timeout (open/refused
