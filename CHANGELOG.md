@@ -7,7 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-08-03
+
 ### Added
+- Operating system identification from the SSH banner. Linux distributions patch
+  OpenSSH and name themselves in the banner comment
+  ("OpenSSH_8.9p1 Ubuntu-3ubuntu0.4"), which the probe previously discarded.
+  SSH is reachable on virtually every Linux server, so this is a credential-free
+  OS signal across the bulk of an estate - and an OS version feeds version-based
+  CVE correlation, not just the inventory.
+  Debian/Raspbian releases are read directly from the package suffix ("+deb11u3"
+  -> 11), which the banner states. Ubuntu is inferred from the OpenSSH version it
+  freezes per release, limited to LTS releases; an unmapped version yields no
+  version rather than a guess. Banners that name no distribution (stock OpenSSH,
+  most appliances) assert nothing.
 - Device identification from TLS certificates. Appliances and management
   interfaces sign their own certificates and name themselves in the subject or
   issuer ("CN=FortiGate", "O=Ubiquiti Inc.", "CN=iDRAC default certificate"),
