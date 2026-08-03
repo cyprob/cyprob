@@ -993,6 +993,11 @@ func (m *serviceIdentityNormalizerModule) ingestSSHDetails(inputs map[string]any
 		if strings.TrimSpace(sshInfo.SSHVersion) != "" {
 			setIdentityField(entry, "version", strings.TrimSpace(sshInfo.SSHVersion), sourceSSHNative, 0.64)
 		}
+		// The banner comment names the distribution outright. Confidence sits
+		// below SMB's authenticated OS report but above a pure guess.
+		if sshInfo.OSHints.Family != "" {
+			setIdentityOS(entry, sshInfo.OSHints, sourceSSHNative, 0.75)
+		}
 		if strings.TrimSpace(sshInfo.SSHBanner) != "" && strings.TrimSpace(entry.Banner) == "" {
 			setIdentityField(entry, "banner", strings.TrimSpace(sshInfo.SSHBanner), sourceSSHNative, 0.56)
 		}
