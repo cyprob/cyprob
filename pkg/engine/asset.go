@@ -101,7 +101,9 @@ type AssetProfile struct {
 	// synthesized from probe evidence — distinct from the per-port service view.
 	Device *DeviceProfile `json:"device,omitempty" yaml:"device,omitempty"`
 	// OperatingSystem string `json:"operating_system,omitempty" yaml:"operating_system,omitempty"`
-	// MACAddress string `json:"mac_address,omitempty" yaml:"mac_address,omitempty"`
+	// MACAddress is the link-layer address, available only when the scanner
+	// shares a segment with the asset (resolved from the local neighbor table).
+	MACAddress string `json:"mac_address,omitempty" yaml:"mac_address,omitempty"`
 	ErrorsEncountered []string `json:"errors_encountered,omitempty" yaml:"errors_encountered,omitempty"` // Errors specific to this asset during scan
 }
 

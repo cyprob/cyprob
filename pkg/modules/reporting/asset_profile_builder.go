@@ -10,6 +10,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/cyprob/cyprob/pkg/engine"
+	"github.com/cyprob/cyprob/pkg/macvendor"
 	"github.com/cyprob/cyprob/pkg/modules/discovery"
 	"github.com/cyprob/cyprob/pkg/modules/evaluation" // For VulnerabilityResult
 	"github.com/cyprob/cyprob/pkg/modules/parse"
@@ -61,6 +62,7 @@ func buildAssetProfileBuilderConsumes() []engine.DataContractEntry {
 		{Key: "service.ssh.details", DataTypeName: "scan.SSHServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 		{Key: "service.smtp.details", DataTypeName: "scan.SMTPServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 		{Key: "service.snmp.details", DataTypeName: "scan.SNMPServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
+		{Key: "service.mdns.details", DataTypeName: "scan.MDNSServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 		{Key: "service.dns.details", DataTypeName: "scan.DNSServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 		{Key: "service.fingerprint.details", DataTypeName: "parse.FingerprintParsedInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 		{Key: "service.tech.tags", DataTypeName: "parse.TechTagResult", Cardinality: engine.CardinalityList, IsOptional: true},
@@ -244,6 +246,19 @@ func (m *AssetProfileBuilderModule) Execute(ctx context.Context, inputs map[stri
 			}
 		} else if typed, typedOk := rawSNMP.([]scan.SNMPServiceInfo); typedOk {
 			snmpDetails = append(snmpDetails, typed...)
+		}
+	}
+
+	mdnsDetails := []scan.MDNSServiceInfo{}
+	if rawMDNS, ok := inputs["service.mdns.details"]; ok {
+		if list, listOk := rawMDNS.([]any); listOk {
+			for _, item := range list {
+				if casted, castOk := item.(scan.MDNSServiceInfo); castOk {
+					mdnsDetails = append(mdnsDetails, casted)
+				}
+			}
+		} else if typed, typedOk := rawMDNS.([]scan.MDNSServiceInfo); typedOk {
+			mdnsDetails = append(mdnsDetails, typed...)
 		}
 	}
 
@@ -658,10 +673,22 @@ func (m *AssetProfileBuilderModule) Execute(ctx context.Context, inputs map[stri
 		}
 		asset.OpenPorts[targetIP] = assetOpenPorts // Haritaya ekle
 
-		// Asset-level device identity (make/model/serial/role) from SNMP.
+		// Asset-level device identity (make/model/serial/role). Sources are
+		// merged strongest-first: SNMP states the device outright, mDNS reports
+		// what the device advertises about itself, and the MAC OUI is the last
+		// resort that still names a manufacturer when nothing else does.
 		if snmp := findSNMPDetails(snmpDetails, targetIP, 161); snmp != nil {
-			if device := deviceProfileFromSNMP(*snmp); device != nil {
-				asset.Device = device
+			asset.Device = deviceProfileFromSNMP(*snmp)
+		}
+		if mdns := findMDNSDetails(mdnsDetails, targetIP); mdns != nil {
+			asset.Device = mergeDeviceProfile(asset.Device, deviceProfileFromMDNS(*mdns))
+		}
+		if mac, ok := netutil.ARPLookup(targetIP); ok {
+			asset.MACAddress = mac
+			if vendor, found := macvendor.Lookup(mac); found {
+				asset.Device = mergeDeviceProfile(asset.Device, &engine.DeviceProfile{
+					Vendor: vendor, Source: "mac_oui",
+				})
 			}
 		}
 
@@ -1139,6 +1166,69 @@ func deviceProfileFromSNMP(d scan.SNMPServiceInfo) *engine.DeviceProfile {
 	}
 	device.Source = "snmp"
 	return device
+}
+
+// deviceProfileFromMDNS builds a device identity from what a host advertises
+// over DNS-SD. Unlike SNMP this needs no credentials and no management agent,
+// so it frequently covers hosts SNMP cannot reach.
+func deviceProfileFromMDNS(d scan.MDNSServiceInfo) *engine.DeviceProfile {
+	if !d.MDNSProbe {
+		return nil
+	}
+	device := &engine.DeviceProfile{
+		Vendor:  strings.TrimSpace(d.VendorHint),
+		Product: strings.TrimSpace(d.ProductHint),
+		Model:   strings.TrimSpace(d.Model),
+		Type:    strings.TrimSpace(d.DeviceType),
+	}
+	if device.Vendor == "" && device.Product == "" && device.Model == "" && device.Type == "" {
+		return nil
+	}
+	device.Source = "mdns"
+	return device
+}
+
+// mergeDeviceProfile fills gaps in base from fallback without overwriting
+// anything the stronger source already established. Sources are recorded
+// cumulatively so a profile states every signal that contributed to it.
+func mergeDeviceProfile(base, fallback *engine.DeviceProfile) *engine.DeviceProfile {
+	if fallback == nil {
+		return base
+	}
+	if base == nil {
+		return fallback
+	}
+
+	filled := false
+	fill := func(target *string, value string) {
+		if strings.TrimSpace(*target) == "" && strings.TrimSpace(value) != "" {
+			*target = strings.TrimSpace(value)
+			filled = true
+		}
+	}
+	fill(&base.Vendor, fallback.Vendor)
+	fill(&base.Product, fallback.Product)
+	fill(&base.Model, fallback.Model)
+	fill(&base.Serial, fallback.Serial)
+	fill(&base.Type, fallback.Type)
+
+	if filled && fallback.Source != "" && !strings.Contains(base.Source, fallback.Source) {
+		if base.Source == "" {
+			base.Source = fallback.Source
+		} else {
+			base.Source += "+" + fallback.Source
+		}
+	}
+	return base
+}
+
+func findMDNSDetails(items []scan.MDNSServiceInfo, target string) *scan.MDNSServiceInfo {
+	for i := range items {
+		if items[i].Target == target {
+			return &items[i]
+		}
+	}
+	return nil
 }
 
 func findSNMPDetails(items []scan.SNMPServiceInfo, target string, port int) *scan.SNMPServiceInfo {

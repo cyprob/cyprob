@@ -8,6 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- MAC vendor identification via the IEEE OUI registry. Assets on a directly
+  attached segment now carry their link-layer address and a manufacturer, which
+  is often the only vendor signal a device gives: hardware that exposes no SNMP,
+  no banner and no management UI still has a manufacturer-assigned MAC. The
+  table is generated from the authoritative IEEE registry (`gen_oui.go`), never
+  hand-maintained, and is decompressed lazily on first lookup.
+  Locally-administered (randomized privacy) and multicast addresses are
+  deliberately not resolved, since their leading bytes are not an OUI.
+- Asset-level device identity now merges multiple sources strongest-first: SNMP
+  states the device outright, mDNS reports what it advertises about itself, and
+  the MAC OUI names a manufacturer when nothing else does. The profile's
+  `source` records every signal that actually contributed.
 - Native mDNS (DNS-SD) probe on UDP/5353. Hosts that answer Bonjour publish an
   exact hardware model and OS version, so this yields device identity for hosts
   that expose nothing else identifiable - and the version feeds CVE correlation.
