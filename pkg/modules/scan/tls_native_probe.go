@@ -47,21 +47,26 @@ type TLSProbeAttempt struct {
 
 // TLSServiceInfo is the canonical TLS native probe output.
 type TLSServiceInfo struct {
-	Target           string            `json:"target"`
-	Port             int               `json:"port"`
-	TLSProbe         bool              `json:"tls_probe"`
-	TLSVersion       string            `json:"tls_version,omitempty"`
-	CipherSuite      string            `json:"cipher_suite,omitempty"`
-	ALPN             string            `json:"alpn,omitempty"`
-	SNIServerName    string            `json:"sni_server_name,omitempty"`
-	CertSubjectCN    string            `json:"cert_subject_cn,omitempty"`
-	CertIssuer       string            `json:"cert_issuer,omitempty"`
-	CertDNSNames     []string          `json:"cert_dns_names,omitempty"`
-	CertNotBefore    time.Time         `json:"cert_not_before,omitempty"`
-	CertNotAfter     time.Time         `json:"cert_not_after,omitempty"`
-	CertIsExpired    bool              `json:"cert_is_expired"`
-	CertIsSelfSigned bool              `json:"cert_is_self_signed"`
-	CertSHA256       string            `json:"cert_sha256,omitempty"`
+	Target           string    `json:"target"`
+	Port             int       `json:"port"`
+	TLSProbe         bool      `json:"tls_probe"`
+	TLSVersion       string    `json:"tls_version,omitempty"`
+	CipherSuite      string    `json:"cipher_suite,omitempty"`
+	ALPN             string    `json:"alpn,omitempty"`
+	SNIServerName    string    `json:"sni_server_name,omitempty"`
+	CertSubjectCN    string    `json:"cert_subject_cn,omitempty"`
+	CertIssuer       string    `json:"cert_issuer,omitempty"`
+	CertDNSNames     []string  `json:"cert_dns_names,omitempty"`
+	CertNotBefore    time.Time `json:"cert_not_before,omitempty"`
+	CertNotAfter     time.Time `json:"cert_not_after,omitempty"`
+	CertIsExpired    bool      `json:"cert_is_expired"`
+	CertIsSelfSigned bool      `json:"cert_is_self_signed"`
+	CertSHA256       string    `json:"cert_sha256,omitempty"`
+	// VendorHint/ProductHint are device identity derived from the certificate
+	// subject/issuer. Appliances sign their own management certificates and name
+	// themselves in them, so this identifies hosts that expose nothing else.
+	VendorHint       string            `json:"vendor_hint,omitempty"`
+	ProductHint      string            `json:"product_hint,omitempty"`
 	WeakProtocol     bool              `json:"weak_protocol"`
 	WeakCipher       bool              `json:"weak_cipher"`
 	HostnameMismatch bool              `json:"hostname_mismatch"`
@@ -477,6 +482,7 @@ func probeTLSDetails(ctx context.Context, target, hostname string, port int, opt
 		result.CertIsExpired = bestOutcome.certIsExpired
 		result.CertIsSelfSigned = bestOutcome.certIsSelfSigned
 		result.CertSHA256 = bestOutcome.certSHA256
+		result.VendorHint, result.ProductHint = deriveTLSCertIdentity(result.CertSubjectCN, result.CertIssuer)
 		result.WeakProtocol = bestOutcome.weakProtocol
 		result.WeakCipher = bestOutcome.weakCipher
 		result.HostnameMismatch = bestOutcome.hostnameMismatch

@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Device identification from TLS certificates. Appliances and management
+  interfaces sign their own certificates and name themselves in the subject or
+  issuer ("CN=FortiGate", "O=Ubiquiti Inc.", "CN=iDRAC default certificate"),
+  which identifies hosts that expose no SNMP, no banner and no recognizable web
+  UI. The certificate fields were already collected but were only stored as raw
+  attributes; they now yield a vendor and product into the canonical service
+  identity and the asset-level device profile.
+  Matching is a curated allowlist, not a heuristic: a certificate CN is usually
+  just a hostname, so nothing is asserted unless a known product marker matches,
+  and markers must occur at a word start (a plain substring match labels
+  "pilot.example.com" an HPE iLO).
+
 ## [0.14.0] - 2026-08-03
 
 ### Added

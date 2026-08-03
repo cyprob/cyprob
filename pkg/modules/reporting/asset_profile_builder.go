@@ -683,6 +683,9 @@ func (m *AssetProfileBuilderModule) Execute(ctx context.Context, inputs map[stri
 		if mdns := findMDNSDetails(mdnsDetails, targetIP); mdns != nil {
 			asset.Device = mergeDeviceProfile(asset.Device, deviceProfileFromMDNS(*mdns))
 		}
+		if device := deviceProfileFromTLS(tlsDetails, targetIP); device != nil {
+			asset.Device = mergeDeviceProfile(asset.Device, device)
+		}
 		if mac, ok := netutil.ARPLookup(targetIP); ok {
 			asset.MACAddress = mac
 			if vendor, found := macvendor.Lookup(mac); found {
@@ -1220,6 +1223,24 @@ func mergeDeviceProfile(base, fallback *engine.DeviceProfile) *engine.DeviceProf
 		}
 	}
 	return base
+}
+
+// deviceProfileFromTLS derives device identity from a certificate that names its
+// own appliance. Any TLS port on the host may carry it (management UIs are not
+// always on 443), so the first port with a recognized marker wins.
+func deviceProfileFromTLS(items []scan.TLSServiceInfo, target string) *engine.DeviceProfile {
+	for i := range items {
+		if items[i].Target != target || !items[i].TLSProbe {
+			continue
+		}
+		vendor := strings.TrimSpace(items[i].VendorHint)
+		product := strings.TrimSpace(items[i].ProductHint)
+		if vendor == "" && product == "" {
+			continue
+		}
+		return &engine.DeviceProfile{Vendor: vendor, Product: product, Source: "tls_cert"}
+	}
+	return nil
 }
 
 func findMDNSDetails(items []scan.MDNSServiceInfo, target string) *scan.MDNSServiceInfo {

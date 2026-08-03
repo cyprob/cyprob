@@ -921,6 +921,14 @@ func (m *serviceIdentityNormalizerModule) ingestTLSDetails(inputs map[string]any
 		if (isServiceNameEmptyOrUnknown(entry.ServiceName) || currentSource == sourceHeuristic) && isHTTPSLikePort(tlsInfo.Port) {
 			setIdentityField(entry, "service_name", "https", sourceTLSNative, 0.65)
 		}
+		// A certificate that names its own appliance is strong identity: the
+		// device asserted it, and the marker table only matches known products.
+		if strings.TrimSpace(entry.Vendor) == "" && strings.TrimSpace(tlsInfo.VendorHint) != "" {
+			setIdentityField(entry, "vendor", strings.TrimSpace(tlsInfo.VendorHint), sourceTLSNative, 0.7)
+		}
+		if strings.TrimSpace(entry.Product) == "" && strings.TrimSpace(tlsInfo.ProductHint) != "" {
+			setIdentityField(entry, "product", strings.TrimSpace(tlsInfo.ProductHint), sourceTLSNative, 0.7)
+		}
 		entry.TechTags = NormalizeTechTags(append(entry.TechTags, TagTLS, TagHTTPS))
 	}
 }
