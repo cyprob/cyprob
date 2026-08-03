@@ -27,6 +27,7 @@ const (
 	sourceSSHNative        = "ssh_native_probe"
 	sourceSMTPNative       = "smtp_native_probe"
 	sourceSNMPNative       = "snmp_native_probe"
+	sourceMDNSNative       = "mdns_native_probe"
 	sourceDNSNative        = "dns_native_probe"
 	sourceFTPNative        = "ftp_native_probe"
 	sourceTelnetNative     = "telnet_native_probe"
@@ -215,6 +216,7 @@ func newServiceIdentityNormalizerModule() *serviceIdentityNormalizerModule {
 				{Key: "service.smtp.details", DataTypeName: "scan.SMTPServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 				{Key: "service.ssh.details", DataTypeName: "scan.SSHServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 				{Key: "service.snmp.details", DataTypeName: "scan.SNMPServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
+				{Key: "service.mdns.details", DataTypeName: "scan.MDNSServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 				{Key: "service.dns.details", DataTypeName: "scan.DNSServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 				{Key: "service.smb.details", DataTypeName: "scan.SMBServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 				{Key: "service.rdp.details", DataTypeName: "scan.RDPServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
@@ -267,6 +269,7 @@ func (m *serviceIdentityNormalizerModule) Execute(ctx context.Context, inputs ma
 	m.ingestPostgresDetails(inputs, getEntry)
 	m.ingestSMTPDetails(inputs, getEntry)
 	m.ingestSNMPDetails(inputs, getEntry)
+	m.ingestMDNSDetails(inputs, getEntry)
 	m.ingestDNSDetails(inputs, getEntry)
 	m.ingestSMBDetails(inputs, getEntry)
 	smbEvidence := collectSMBHostEvidence(inputs)
@@ -629,6 +632,43 @@ func (m *serviceIdentityNormalizerModule) ingestSNMPDetails(inputs map[string]an
 			setIdentityField(entry, "version", strings.TrimSpace(snmpInfo.VersionHint), sourceSNMPNative, 0.65)
 		}
 		entry.TechTags = NormalizeTechTags(append(entry.TechTags, TagSNMP))
+	}
+}
+
+// ingestMDNSDetails folds DNS-SD (Bonjour) results into the canonical identity.
+// mDNS is a credential-free source of exact hardware model and OS version, so it
+// often supplies identity for hosts that expose nothing else identifiable.
+func (m *serviceIdentityNormalizerModule) ingestMDNSDetails(inputs map[string]any, getEntry func(target string, port int) *ServiceIdentityInfo) {
+	raw, ok := inputs["service.mdns.details"]
+	if !ok {
+		return
+	}
+	for _, item := range toAnyList(raw) {
+		mdnsInfo, ok := item.(scanpkg.MDNSServiceInfo)
+		if !ok {
+			continue
+		}
+		if mdnsInfo.Target == "" || mdnsInfo.Port <= 0 || !mdnsInfo.MDNSProbe {
+			continue
+		}
+
+		entry := getEntry(mdnsInfo.Target, mdnsInfo.Port)
+		setIdentityField(entry, "service_name", "mdns", sourceMDNSNative, 0.64)
+		if strings.TrimSpace(entry.Product) == "" && strings.TrimSpace(mdnsInfo.ProductHint) != "" {
+			setIdentityField(entry, "product", strings.TrimSpace(mdnsInfo.ProductHint), sourceMDNSNative, 0.72)
+		}
+		if strings.TrimSpace(entry.Vendor) == "" && strings.TrimSpace(mdnsInfo.VendorHint) != "" {
+			setIdentityField(entry, "vendor", strings.TrimSpace(mdnsInfo.VendorHint), sourceMDNSNative, 0.7)
+		}
+		// The device advertises its own OS version, so this is a high-confidence
+		// signal (and a direct input to version-based CVE correlation).
+		if strings.TrimSpace(entry.Version) == "" && strings.TrimSpace(mdnsInfo.VersionHint) != "" {
+			setIdentityField(entry, "version", strings.TrimSpace(mdnsInfo.VersionHint), sourceMDNSNative, 0.74)
+		}
+		if strings.TrimSpace(entry.HostnameHint) == "" && strings.TrimSpace(mdnsInfo.Hostname) != "" {
+			entry.HostnameHint = strings.TrimSuffix(strings.TrimSpace(mdnsInfo.Hostname), ".")
+		}
+		entry.TechTags = NormalizeTechTags(append(entry.TechTags, "mdns"))
 	}
 }
 

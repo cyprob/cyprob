@@ -45,8 +45,8 @@ type UDPPortDiscoveryModule struct {
 const (
 	udpPortDiscoveryModuleTypeName = "udp-port-discovery"
 	defaultUDPPortDiscoveryTimeout = 2 * time.Second
-	defaultUDPConcurrency          = 50                    // Lower than TCP (UDP slower)
-	defaultUDPPorts                = "53,161,123,514,1900" // DNS, SNMP, NTP, Syslog, UPnP
+	defaultUDPConcurrency          = 50                         // Lower than TCP (UDP slower)
+	defaultUDPPorts                = "53,123,161,514,1900,5353" // DNS, NTP, SNMP, Syslog, UPnP, mDNS
 	defaultUDPMaxRetries           = 2
 )
 
@@ -189,6 +189,21 @@ func getDefaultUDPPayloads() map[int][]byte {
 			"MAN: \"ssdp:discover\"\r\n" +
 			"MX: 1\r\n" +
 			"ST: ssdp:all\r\n\r\n"),
+
+		// mDNS (5353): DNS-SD service enumeration (PTR _services._dns-sd._udp.local).
+		// Sent unicast, which DNS-SD responders answer directly; the reply both
+		// confirms the port and lists the service types the host advertises.
+		5353: {
+			0x00, 0x00, 0x00, 0x00, 0x00, 0x01, // ID 0, flags 0, 1 question
+			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // no answer/authority/additional
+			0x09, 0x5f, 0x73, 0x65, 0x72, 0x76, 0x69, 0x63, 0x65, 0x73, // "_services"
+			0x07, 0x5f, 0x64, 0x6e, 0x73, 0x2d, 0x73, 0x64, // "_dns-sd"
+			0x04, 0x5f, 0x75, 0x64, 0x70, // "_udp"
+			0x05, 0x6c, 0x6f, 0x63, 0x61, 0x6c, // "local"
+			0x00,       // Root
+			0x00, 0x0c, // Type: PTR
+			0x00, 0x01, // Class: IN
+		},
 	}
 }
 

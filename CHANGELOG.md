@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Native mDNS (DNS-SD) probe on UDP/5353. Hosts that answer Bonjour publish an
+  exact hardware model and OS version, so this yields device identity for hosts
+  that expose nothing else identifiable - and the version feeds CVE correlation.
+  Queries are unicast and bounded (one service enumeration plus a few
+  identity-bearing service types), and derive vendor/model/version/device-type
+  from DNS-SD TXT conventions (`model`, `md`, `usb_MFG`/`usb_MDL`, `osvers`).
+  Device class comes from the advertised service types (printer, media device,
+  storage, IoT) with the Apple hardware-identifier families as a fallback.
+  Results flow into the canonical service identity, including the hostname hint.
+
+### Changed
+- UDP port discovery now probes 5353 (mDNS) by default and sends a DNS-SD
+  service-enumeration payload for it, so mDNS-speaking devices are actually
+  discovered rather than missed.
+
 ## [0.13.0] - 2026-07-22
 
 ### Added
