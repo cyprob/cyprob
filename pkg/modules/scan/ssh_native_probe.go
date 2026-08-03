@@ -45,13 +45,16 @@ type SSHProbeAttempt struct {
 
 // SSHServiceInfo is the canonical SSH native probe output.
 type SSHServiceInfo struct {
-	Target            string            `json:"target"`
-	Port              int               `json:"port"`
-	SSHProbe          bool              `json:"ssh_probe"`
-	SSHBanner         string            `json:"ssh_banner,omitempty"`
-	SSHProtocol       string            `json:"ssh_protocol,omitempty"`
-	SSHSoftware       string            `json:"ssh_software,omitempty"`
-	SSHVersion        string            `json:"ssh_version,omitempty"`
+	Target      string `json:"target"`
+	Port        int    `json:"port"`
+	SSHProbe    bool   `json:"ssh_probe"`
+	SSHBanner   string `json:"ssh_banner,omitempty"`
+	SSHProtocol string `json:"ssh_protocol,omitempty"`
+	SSHSoftware string `json:"ssh_software,omitempty"`
+	SSHVersion  string `json:"ssh_version,omitempty"`
+	// OSHints is the operating system the banner comment names
+	// (e.g. "OpenSSH_8.9p1 Ubuntu-3ubuntu0.4"), empty when it names none.
+	OSHints           SMBOSHints        `json:"os_hints,omitzero"`
 	KEXAlgorithms     []string          `json:"kex_algorithms,omitempty"`
 	HostKeyAlgorithms []string          `json:"host_key_algorithms,omitempty"`
 	Ciphers           []string          `json:"ciphers,omitempty"`
@@ -416,6 +419,7 @@ func probeSSHDetails(ctx context.Context, target string, port int, opts SSHProbe
 	result.SSHProtocol = bannerOutcome.protocol
 	result.SSHSoftware = bannerOutcome.software
 	result.SSHVersion = bannerOutcome.version
+	result.OSHints = deriveSSHOSIdentity(result.SSHBanner, result.SSHVersion)
 	result.WeakProtocol = isWeakSSHProtocol(result.SSHProtocol)
 
 	kexSuccess := false
