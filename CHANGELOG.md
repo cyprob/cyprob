@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-08-03
+
 ### Added
 - MAC vendor identification via the IEEE OUI registry. Assets on a directly
   attached segment now carry their link-layer address and a manufacturer, which
