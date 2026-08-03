@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- HTTP favicon fingerprinting for device identification. A new `favicon-probe`
+  fetches `/favicon.ico` from HTTP and HTTPS services (including the common
+  management ports) and emits a favicon hash, which is a stable device
+  fingerprint: the same hardware and firmware serve the same icon, so identical
+  devices group together across a fleet even before anyone names them.
+  The hash follows the de-facto Shodan convention - MurmurHash3 x86 32-bit over
+  the MIME-style base64 encoding - so publicly published favicon hashes are
+  directly usable as corpus candidates. The implementation is verified against
+  canonical reference vectors, because a drift would silently invalidate every
+  corpus entry.
+  The identity corpus ships empty on purpose: an entry asserts "this hash IS this
+  product", so a wrong one mislabels every matching device in every scan.
+  Unrecognized hashes are still emitted and remain useful for grouping; entries
+  are added only after verification against a real device.
+
 ## [0.15.0] - 2026-08-03
 
 ### Added

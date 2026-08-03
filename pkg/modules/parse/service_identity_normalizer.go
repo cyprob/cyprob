@@ -28,6 +28,7 @@ const (
 	sourceSMTPNative       = "smtp_native_probe"
 	sourceSNMPNative       = "snmp_native_probe"
 	sourceMDNSNative       = "mdns_native_probe"
+	sourceFaviconProbe     = "favicon_probe"
 	sourceDNSNative        = "dns_native_probe"
 	sourceFTPNative        = "ftp_native_probe"
 	sourceTelnetNative     = "telnet_native_probe"
@@ -217,6 +218,7 @@ func newServiceIdentityNormalizerModule() *serviceIdentityNormalizerModule {
 				{Key: "service.ssh.details", DataTypeName: "scan.SSHServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 				{Key: "service.snmp.details", DataTypeName: "scan.SNMPServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 				{Key: "service.mdns.details", DataTypeName: "scan.MDNSServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
+				{Key: "service.favicon.details", DataTypeName: "scan.FaviconServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 				{Key: "service.dns.details", DataTypeName: "scan.DNSServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 				{Key: "service.smb.details", DataTypeName: "scan.SMBServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 				{Key: "service.rdp.details", DataTypeName: "scan.RDPServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
@@ -270,6 +272,7 @@ func (m *serviceIdentityNormalizerModule) Execute(ctx context.Context, inputs ma
 	m.ingestSMTPDetails(inputs, getEntry)
 	m.ingestSNMPDetails(inputs, getEntry)
 	m.ingestMDNSDetails(inputs, getEntry)
+	m.ingestFaviconDetails(inputs, getEntry)
 	m.ingestDNSDetails(inputs, getEntry)
 	m.ingestSMBDetails(inputs, getEntry)
 	smbEvidence := collectSMBHostEvidence(inputs)
@@ -638,6 +641,32 @@ func (m *serviceIdentityNormalizerModule) ingestSNMPDetails(inputs map[string]an
 // ingestMDNSDetails folds DNS-SD (Bonjour) results into the canonical identity.
 // mDNS is a credential-free source of exact hardware model and OS version, so it
 // often supplies identity for hosts that expose nothing else identifiable.
+// ingestFaviconDetails folds favicon-derived device identity into the canonical
+// identity. Only recognized hashes yield a name; an unrecognized favicon still
+// fingerprints the device but asserts no vendor.
+func (m *serviceIdentityNormalizerModule) ingestFaviconDetails(inputs map[string]any, getEntry func(target string, port int) *ServiceIdentityInfo) {
+	raw, ok := inputs["service.favicon.details"]
+	if !ok {
+		return
+	}
+	for _, item := range toAnyList(raw) {
+		info, ok := item.(scanpkg.FaviconServiceInfo)
+		if !ok || info.Target == "" || info.Port <= 0 {
+			continue
+		}
+		if strings.TrimSpace(info.VendorHint) == "" && strings.TrimSpace(info.ProductHint) == "" {
+			continue
+		}
+		entry := getEntry(info.Target, info.Port)
+		if strings.TrimSpace(entry.Vendor) == "" && strings.TrimSpace(info.VendorHint) != "" {
+			setIdentityField(entry, "vendor", strings.TrimSpace(info.VendorHint), sourceFaviconProbe, 0.68)
+		}
+		if strings.TrimSpace(entry.Product) == "" && strings.TrimSpace(info.ProductHint) != "" {
+			setIdentityField(entry, "product", strings.TrimSpace(info.ProductHint), sourceFaviconProbe, 0.68)
+		}
+	}
+}
+
 func (m *serviceIdentityNormalizerModule) ingestMDNSDetails(inputs map[string]any, getEntry func(target string, port int) *ServiceIdentityInfo) {
 	raw, ok := inputs["service.mdns.details"]
 	if !ok {
