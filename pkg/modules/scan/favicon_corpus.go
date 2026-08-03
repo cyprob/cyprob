@@ -7,24 +7,32 @@ package scan
 // before anyone names them. Naming them is a corpus problem, and the corpus is
 // grown from verified observations rather than guesswork.
 //
-// Deliberately empty at introduction. Entries assert "this hash IS this
-// product", so a wrong entry mislabels every matching device in every scan —
-// the same failure mode the SNMP PEN table, the TLS certificate markers and the
-// MAC OUI table are all designed to avoid. Populating it from half-remembered
-// values would poison exactly the signal it is meant to provide.
+// Entries assert "this hash IS this product", so a wrong entry mislabels every
+// matching device in every scan — the same failure mode the SNMP PEN table, the
+// TLS certificate markers and the MAC OUI table are all designed to avoid.
+// Nothing is added from memory or from an unverified list.
 //
-// To add an entry, verify the hash against the device itself:
-//
-//	curl -sS -o /tmp/f.ico http://<device>/favicon.ico
-//	# then hash it with FaviconHash and record what the device actually is
+// An entry is only added once a real device has been observed serving the icon
+// AND its identity established independently — ideally from the device's own
+// statement (a device-info endpoint, SNMP sysDescr, an mDNS TXT record), not
+// from inference. `tools/seed_favicon.go` automates the mechanical half.
 //
 // The hash follows the Shodan convention (see favicon_hash.go), so publicly
-// published favicon hashes are directly usable as candidate entries — but they
-// still need confirming against a real device before being added here.
+// published favicon hashes are usable as candidates — but they still need
+// confirming against a real device before being added here.
+//
+// Caveat worth knowing when reading a match: vendors commonly ship one icon
+// across a product line, so a hash may identify the line rather than the exact
+// model recorded. The vendor is the reliable half.
 var faviconIdentityCorpus = map[int32]struct {
 	vendor  string
 	product string
-}{}
+}{
+	// Verified 2026-08-03 on a live device: it served this icon and reported
+	// FriendlyName "HUAWEI WiFi BE3" with DeviceIconType "router" from its own
+	// unauthenticated /api/system/deviceinfo endpoint.
+	1684467926: {vendor: "Huawei", product: "HUAWEI WiFi BE3"},
+}
 
 // LookupFaviconIdentity resolves a favicon hash to a device. An unknown hash
 // returns nothing: the hash is still emitted by the probe and remains useful for

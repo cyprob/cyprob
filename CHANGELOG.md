@@ -22,6 +22,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   product", so a wrong one mislabels every matching device in every scan.
   Unrecognized hashes are still emitted and remain useful for grouping; entries
   are added only after verification against a real device.
+- `tools/seed_favicon.go` grows the favicon corpus from real devices: it fetches
+  the icon, computes the hash, and surfaces what the device says about itself
+  (device-info endpoints, UPnP description) so an entry can be confirmed from the
+  device's own statement rather than inference.
 
 ## [0.15.0] - 2026-08-03
 

@@ -90,17 +90,26 @@ func TestProbeFavicon_EmptyBody(t *testing.T) {
 	require.Zero(t, result.FaviconHash)
 }
 
-// The corpus starts empty on purpose; an unknown hash must yield no name rather
-// than a wrong one, while the hash itself still identifies the device uniquely.
-func TestLookupFaviconIdentity_UnknownHashAssertsNothing(t *testing.T) {
-	vendor, product := LookupFaviconIdentity(1684467926)
-	if FaviconCorpusSize() == 0 {
+func TestLookupFaviconIdentity(t *testing.T) {
+	t.Run("a verified hash resolves", func(t *testing.T) {
+		// Verified against a live device that reported this identity itself.
+		vendor, product := LookupFaviconIdentity(1684467926)
+		require.Equal(t, "Huawei", vendor)
+		require.Equal(t, "HUAWEI WiFi BE3", product)
+	})
+
+	t.Run("an unknown hash asserts nothing", func(t *testing.T) {
+		// The hash still fingerprints the device; only the name is missing.
+		vendor, product := LookupFaviconIdentity(123456789)
 		require.Empty(t, vendor)
 		require.Empty(t, product)
-	}
-	v, p := LookupFaviconIdentity(0)
-	require.Empty(t, v)
-	require.Empty(t, p)
+	})
+
+	t.Run("a zero hash is not an identity", func(t *testing.T) {
+		vendor, product := LookupFaviconIdentity(0)
+		require.Empty(t, vendor)
+		require.Empty(t, product)
+	})
 }
 
 // TestProbeFavicon_Live exercises a real device. Skipped unless FAVICON_LIVE_URL
