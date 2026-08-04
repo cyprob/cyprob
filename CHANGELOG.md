@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- TCP port discovery under-reported open ports from the CLI. The module's
+  `ConfigSchema` defaults contradicted its Go defaults, and the planner seeds
+  module config from the schema, so scans silently ran with
+  `stop_on_first_open` enabled and `verification_pass_enabled` disabled — the
+  opposite of the intended behavior. A scan therefore stopped at the first open
+  port instead of scanning the requested range. On a real printer this reported
+  3 open ports where 5 were open, missing 443 and 631. The schema now derives
+  from the same defaults as the Go config, so there is a single source of truth.
+- `stop_on_first_open` probed strictly sequentially, so every filtered port ahead
+  of the first open one cost a full timeout in series; a host answering only on a
+  high port could take over an hour. Ports are now probed in small concurrent
+  batches, keeping the low probe count the option exists for while removing the
+  pathological case. The reported port is whichever answers first within its
+  batch, not necessarily the lowest.
+
+### Changed
+- The two-phase sweep is now on by default (500ms), matching the Enterprise
+  default so both editions exercise one behavior; `sweep_timeout: 0` restores
+  the classic single pass. An explicit zero is now honored — it was previously
+  treated as "unset" and silently ignored, so the documented opt-out did not
+  work. The sweep and the verification pass now move together: disabling
+  verification also disables the sweep, since a shortened first pass with no
+  re-probe would be strictly worse than a single pass.
+
 ### Added
 - HTTP favicon fingerprinting for device identification. A new `favicon-probe`
   fetches `/favicon.ico` from HTTP and HTTPS services (including the common

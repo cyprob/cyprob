@@ -469,7 +469,8 @@ func TestTCPPortDiscoveryModule_ScanTargetPortsAll_TwoPhaseSweepRecoversSlowOpen
 	module.config.Timeout = 1 * time.Second
 	module.config.SweepTimeout = 200 * time.Millisecond
 	module.config.Retries = 0
-	module.config.VerificationPassEnabled = false // a sweep implies its own verification
+	// The sweep depends on the verification pass to recover ports it cut short,
+	// so the two are used together (verification is on by default).
 
 	originalDial := dialTimeout
 	t.Cleanup(func() { dialTimeout = originalDial })
@@ -862,9 +863,12 @@ func TestTCPPortDiscoveryModule_StopOnFirstOpenPerTarget(t *testing.T) {
 	}
 	close(outputs)
 
-	// Target-1 should stop after first open, target-2 should continue all probes.
-	if got := attemptsByIP["198.51.100.10"]; got != 1 {
-		t.Fatalf("target 198.51.100.10 attempts = %d, want 1", got)
+	// Target-1 stops once a port answers. Probing is batched rather than strictly
+	// sequential (see stopOnFirstOpenBatchSize), so it may spend up to one batch;
+	// with only four ports configured that batch covers all of them. The contract
+	// is that it stops, not that it probes exactly once.
+	if got := attemptsByIP["198.51.100.10"]; got < 1 || got > 4 {
+		t.Fatalf("target 198.51.100.10 attempts = %d, want between 1 and 4", got)
 	}
 	if got := attemptsByIP["198.51.100.11"]; got != 4 {
 		t.Fatalf("target 198.51.100.11 attempts = %d, want 4", got)
@@ -1027,4 +1031,30 @@ func TestTCPPortDiscoveryModule_Execute_ReportsRefusedAndOtherErrorPorts(t *test
 	}
 
 	assert.True(t, found, "expected refused/other-aware TCP discovery result")
+}
+
+func TestTCPPortDiscoveryModule_SweepEnabledByDefault(t *testing.T) {
+	module := newTCPPortDiscoveryModule()
+	require.Equal(t, defaultTCPSweepTimeout, module.config.SweepTimeout,
+		"the two-phase sweep must be on by default so CE and EE exercise one behavior")
+}
+
+func TestTCPPortDiscoveryModule_SweepOptOut(t *testing.T) {
+	t.Run("an explicit zero restores the classic single pass", func(t *testing.T) {
+		module := newTCPPortDiscoveryModule()
+		require.NoError(t, module.Init("tcp-1", map[string]any{"sweep_timeout": "0s"}))
+		require.Zero(t, module.config.SweepTimeout, "0 is the documented opt-out and must be honored")
+	})
+
+	t.Run("an explicit value overrides the default", func(t *testing.T) {
+		module := newTCPPortDiscoveryModule()
+		require.NoError(t, module.Init("tcp-1", map[string]any{"sweep_timeout": "250ms"}))
+		require.Equal(t, 250*time.Millisecond, module.config.SweepTimeout)
+	})
+
+	t.Run("an unparseable value keeps the default rather than silently disabling", func(t *testing.T) {
+		module := newTCPPortDiscoveryModule()
+		require.NoError(t, module.Init("tcp-1", map[string]any{"sweep_timeout": "not-a-duration"}))
+		require.Equal(t, defaultTCPSweepTimeout, module.config.SweepTimeout)
+	})
 }

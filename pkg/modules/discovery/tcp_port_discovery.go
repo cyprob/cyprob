@@ -54,9 +54,15 @@ type TCPPortDiscoveryModule struct {
 const (
 	tcpPortDiscoveryModuleTypeName = "tcp-port-discovery"
 	defaultTCPPortDiscoveryTimeout = 1 * time.Second
-	defaultTCPConcurrency          = 100
-	defaultTCPPorts                = "1-1024" // Default common ports or a well-known range
-	experimentalInterProbeDelay    = 0 * time.Millisecond
+	// defaultTCPSweepTimeout enables the two-phase sweep by default. Open and
+	// closed ports answer well within it; only filtered ports pay the short
+	// wait, and the verification pass re-probes those at the full timeout, so
+	// the same ports are found. Matches the Enterprise default so both
+	// editions exercise one behavior. Set sweep_timeout to 0 to opt out.
+	defaultTCPSweepTimeout      = 500 * time.Millisecond
+	defaultTCPConcurrency       = 100
+	defaultTCPPorts             = "1-1024" // Default common ports or a well-known range
+	experimentalInterProbeDelay = 0 * time.Millisecond
 )
 
 var (
@@ -81,6 +87,7 @@ func newTCPPortDiscoveryModule() *TCPPortDiscoveryModule {
 	defaultConfig := TCPPortDiscoveryConfig{
 		Ports:                   []string{defaultTCPPorts},
 		Timeout:                 defaultTCPPortDiscoveryTimeout,
+		SweepTimeout:            defaultTCPSweepTimeout,
 		Concurrency:             defaultTCPConcurrency,
 		Retries:                 0,
 		StopOnFirstOpen:         false,
@@ -149,10 +156,10 @@ func newTCPPortDiscoveryModule() *TCPPortDiscoveryModule {
 					Default:     defaultTCPPortDiscoveryTimeout.String(),
 				},
 				"sweep_timeout": {
-					Description: "Short timeout for the first (sweep) pass (e.g. '400ms'). When set (>0), the module runs two-phase: a fast sweep of all ports at this timeout, then a verification pass that re-checks only the timed-out ports at the full 'timeout'. Makes full-range scans practical. 0 disables (single pass at 'timeout').",
+					Description: "Short timeout for the first (sweep) pass. The module runs two-phase by default: a fast sweep of all ports at this timeout, then a verification pass that re-checks only the timed-out ports at the full 'timeout', so the same ports are found. Set to 0 for the classic single pass.",
 					Type:        "duration",
 					Required:    false,
-					Default:     "",
+					Default:     defaultTCPSweepTimeout.String(),
 				},
 				"port_timeout_overrides": {
 					Description: "Per-port timeout overrides keyed by port number (e.g., {\"445\":\"8s\"}).",
@@ -173,16 +180,16 @@ func newTCPPortDiscoveryModule() *TCPPortDiscoveryModule {
 					Default:     0,
 				},
 				"stop_on_first_open": {
-					Description: "Stop scanning remaining ports for a target after the first open port is found.",
+					Description: "Stop scanning a target once an open port is found. Intended for liveness checks; the port reported is whichever answers first, not necessarily the lowest.",
 					Type:        "bool",
 					Required:    false,
-					Default:     true,
+					Default:     defaultConfig.StopOnFirstOpen,
 				},
 				"verification_pass_enabled": {
-					Description: "Run a targeted verification pass only for ports not found open in the first pass.",
+					Description: "Re-probe ports that timed out at the full timeout. Required by the sweep, which cuts the first pass short; disabling it also disables the sweep.",
 					Type:        "bool",
 					Required:    false,
-					Default:     false,
+					Default:     defaultConfig.VerificationPassEnabled,
 				},
 			},
 			// ActivationTriggers: Usually none for a primary discovery module, unless it depends on a very specific prior state.
@@ -220,10 +227,13 @@ func (m *TCPPortDiscoveryModule) Init(instanceID string, moduleConfig map[string
 		}
 	}
 	if sweepStr, ok := moduleConfig["sweep_timeout"].(string); ok && strings.TrimSpace(sweepStr) != "" {
-		if dur, err := time.ParseDuration(sweepStr); err == nil && dur > 0 {
+		// An explicit zero disables the sweep; that is the documented opt-out
+		// back to the classic single pass, so it must be honored rather than
+		// treated as "unset".
+		if dur, err := time.ParseDuration(sweepStr); err == nil && dur >= 0 {
 			cfg.SweepTimeout = dur
 		} else {
-			fmt.Printf("[WARN] Module '%s': Invalid 'sweep_timeout' format in config: '%s'. Ignoring (single-pass).\n", m.meta.Name, sweepStr)
+			fmt.Printf("[WARN] Module '%s': Invalid 'sweep_timeout' format in config: '%s'. Keeping default: %s\n", m.meta.Name, sweepStr, cfg.SweepTimeout)
 		}
 	}
 	if timeoutOverrides, ok := parsePortTimeoutOverrides(moduleConfig["port_timeout_overrides"]); ok {
@@ -504,6 +514,17 @@ func (m *TCPPortDiscoveryModule) scanTargetPorts(
 	)
 }
 
+// stopOnFirstOpenBatchSize bounds how many ports are probed together while
+// looking for the first open one. stop_on_first_open exists to keep the probe
+// COUNT low (it is the cheap liveness fallback), so the batch stays small; but
+// probing strictly one at a time made it pathological, since every filtered port
+// ahead of the open one cost a full timeout in series.
+const stopOnFirstOpenBatchSize = 16
+
+// scanTargetPortsStopOnFirstOpen probes ports in small concurrent batches and
+// stops at the first open one. Any open port settles the liveness question, so
+// the port reported is whichever answers first within its batch, not necessarily
+// the lowest-numbered. At most one batch of probes is spent beyond the answer.
 func (m *TCPPortDiscoveryModule) scanTargetPortsStopOnFirstOpen(
 	ctx context.Context,
 	ip string,
@@ -515,39 +536,91 @@ func (m *TCPPortDiscoveryModule) scanTargetPortsStopOnFirstOpen(
 	refusedPortsByTarget map[string][]int,
 	otherErrorPortsByTarget map[string][]int,
 ) []int {
-	ipPorts := make([]int, 0, 1)
-
-	for _, p := range parsedPorts {
-		select {
-		case <-ctx.Done():
-			return ipPorts
-		default:
-		}
-
-		sem <- struct{}{}
-		address := net.JoinHostPort(ip, strconv.Itoa(p))
-		conn, err := m.dialWithRetries(ctx, address, p, m.config.Timeout)
-		<-sem
-		if err != nil {
-			recordNegativeOutcome(mapMutex, ip, p, err, timedOutPortsByTarget, refusedPortsByTarget, otherErrorPortsByTarget)
-			continue
-		}
-		_ = conn.Close()
-
-		ipPorts = append(ipPorts, p)
-
-		mapMutex.Lock()
-		openPortsByTarget[ip] = append(openPortsByTarget[ip], p)
-		mapMutex.Unlock()
-
-		if out, ok := ctx.Value(output.OutputKey).(output.Output); ok {
-			out.Diag(output.LevelNormal, fmt.Sprintf("Open port: %s:%d/tcp", ip, p), nil)
-		}
-		engine.PublishEvent(ctx, engine.NewPortOpenEvent(ip, p, "tcp"))
-		break
+	// The sweep timeout applies here too: a short probe is enough to separate a
+	// live port from a filtered one, and there is no verification pass to miss
+	// because a single answer ends the scan.
+	timeout := m.config.Timeout
+	if m.config.SweepTimeout > 0 {
+		timeout = m.config.SweepTimeout
 	}
 
-	return ipPorts
+	batchSize := min(stopOnFirstOpenBatchSize, max(m.config.Concurrency, 1))
+
+	for start := 0; start < len(parsedPorts); start += batchSize {
+		if ctx.Err() != nil {
+			return []int{}
+		}
+		batch := parsedPorts[start:min(start+batchSize, len(parsedPorts))]
+
+		if found, ok := m.probeBatchForFirstOpen(ctx, ip, batch, timeout, sem, mapMutex,
+			openPortsByTarget, timedOutPortsByTarget, refusedPortsByTarget, otherErrorPortsByTarget); ok {
+			return []int{found}
+		}
+	}
+	return []int{}
+}
+
+// probeBatchForFirstOpen probes one batch concurrently and reports an open port
+// if the batch contained one.
+func (m *TCPPortDiscoveryModule) probeBatchForFirstOpen(
+	ctx context.Context,
+	ip string,
+	batch []int,
+	timeout time.Duration,
+	sem chan struct{},
+	mapMutex *sync.Mutex,
+	openPortsByTarget map[string][]int,
+	timedOutPortsByTarget map[string][]int,
+	refusedPortsByTarget map[string][]int,
+	otherErrorPortsByTarget map[string][]int,
+) (int, bool) {
+	var (
+		wg        sync.WaitGroup
+		once      sync.Once
+		foundPort int
+		found     bool
+	)
+
+	for _, port := range batch {
+		wg.Add(1)
+		go func(p int) {
+			defer wg.Done()
+
+			select {
+			case sem <- struct{}{}:
+			case <-ctx.Done():
+				return
+			}
+			defer func() { <-sem }()
+
+			if ctx.Err() != nil {
+				return
+			}
+
+			address := net.JoinHostPort(ip, strconv.Itoa(p))
+			conn, err := m.dialWithRetries(ctx, address, p, timeout)
+			if err != nil {
+				recordNegativeOutcome(mapMutex, ip, p, err, timedOutPortsByTarget, refusedPortsByTarget, otherErrorPortsByTarget)
+				return
+			}
+			_ = conn.Close()
+
+			once.Do(func() {
+				foundPort, found = p, true
+				mapMutex.Lock()
+				openPortsByTarget[ip] = append(openPortsByTarget[ip], p)
+				mapMutex.Unlock()
+
+				if out, ok := ctx.Value(output.OutputKey).(output.Output); ok {
+					out.Diag(output.LevelNormal, fmt.Sprintf("Open port: %s:%d/tcp", ip, p), nil)
+				}
+				engine.PublishEvent(ctx, engine.NewPortOpenEvent(ip, p, "tcp"))
+			})
+		}(port)
+	}
+	wg.Wait()
+
+	return foundPort, found
 }
 
 func (m *TCPPortDiscoveryModule) scanTargetPortsAll(
@@ -569,9 +642,18 @@ func (m *TCPPortDiscoveryModule) scanTargetPortsAll(
 	// at the full timeout. This makes full-range scans practical without a
 	// stateless SYN scanner. When sweep_timeout is 0, behavior is the classic
 	// single pass at the full timeout.
+	// The sweep and the verification pass move together: a short sweep without
+	// verification would be strictly worse than a single pass, since the ports it
+	// cuts short would never be re-probed. Disabling verification therefore also
+	// disables the sweep, restoring the classic single pass at the full timeout.
+	sweepTimeout := m.config.SweepTimeout
+	if !m.config.VerificationPassEnabled {
+		sweepTimeout = 0
+	}
+
 	firstPassTimeout := m.config.Timeout
-	if m.config.SweepTimeout > 0 {
-		firstPassTimeout = m.config.SweepTimeout
+	if sweepTimeout > 0 {
+		firstPassTimeout = sweepTimeout
 	}
 	m.scanPortBatch(ctx, ip, parsedPorts, sem, outcomes, firstPassTimeout)
 
@@ -579,7 +661,7 @@ func (m *TCPPortDiscoveryModule) scanTargetPortsAll(
 	// (the sweep can miss slow-responding open ports). It re-checks only the
 	// transient-failure ports (timed out / other errors) at the full timeout;
 	// refused ports are definitively closed and are not re-probed.
-	if m.config.VerificationPassEnabled || m.config.SweepTimeout > 0 {
+	if m.config.VerificationPassEnabled {
 		reverify := outcomes.reverifyPorts()
 		if len(reverify) > 0 {
 			m.scanPortBatch(ctx, ip, reverify, sem, outcomes, m.config.Timeout)
