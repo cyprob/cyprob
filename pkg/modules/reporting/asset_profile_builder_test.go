@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/cyprob/cyprob/pkg/engine"
 	"github.com/cyprob/cyprob/pkg/modules/discovery"
 	"github.com/cyprob/cyprob/pkg/modules/evaluation"
@@ -648,4 +650,71 @@ func TestAssetProfileBuilder_Execute_FingerprintOverridesBanner(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("no output emitted")
 	}
+}
+
+// Service identity mostly describes software. Promoting it wholesale would put
+// a web server's name into a hardware inventory.
+func TestDeviceProfileFromServiceIdentity(t *testing.T) {
+	t.Run("a favicon corpus match names the device", func(t *testing.T) {
+		device := deviceProfileFromServiceIdentity([]parse.ServiceIdentityInfo{{
+			Target:  "192.0.2.10",
+			Port:    80,
+			Vendor:  "Huawei",
+			Product: "HUAWEI WiFi BE3",
+			FieldSources: map[string]string{
+				"vendor":  "favicon_probe",
+				"product": "favicon_probe",
+			},
+		}}, "192.0.2.10")
+		require.NotNil(t, device)
+		require.Equal(t, "Huawei", device.Vendor)
+		require.Equal(t, "HUAWEI WiFi BE3", device.Product)
+		require.Equal(t, "HUAWEI WiFi BE3", device.Model)
+		require.Equal(t, "favicon_probe", device.Source)
+	})
+
+	t.Run("software identity is not device identity", func(t *testing.T) {
+		device := deviceProfileFromServiceIdentity([]parse.ServiceIdentityInfo{{
+			Target:  "192.0.2.10",
+			Port:    80,
+			Vendor:  "nginx",
+			Product: "nginx",
+			FieldSources: map[string]string{
+				"vendor":  "banner",
+				"product": "fingerprint",
+			},
+		}}, "192.0.2.10")
+		require.Nil(t, device, "a web server does not identify the box it runs on")
+	})
+
+	t.Run("another host's identity is never used", func(t *testing.T) {
+		device := deviceProfileFromServiceIdentity([]parse.ServiceIdentityInfo{{
+			Target:       "198.51.100.7",
+			Product:      "HUAWEI WiFi BE3",
+			FieldSources: map[string]string{"product": "favicon_probe"},
+		}}, "192.0.2.10")
+		require.Nil(t, device)
+	})
+
+	t.Run("nothing to promote yields nothing", func(t *testing.T) {
+		require.Nil(t, deviceProfileFromServiceIdentity(nil, "192.0.2.10"))
+	})
+}
+
+// The promotion is the weakest source and must never displace a probe that
+// inspected the device directly.
+func TestDeviceProfileFromServiceIdentity_DoesNotOutrankStrongerSources(t *testing.T) {
+	strong := &engine.DeviceProfile{
+		Vendor: "Synology", Product: "RS815", Model: "RS815", Source: "ssdp",
+	}
+	weak := deviceProfileFromServiceIdentity([]parse.ServiceIdentityInfo{{
+		Target:       "192.0.2.10",
+		Vendor:       "Huawei",
+		Product:      "HUAWEI WiFi BE3",
+		FieldSources: map[string]string{"vendor": "favicon_probe", "product": "favicon_probe"},
+	}}, "192.0.2.10")
+
+	merged := mergeDeviceProfile(strong, weak)
+	require.Equal(t, "Synology", merged.Vendor)
+	require.Equal(t, "RS815", merged.Product)
 }

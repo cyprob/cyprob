@@ -720,6 +720,9 @@ func (m *AssetProfileBuilderModule) Execute(ctx context.Context, inputs map[stri
 		if device := deviceProfileFromTLS(tlsDetails, targetIP); device != nil {
 			asset.Device = mergeDeviceProfile(asset.Device, device)
 		}
+		if device := deviceProfileFromServiceIdentity(identityDetails, targetIP); device != nil {
+			asset.Device = mergeDeviceProfile(asset.Device, device)
+		}
 		if nbns := findNBNSDetails(nbnsDetails, targetIP); nbns != nil {
 			applyNBNSIdentity(asset, *nbns)
 		}
@@ -1278,6 +1281,51 @@ func deviceProfileFromTLS(items []scan.TLSServiceInfo, target string) *engine.De
 		return &engine.DeviceProfile{Vendor: vendor, Product: product, Source: "tls_cert"}
 	}
 	return nil
+}
+
+// deviceIdentifyingSources name a device rather than the software running on
+// it.
+//
+// Most service-level identity describes software: a web server is nginx no
+// matter what box it runs on, so promoting it to the asset would put "nginx" in
+// a hardware inventory. These sources are different — a favicon corpus entry
+// asserts that a specific icon IS a specific product, which is a statement
+// about the device itself.
+var deviceIdentifyingSources = map[string]bool{
+	"favicon_probe": true,
+}
+
+// deviceProfileFromServiceIdentity lifts device-identifying service identity to
+// the asset.
+//
+// It is merged at the weakest authority, so it can only fill what SNMP, SSDP,
+// mDNS and TLS left empty; it never contradicts a source that inspected the
+// device directly.
+func deviceProfileFromServiceIdentity(items []parse.ServiceIdentityInfo, target string) *engine.DeviceProfile {
+	profile := &engine.DeviceProfile{}
+	var source string
+	for i := range items {
+		identity := items[i]
+		if identity.Target != target {
+			continue
+		}
+		if vendor := strings.TrimSpace(identity.Vendor); vendor != "" && profile.Vendor == "" &&
+			deviceIdentifyingSources[identity.FieldSources["vendor"]] {
+			profile.Vendor = vendor
+			source = identity.FieldSources["vendor"]
+		}
+		if product := strings.TrimSpace(identity.Product); product != "" && profile.Product == "" &&
+			deviceIdentifyingSources[identity.FieldSources["product"]] {
+			profile.Product = product
+			profile.Model = product
+			source = identity.FieldSources["product"]
+		}
+	}
+	if profile.Vendor == "" && profile.Product == "" {
+		return nil
+	}
+	profile.Source = source
+	return profile
 }
 
 func findSSDPDetails(items []scan.SSDPDeviceInfo, target string) *scan.SSDPDeviceInfo {

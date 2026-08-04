@@ -26,6 +26,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - UDP/137 added to the default discovery ports, with the node status request as
   its probe payload, so the packet that proves the port open also names the host.
 
+### Added
+- Device-identifying service identity is lifted to the asset. A favicon corpus
+  entry asserts that a specific icon is a specific product, which is a statement
+  about the device, not about software running on it — so it now names the asset
+  instead of only the port's service. Promotion is restricted to sources that
+  identify devices: a web server is nginx whatever box it runs on, and promoting
+  that would put software into a hardware inventory. It merges at the weakest
+  authority and can only fill what SNMP, SSDP, mDNS and TLS left empty.
+
 ### Fixed
 - The favicon probe gave up after a single dropped request, losing an identity
   the corpus already knew. Measured on a live router: it served the icon in 15ms
