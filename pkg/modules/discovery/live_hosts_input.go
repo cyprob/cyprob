@@ -2,6 +2,13 @@ package discovery
 
 import "strings"
 
+// ExtractLiveHosts normalizes the several shapes a live-host list arrives in
+// from the data context, so modules outside this package can consume it without
+// each reimplementing the same coercion.
+func ExtractLiveHosts(raw any) []string {
+	return extractLiveHostsInput(raw)
+}
+
 func extractLiveHostsInput(raw any) []string {
 	seen := make(map[string]struct{})
 	liveHosts := make([]string, 0)

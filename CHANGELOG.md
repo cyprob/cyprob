@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- SSDP/UPnP probe (`ssdp-probe`). It queries each target directly and, by
+  default, the multicast group as well, because the two reach different devices:
+  on the test network the NAS answered only the unicast query and the media box
+  only the multicast one. Responders are matched back to the requested targets,
+  so a device that answers a segment-wide query without being in scope is never
+  turned into an asset. The device description it points at yields manufacturer,
+  model, serial and friendly name, which the asset builder ranks just below SNMP
+  and above mDNS.
 - NetBIOS name service probe (`nbns-probe`, UDP/137). A single unauthenticated
   node status query makes a host list every NetBIOS name it has registered,
   which names Windows, Samba and NAS hosts that publish no mDNS and expose no
@@ -19,6 +27,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   its probe payload, so the packet that proves the port open also names the host.
 
 ### Fixed
+- An mDNS-advertised model no longer outranks the model a device states over
+  UPnP. A Synology NAS advertises `model=Xserve` over Bonjour for legacy
+  compatibility, and the inventory recorded that Apple model against a Synology
+  device; it now reports the RS815 the device itself names, with its serial.
 - A MAC shared by several IPs is no longer treated as a device identity. A router
   doing proxy ARP answers for every address it fronts, so its MAC appears against
   many IPs; the scanner recorded that MAC as the asset's own and derived a vendor

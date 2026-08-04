@@ -64,6 +64,7 @@ func buildAssetProfileBuilderConsumes() []engine.DataContractEntry {
 		{Key: "service.snmp.details", DataTypeName: "scan.SNMPServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 		{Key: "service.mdns.details", DataTypeName: "scan.MDNSServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 		{Key: "service.nbns.details", DataTypeName: "scan.NBNSNodeInfo", Cardinality: engine.CardinalityList, IsOptional: true},
+		{Key: "service.ssdp.details", DataTypeName: "scan.SSDPDeviceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 		{Key: "service.dns.details", DataTypeName: "scan.DNSServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 		{Key: "service.fingerprint.details", DataTypeName: "parse.FingerprintParsedInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 		{Key: "service.tech.tags", DataTypeName: "parse.TechTagResult", Cardinality: engine.CardinalityList, IsOptional: true},
@@ -260,6 +261,19 @@ func (m *AssetProfileBuilderModule) Execute(ctx context.Context, inputs map[stri
 			}
 		} else if typed, typedOk := rawMDNS.([]scan.MDNSServiceInfo); typedOk {
 			mdnsDetails = append(mdnsDetails, typed...)
+		}
+	}
+
+	ssdpDetails := []scan.SSDPDeviceInfo{}
+	if rawSSDP, ok := inputs["service.ssdp.details"]; ok {
+		if list, listOk := rawSSDP.([]any); listOk {
+			for _, item := range list {
+				if casted, castOk := item.(scan.SSDPDeviceInfo); castOk {
+					ssdpDetails = append(ssdpDetails, casted)
+				}
+			}
+		} else if typed, typedOk := rawSSDP.([]scan.SSDPDeviceInfo); typedOk {
+			ssdpDetails = append(ssdpDetails, typed...)
 		}
 	}
 
@@ -693,6 +707,12 @@ func (m *AssetProfileBuilderModule) Execute(ctx context.Context, inputs map[stri
 		// resort that still names a manufacturer when nothing else does.
 		if snmp := findSNMPDetails(snmpDetails, targetIP, 161); snmp != nil {
 			asset.Device = deviceProfileFromSNMP(*snmp)
+		}
+		if ssdp := findSSDPDetails(ssdpDetails, targetIP); ssdp != nil {
+			asset.Device = mergeDeviceProfile(asset.Device, deviceProfileFromSSDP(*ssdp))
+			if name := strings.TrimSpace(ssdp.FriendlyName); name != "" {
+				asset.Hostnames = appendUniqueString(asset.Hostnames, name)
+			}
 		}
 		if mdns := findMDNSDetails(mdnsDetails, targetIP); mdns != nil {
 			asset.Device = mergeDeviceProfile(asset.Device, deviceProfileFromMDNS(*mdns))
@@ -1258,6 +1278,36 @@ func deviceProfileFromTLS(items []scan.TLSServiceInfo, target string) *engine.De
 		return &engine.DeviceProfile{Vendor: vendor, Product: product, Source: "tls_cert"}
 	}
 	return nil
+}
+
+func findSSDPDetails(items []scan.SSDPDeviceInfo, target string) *scan.SSDPDeviceInfo {
+	for i := range items {
+		if items[i].Target == target {
+			return &items[i]
+		}
+	}
+	return nil
+}
+
+// deviceProfileFromSSDP turns a UPnP device description into device identity.
+//
+// The description is the device stating its own manufacturer, model and serial,
+// so it ranks just below SNMP and above mDNS, whose advertised model is
+// sometimes a compatibility alias rather than the real hardware.
+func deviceProfileFromSSDP(ssdp scan.SSDPDeviceInfo) *engine.DeviceProfile {
+	profile := &engine.DeviceProfile{
+		Vendor: strings.TrimSpace(ssdp.Manufacturer),
+		Model:  strings.TrimSpace(ssdp.ModelName),
+		Serial: strings.TrimSpace(ssdp.SerialNumber),
+		Source: "ssdp",
+	}
+	if profile.Model != "" {
+		profile.Product = profile.Model
+	}
+	if profile.Vendor == "" && profile.Model == "" && profile.Serial == "" {
+		return nil
+	}
+	return profile
 }
 
 func findNBNSDetails(items []scan.NBNSNodeInfo, target string) *scan.NBNSNodeInfo {
