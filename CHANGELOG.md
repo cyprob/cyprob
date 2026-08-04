@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-08-04
+
 ### Added
 - SSDP/UPnP probe (`ssdp-probe`). It queries each target directly and, by
   default, the multicast group as well, because the two reach different devices:
@@ -26,7 +28,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - UDP/137 added to the default discovery ports, with the node status request as
   its probe payload, so the packet that proves the port open also names the host.
 
-### Added
 - Device-identifying service identity is lifted to the asset. A favicon corpus
   entry asserts that a specific icon is a specific product, which is a statement
   about the device, not about software running on it — so it now names the asset
@@ -34,6 +35,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   identify devices: a web server is nginx whatever box it runs on, and promoting
   that would put software into a hardware inventory. It merges at the weakest
   authority and can only fill what SNMP, SSDP, mDNS and TLS left empty.
+
+- HTTP favicon fingerprinting for device identification. A new `favicon-probe`
+  fetches `/favicon.ico` from HTTP and HTTPS services (including the common
+  management ports) and emits a favicon hash, which is a stable device
+  fingerprint: the same hardware and firmware serve the same icon, so identical
+  devices group together across a fleet even before anyone names them.
+  The hash follows the de-facto Shodan convention - MurmurHash3 x86 32-bit over
+  the MIME-style base64 encoding - so publicly published favicon hashes are
+  directly usable as corpus candidates. The implementation is verified against
+  canonical reference vectors, because a drift would silently invalidate every
+  corpus entry.
+  The identity corpus ships empty on purpose: an entry asserts "this hash IS this
+  product", so a wrong one mislabels every matching device in every scan.
+  Unrecognized hashes are still emitted and remain useful for grouping; entries
+  are added only after verification against a real device.
+- `tools/seed_favicon.go` grows the favicon corpus from real devices: it fetches
+  the icon, computes the hash, and surfaces what the device says about itself
+  (device-info endpoints, UPnP description) so an entry can be confirmed from the
+  device's own statement rather than inference.
+
+### Changed
+- The two-phase sweep is now on by default (500ms), matching the Enterprise
+  default so both editions exercise one behavior; `sweep_timeout: 0` restores
+  the classic single pass. An explicit zero is now honored — it was previously
+  treated as "unset" and silently ignored, so the documented opt-out did not
+  work. The sweep and the verification pass now move together: disabling
+  verification also disables the sweep, since a shortened first pass with no
+  re-probe would be strictly worse than a single pass.
 
 ### Fixed
 - The favicon probe gave up after a single dropped request, losing an identity
@@ -92,35 +121,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   batches, keeping the low probe count the option exists for while removing the
   pathological case. The reported port is whichever answers first within its
   batch, not necessarily the lowest.
-
-### Changed
-- The two-phase sweep is now on by default (500ms), matching the Enterprise
-  default so both editions exercise one behavior; `sweep_timeout: 0` restores
-  the classic single pass. An explicit zero is now honored — it was previously
-  treated as "unset" and silently ignored, so the documented opt-out did not
-  work. The sweep and the verification pass now move together: disabling
-  verification also disables the sweep, since a shortened first pass with no
-  re-probe would be strictly worse than a single pass.
-
-### Added
-- HTTP favicon fingerprinting for device identification. A new `favicon-probe`
-  fetches `/favicon.ico` from HTTP and HTTPS services (including the common
-  management ports) and emits a favicon hash, which is a stable device
-  fingerprint: the same hardware and firmware serve the same icon, so identical
-  devices group together across a fleet even before anyone names them.
-  The hash follows the de-facto Shodan convention - MurmurHash3 x86 32-bit over
-  the MIME-style base64 encoding - so publicly published favicon hashes are
-  directly usable as corpus candidates. The implementation is verified against
-  canonical reference vectors, because a drift would silently invalidate every
-  corpus entry.
-  The identity corpus ships empty on purpose: an entry asserts "this hash IS this
-  product", so a wrong one mislabels every matching device in every scan.
-  Unrecognized hashes are still emitted and remain useful for grouping; entries
-  are added only after verification against a real device.
-- `tools/seed_favicon.go` grows the favicon corpus from real devices: it fetches
-  the icon, computes the hash, and surfaces what the device says about itself
-  (device-info endpoints, UPnP description) so an entry can be confirmed from the
-  device's own statement rather than inference.
 
 ## [0.15.0] - 2026-08-03
 
