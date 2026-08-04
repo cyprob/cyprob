@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- Host discovery missed hosts that ignore ICMP. Targets are now also reported as
+  live when the host has a neighbor-table (ARP) entry for them: on a directly
+  attached segment that is stronger evidence than an echo reply, because the host
+  answered at layer 2 whatever its firewall does with ICMP. The ping sweep
+  populates the table as a side effect, so this costs no extra traffic, only ever
+  adds hosts, and only ones that were asked for. Measured on a real office
+  network: 18 live hosts found before, 28 after.
 - TCP port discovery under-reported open ports from the CLI. The module's
   `ConfigSchema` defaults contradicted its Go defaults, and the planner seeds
   module config from the schema, so scans silently ran with

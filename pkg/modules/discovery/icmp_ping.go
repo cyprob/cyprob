@@ -15,6 +15,7 @@ import (
 	// TODO: Replace with your actual ping library import path
 	//nolint:staticcheck // Ignore staticcheck warning for this import
 	"github.com/go-ping/ping"
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cast"
 
@@ -384,6 +385,8 @@ func (m *ICMPPingDiscoveryModule) Execute(ctx context.Context, inputs map[string
 
 	wg.Wait()
 
+	liveHosts = appendARPConfirmedHosts(liveHosts, finalTargetsToScan, &logger)
+
 	resultData := ICMPPingDiscoveryResult{LiveHosts: liveHosts}
 	outputChan <- engine.ModuleOutput{
 		FromModuleName: m.meta.ID,
@@ -424,3 +427,48 @@ func (r *realPingerAdapter) SetCount(c int)              { r.p.Count = c }
 func (r *realPingerAdapter) SetInterval(i time.Duration) { r.p.Interval = i }
 func (r *realPingerAdapter) SetTimeout(t time.Duration)  { r.p.Timeout = t }
 func (r *realPingerAdapter) GetTimeout() time.Duration   { return r.p.Timeout }
+
+// appendARPConfirmedHosts adds targets the host has a neighbor-table entry for
+// but which did not answer ICMP.
+//
+// On a directly attached segment an ARP entry is stronger evidence than an echo
+// reply: the host answered at layer 2, so it exists, whatever its firewall does
+// with ICMP. The sweep above populates the table as a side effect of trying to
+// reach each target, so this costs no extra traffic. Hosts that ignore ICMP and
+// expose no open port were otherwise invisible.
+//
+// This only ever adds hosts, and only ones that were asked for; an empty
+// neighbor table (remote segment, unsupported platform) changes nothing.
+func appendARPConfirmedHosts(liveHosts []string, targets []string, logger *zerolog.Logger) []string {
+	neighbors := netutil.ARPTable()
+	if len(neighbors) == 0 {
+		return liveHosts
+	}
+
+	known := make(map[string]struct{}, len(neighbors))
+	for _, entry := range neighbors {
+		known[entry.IP] = struct{}{}
+	}
+	already := make(map[string]struct{}, len(liveHosts))
+	for _, host := range liveHosts {
+		already[host] = struct{}{}
+	}
+
+	added := 0
+	for _, target := range targets {
+		if _, seen := already[target]; seen {
+			continue
+		}
+		if _, ok := known[target]; !ok {
+			continue
+		}
+		liveHosts = append(liveHosts, target)
+		already[target] = struct{}{}
+		added++
+	}
+	if added > 0 && logger != nil {
+		logger.Info().Int("arp_confirmed_hosts", added).
+			Msg("Added hosts confirmed by the neighbor table that did not answer ICMP")
+	}
+	return liveHosts
+}
