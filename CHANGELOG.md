@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- mDNS missed Android TV devices. They advertise `_androidtvremote2._tcp`, which
+  was absent from the identity and device-type tables, so a device that answered
+  the probe was still left unclassified. The cast service that carries the model
+  frequently answers only multicast, making the remote-control service the one a
+  unicast probe actually receives. Observed on a real device: previously only the
+  MAC vendor, now also classified as a media device with its advertised name and
+  hostname.
 - Host discovery missed hosts that ignore ICMP. Targets are now also reported as
   live when the host has a neighbor-table (ARP) entry for them: on a directly
   attached segment that is stronger evidence than an echo reply, because the host

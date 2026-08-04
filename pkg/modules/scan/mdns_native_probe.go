@@ -83,10 +83,11 @@ var (
 var mdnsIdentityServiceTypes = []string{
 	mdnsDeviceInfo,
 	"_airplay._tcp.local.",
+	"_androidtvremote2._tcp.local.",
+	"_googlecast._tcp.local.",
 	"_hap._tcp.local.",
 	"_ipp._tcp.local.",
 	"_printer._tcp.local.",
-	"_googlecast._tcp.local.",
 	"_raop._tcp.local.",
 }
 

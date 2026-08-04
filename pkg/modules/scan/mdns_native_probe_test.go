@@ -150,6 +150,18 @@ func TestDeriveMDNSIdentity(t *testing.T) {
 		require.Equal(t, deviceTypePrinter, info.DeviceType)
 	})
 
+	t.Run("Android TV is classified from its remote-control service", func(t *testing.T) {
+		// The cast service carries the model but often answers only multicast,
+		// so the remote-control service is the one a unicast probe actually gets.
+		info := &MDNSServiceInfo{
+			ServiceTypes: []string{"_androidtvremote2._tcp.local."},
+			TXTAttrs:     map[string]string{},
+		}
+		deriveMDNSIdentity(info)
+		require.Equal(t, deviceTypeMediaDevice, info.DeviceType)
+		require.Empty(t, info.VendorHint, "the service type alone names no vendor")
+	})
+
 	t.Run("iot only when nothing more specific", func(t *testing.T) {
 		info := &MDNSServiceInfo{ServiceTypes: []string{"_hap._tcp.local."}, TXTAttrs: map[string]string{}}
 		deriveMDNSIdentity(info)

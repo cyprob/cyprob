@@ -20,22 +20,26 @@ const (
 // class it implies. Service types are unambiguous, so they are the strongest
 // signal available before looking at any model string.
 var mdnsServiceDeviceTypes = map[string]string{
-	"_ipp._tcp":             deviceTypePrinter,
-	"_ipps._tcp":            deviceTypePrinter,
-	"_printer._tcp":         deviceTypePrinter,
-	"_pdl-datastream._tcp":  deviceTypePrinter,
-	"_scanner._tcp":         deviceTypePrinter,
-	"_airplay._tcp":         deviceTypeMediaDevice,
-	"_raop._tcp":            deviceTypeMediaDevice,
-	"_googlecast._tcp":      deviceTypeMediaDevice,
-	"_spotify-connect._tcp": deviceTypeMediaDevice,
-	"_hap._tcp":             deviceTypeIoT,
-	"_matter._tcp":          deviceTypeIoT,
-	"_matterc._udp":         deviceTypeIoT,
-	"_afpovertcp._tcp":      deviceTypeStorage,
-	"_smb._tcp":             deviceTypeStorage,
-	"_nfs._tcp":             deviceTypeStorage,
-	"_adisk._tcp":           deviceTypeStorage,
+	"_ipp._tcp":            deviceTypePrinter,
+	"_ipps._tcp":           deviceTypePrinter,
+	"_printer._tcp":        deviceTypePrinter,
+	"_pdl-datastream._tcp": deviceTypePrinter,
+	"_scanner._tcp":        deviceTypePrinter,
+	"_airplay._tcp":        deviceTypeMediaDevice,
+	// Android TV exposes its remote-control service even when the cast service
+	// only answers multicast, so it is often the one signal a unicast probe gets.
+	"_androidtvremote2._tcp": deviceTypeMediaDevice,
+	"_androidtvremote._tcp":  deviceTypeMediaDevice,
+	"_raop._tcp":             deviceTypeMediaDevice,
+	"_googlecast._tcp":       deviceTypeMediaDevice,
+	"_spotify-connect._tcp":  deviceTypeMediaDevice,
+	"_hap._tcp":              deviceTypeIoT,
+	"_matter._tcp":           deviceTypeIoT,
+	"_matterc._udp":          deviceTypeIoT,
+	"_afpovertcp._tcp":       deviceTypeStorage,
+	"_smb._tcp":              deviceTypeStorage,
+	"_nfs._tcp":              deviceTypeStorage,
+	"_adisk._tcp":            deviceTypeStorage,
 }
 
 // appleModelFamilies maps Apple hardware-identifier prefixes (e.g. "Mac16,7")
