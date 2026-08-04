@@ -27,6 +27,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   its probe payload, so the packet that proves the port open also names the host.
 
 ### Fixed
+- The favicon probe gave up after a single dropped request, losing an identity
+  the corpus already knew. Measured on a live router: it served the icon in 15ms
+  from outside a scan and dropped the first request inside one, so a verified
+  corpus entry matched but never fired. One retry recovers it — confirmed across
+  repeated scans of the same device. Failures now report why (timeout, refused,
+  reset, TLS) instead of a single untraceable `no_response`, and the result
+  records how many attempts were needed.
+- The SSDP probe silently vanished from scans of explicitly named targets. It
+  required `discovery.live_hosts`, which only a ping sweep produces, so the
+  planner dropped it for exactly the scans an operator aims at known devices. It
+  now derives scope from the port-scan target list, which is always produced,
+  and treats live hosts as a widening signal.
 - An mDNS-advertised model no longer outranks the model a device states over
   UPnP. A Synology NAS advertises `model=Xserve` over Bonjour for legacy
   compatibility, and the inventory recorded that Apple model against a Synology

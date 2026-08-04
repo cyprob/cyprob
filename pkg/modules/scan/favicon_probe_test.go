@@ -2,11 +2,13 @@ package scan
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -137,4 +139,64 @@ func TestProbeFavicon_Live(t *testing.T) {
 	require.NotZero(t, result.FaviconHash)
 	t.Logf("%s -> hash=%d size=%d vendor=%q product=%q",
 		raw, result.FaviconHash, result.SizeBytes, result.VendorHint, result.ProductHint)
+}
+
+// A device that drops one request but answers the next must still be
+// identified: without a retry the corpus entry exists, matches, and never fires.
+func TestProbeFavicon_RetriesOnceOnTransportFailure(t *testing.T) {
+	icon := []byte("\x00\x00\x01\x00pretend-icon-bytes")
+	var attempts int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if atomic.AddInt32(&attempts, 1) == 1 {
+			// Hijack and drop the connection so the client sees a transport error.
+			conn, _, err := w.(http.Hijacker).Hijack()
+			if err == nil {
+				_ = conn.Close()
+			}
+			return
+		}
+		_, _ = w.Write(icon)
+	}))
+	defer server.Close()
+
+	host, portStr, _ := strings.Cut(strings.TrimPrefix(server.URL, "http://"), ":")
+	port, _ := strconv.Atoi(portStr)
+
+	result := probeFavicon(context.Background(),
+		faviconCandidate{target: host, port: port, scheme: "http"},
+		FaviconProbeOptions{TotalTimeout: 5 * time.Second, RequestTimeout: 2 * time.Second})
+
+	require.Empty(t, result.ProbeError, "the second attempt succeeded")
+	require.Equal(t, FaviconHash(icon), result.FaviconHash)
+	require.Equal(t, 2, result.Attempts)
+	require.Equal(t, int32(2), atomic.LoadInt32(&attempts))
+}
+
+// A single "no_response" for every failure is untraceable; the reason an
+// operator needs is which failure it was.
+func TestClassifyFaviconError(t *testing.T) {
+	require.Empty(t, classifyFaviconError(nil))
+	require.Equal(t, "timeout", classifyFaviconError(context.DeadlineExceeded))
+	require.Equal(t, "canceled", classifyFaviconError(context.Canceled))
+	require.Equal(t, "connection_refused", classifyFaviconError(errors.New("dial tcp 192.0.2.1:80: connect: connection refused")))
+	require.Equal(t, "connection_reset", classifyFaviconError(errors.New("read tcp: connection reset by peer")))
+	require.Equal(t, "no_route", classifyFaviconError(errors.New("dial tcp: no route to host")))
+	require.Equal(t, "tls_error", classifyFaviconError(errors.New("remote error: tls: handshake failure")))
+	require.Equal(t, "no_response", classifyFaviconError(errors.New("something else entirely")))
+}
+
+// A successful first attempt must not pay the retry delay.
+func TestProbeFavicon_RecordsASingleAttemptOnSuccess(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("\x00\x00\x01\x00icon"))
+	}))
+	defer server.Close()
+	host, portStr, _ := strings.Cut(strings.TrimPrefix(server.URL, "http://"), ":")
+	port, _ := strconv.Atoi(portStr)
+
+	result := probeFavicon(context.Background(),
+		faviconCandidate{target: host, port: port, scheme: "http"},
+		FaviconProbeOptions{TotalTimeout: 3 * time.Second, RequestTimeout: time.Second})
+	require.Empty(t, result.ProbeError)
+	require.Equal(t, 1, result.Attempts)
 }

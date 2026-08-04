@@ -90,11 +90,18 @@ func newSSDPProbeModule() *ssdpProbeModule {
 			Tags:        []string{"scan", "ssdp", "upnp", "udp", "native_probe", "enrichment"},
 			Consumes: []engine.DataContractEntry{
 				{
+					Key:          "discovery.open_udp_ports",
+					DataTypeName: "discovery.UDPPortDiscoveryResult",
+					Cardinality:  engine.CardinalityList,
+					IsOptional:   false,
+					Description:  "Scanned hosts that bound which SSDP responders are in scope.",
+				},
+				{
 					Key:          "discovery.live_hosts",
 					DataTypeName: "discovery.ICMPPingDiscoveryResult",
 					Cardinality:  engine.CardinalityList,
-					IsOptional:   false,
-					Description:  "Live hosts that bound which SSDP responders are in scope.",
+					IsOptional:   true,
+					Description:  "Live hosts, when host discovery ran, widening the in-scope set.",
 				},
 			},
 			Produces: []engine.DataContractEntry{
@@ -172,7 +179,7 @@ func (m *ssdpProbeModule) Init(instanceID string, configMap map[string]any) erro
 }
 
 func (m *ssdpProbeModule) Execute(ctx context.Context, inputs map[string]any, outputChan chan<- engine.ModuleOutput) error {
-	targets := discovery.ExtractLiveHosts(inputs["discovery.live_hosts"])
+	targets := ssdpTargetsInScope(inputs)
 	if len(targets) == 0 {
 		return nil
 	}
@@ -212,6 +219,42 @@ func (m *ssdpProbeModule) Execute(ctx context.Context, inputs map[string]any, ou
 		}
 	}
 	return nil
+}
+
+// ssdpTargetsInScope collects the hosts this scan asked about.
+//
+// It is deliberately not tied to host discovery alone: a scan of explicitly
+// named targets does not run a ping sweep, so a module that required
+// discovery.live_hosts would be silently dropped from the plan for exactly the
+// scans an operator aims at known devices. The port-scan target list is always
+// produced, and live hosts widen it when a sweep did run.
+func ssdpTargetsInScope(inputs map[string]any) []string {
+	seen := map[string]bool{}
+	targets := make([]string, 0, 8)
+	add := func(host string) {
+		host = strings.TrimSpace(host)
+		if host == "" || seen[host] {
+			return
+		}
+		seen[host] = true
+		targets = append(targets, host)
+	}
+
+	for _, host := range discovery.ExtractLiveHosts(inputs["discovery.live_hosts"]) {
+		add(host)
+	}
+	for _, item := range toAnySlice(inputs["discovery.open_udp_ports"]) {
+		switch typed := item.(type) {
+		case discovery.UDPPortDiscoveryResult:
+			add(typed.Target)
+		case *discovery.UDPPortDiscoveryResult:
+			if typed != nil {
+				add(typed.Target)
+			}
+		}
+	}
+	sort.Strings(targets)
+	return targets
 }
 
 // collectSSDPReplies queries every target directly and, when enabled, the

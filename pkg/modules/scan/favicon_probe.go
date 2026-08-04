@@ -3,6 +3,7 @@ package scan
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -25,6 +26,8 @@ const (
 	// faviconMaxBytes bounds the read: real icons are a few KB, and anything
 	// larger is not a favicon worth hashing.
 	faviconMaxBytes = 256 * 1024
+	// faviconRetryDelay gives a device a moment to recover before the one retry.
+	faviconRetryDelay = 250 * time.Millisecond
 )
 
 // FaviconProbeOptions controls the probe's time budget.
@@ -47,6 +50,9 @@ type FaviconServiceInfo struct {
 	VendorHint  string `json:"vendor_hint,omitempty"`
 	ProductHint string `json:"product_hint,omitempty"`
 	ProbeError  string `json:"probe_error,omitempty"`
+	// Attempts records how many requests were made, so a report can tell a
+	// device that answered immediately from one that needed a retry.
+	Attempts int `json:"attempts,omitempty"`
 }
 
 type faviconProbeModule struct {
@@ -173,6 +179,41 @@ func defaultFaviconProbeOptions() FaviconProbeOptions {
 	return FaviconProbeOptions{TotalTimeout: 4 * time.Second, RequestTimeout: 2 * time.Second}
 }
 
+// classifyFaviconError turns a transport failure into a stable, diagnosable
+// reason.
+//
+// A single "no_response" for every failure mode is untraceable: a refused port,
+// an unresponsive device and a TLS mismatch need different answers, and the
+// difference is exactly what an operator needs to know when a device that
+// should be identified is not.
+func classifyFaviconError(err error) string {
+	if err == nil {
+		return ""
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return "timeout"
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "timeout"
+	}
+	if errors.Is(err, context.Canceled) {
+		return "canceled"
+	}
+	message := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(message, "connection refused"):
+		return "connection_refused"
+	case strings.Contains(message, "connection reset"):
+		return "connection_reset"
+	case strings.Contains(message, "no route to host"):
+		return "no_route"
+	case strings.Contains(message, "tls"), strings.Contains(message, "certificate"):
+		return "tls_error"
+	}
+	return "no_response"
+}
+
 func faviconCandidatesFromOpenPorts(item any) []faviconCandidate {
 	candidates := make([]faviconCandidate, 0, 2)
 	appendCandidate := func(target string, port int) {
@@ -226,6 +267,7 @@ func probeFavicon(ctx context.Context, candidate faviconCandidate, opts FaviconP
 		opts.RequestTimeout = 2 * time.Second
 	}
 
+	result.Attempts = 1
 	probeCtx, cancel := context.WithTimeout(ctx, opts.TotalTimeout)
 	defer cancel()
 
@@ -249,8 +291,25 @@ func probeFavicon(ctx context.Context, candidate faviconCandidate, opts FaviconP
 
 	response, err := client.Do(request)
 	if err != nil {
-		result.ProbeError = "no_response"
-		return result
+		// One retry. A device can drop a single request while being perfectly
+		// responsive a moment later: observed on a live router that served this
+		// icon in 15ms outside a scan and not at all inside one. Without a
+		// retry the identity is lost silently, which is the worst outcome —
+		// the corpus entry exists and matches, but never fires.
+		result.Attempts = 2
+		retryCtx, retryCancel := context.WithTimeout(ctx, opts.TotalTimeout)
+		defer retryCancel()
+		retryRequest, retryErr := http.NewRequestWithContext(retryCtx, http.MethodGet, url, nil)
+		if retryErr != nil {
+			result.ProbeError = classifyFaviconError(err)
+			return result
+		}
+		time.Sleep(faviconRetryDelay)
+		response, err = client.Do(retryRequest)
+		if err != nil {
+			result.ProbeError = classifyFaviconError(err)
+			return result
+		}
 	}
 	defer response.Body.Close() //nolint:errcheck // best-effort cleanup
 

@@ -180,3 +180,57 @@ func TestSSDPProbe_Live(t *testing.T) {
 			info.SerialNumber, info.Server, info.ProbeError)
 	}
 }
+
+// A scan of explicitly named targets runs no ping sweep. Requiring live hosts
+// would drop this module from the plan for exactly those scans.
+func TestSSDPTargetsInScope(t *testing.T) {
+	t.Run("port-scan targets alone are enough", func(t *testing.T) {
+		targets := ssdpTargetsInScope(map[string]any{
+			"discovery.open_udp_ports": []any{
+				discovery.UDPPortDiscoveryResult{Target: "192.0.2.10", OpenPorts: []int{1900}},
+			},
+		})
+		require.Equal(t, []string{"192.0.2.10"}, targets)
+	})
+
+	t.Run("live hosts widen the set without duplicating", func(t *testing.T) {
+		targets := ssdpTargetsInScope(map[string]any{
+			"discovery.live_hosts": discovery.ICMPPingDiscoveryResult{
+				LiveHosts: []string{"192.0.2.10", "192.0.2.11"},
+			},
+			"discovery.open_udp_ports": []any{
+				discovery.UDPPortDiscoveryResult{Target: "192.0.2.10"},
+			},
+		})
+		require.Equal(t, []string{"192.0.2.10", "192.0.2.11"}, targets)
+	})
+
+	t.Run("no inputs means no targets", func(t *testing.T) {
+		require.Empty(t, ssdpTargetsInScope(map[string]any{}))
+	})
+}
+
+// The module must survive a plan without host discovery, which is what made it
+// silently vanish before.
+func TestSSDPExecute_RunsWithoutHostDiscovery(t *testing.T) {
+	originalCollect := ssdpCollectFunc
+	originalDescribe := ssdpDescribeFn
+	defer func() {
+		ssdpCollectFunc = originalCollect
+		ssdpDescribeFn = originalDescribe
+	}()
+	ssdpCollectFunc = func(context.Context, []string, SSDPProbeOptions) map[string]SSDPDeviceInfo {
+		return map[string]SSDPDeviceInfo{"192.0.2.10": {Target: "192.0.2.10", SSDPProbe: true}}
+	}
+	ssdpDescribeFn = func(context.Context, *SSDPDeviceInfo, time.Duration) {}
+
+	module := newSSDPProbeModule()
+	outputs := make(chan engine.ModuleOutput, 4)
+	require.NoError(t, module.Execute(context.Background(), map[string]any{
+		"discovery.open_udp_ports": []any{
+			discovery.UDPPortDiscoveryResult{Target: "192.0.2.10", OpenPorts: []int{1900}},
+		},
+	}, outputs))
+	close(outputs)
+	require.Len(t, outputs, 1)
+}
