@@ -46,15 +46,15 @@ func ARPLookup(ip string) (string, bool) {
 	return "", false
 }
 
-// ARPLookupExclusive returns the link-layer address for an IP only when no
-// other IP in the table shares it.
+// ARPLookupExclusive returns the link-layer address an IP actually owns.
 //
 // A router doing proxy ARP answers for every address it fronts, so one MAC maps
-// to many IPs. That MAC belongs to the router, not to the host being scanned:
+// to many IPs. For the fronted hosts that MAC is the router's, not theirs:
 // deriving a vendor from it mislabels the asset, and recording it as the asset's
 // own address makes unrelated hosts look like one device to any correlation
-// keyed on MAC. Callers that need the next hop rather than the device's own
-// address should use ARPLookup.
+// keyed on MAC. The router itself is the exception — it genuinely owns the
+// address — so a shared MAC still resolves for a default gateway. Callers that
+// want the next hop rather than the device's own address should use ARPLookup.
 func ARPLookupExclusive(ip string) (string, bool) {
 	ip = strings.TrimSpace(ip)
 	if ip == "" {
@@ -67,13 +67,27 @@ func ARPLookupExclusive(ip string) (string, bool) {
 	}
 	for _, entry := range table {
 		if entry.IP == ip {
-			if owners[entry.MAC] > 1 {
+			if owners[entry.MAC] > 1 && !IsDefaultGateway(ip) {
 				return "", false
 			}
 			return entry.MAC, true
 		}
 	}
 	return "", false
+}
+
+// IsDefaultGateway reports whether an IP is a next hop for a default route.
+func IsDefaultGateway(ip string) bool {
+	ip = strings.TrimSpace(ip)
+	if ip == "" {
+		return false
+	}
+	for _, gateway := range readDefaultGateways() {
+		if gateway == ip {
+			return true
+		}
+	}
+	return false
 }
 
 // NormalizeMAC canonicalizes a hardware address to lowercase colon-separated

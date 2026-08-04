@@ -7,3 +7,8 @@ package netutil
 func readARPTable() []ARPEntry {
 	return nil
 }
+
+// readDefaultGateways has no supported implementation on this platform.
+func readDefaultGateways() []string {
+	return nil
+}

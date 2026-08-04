@@ -36,7 +36,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   many IPs; the scanner recorded that MAC as the asset's own and derived a vendor
   from it. Observed on a live network: a Windows host behind a firewall was
   labelled with the firewall vendor, and three unrelated assets shared one MAC —
-  which would collapse them into one device under any MAC-keyed correlation.
+  which would collapse them into one device under any MAC-keyed correlation. The
+  router itself is exempt, since it genuinely owns the address it answers with.
 - MAC addresses with unpadded octets (`0:11:32:...`, as printed by BSD `arp` and
   by many device web UIs) were rejected outright, leaving the device with no
   vendor. Not reachable from the scanner's own code paths today, which format

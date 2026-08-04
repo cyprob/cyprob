@@ -20,12 +20,12 @@ func TestARPLookupExclusive(t *testing.T) {
 	for mac, ips := range owners {
 		for _, ip := range ips {
 			got, ok := ARPLookupExclusive(ip)
-			if len(ips) > 1 {
+			if len(ips) > 1 && !IsDefaultGateway(ip) {
 				require.False(t, ok, "%s is shared by %v and must not identify a device", mac, ips)
 				require.Empty(t, got)
 				continue
 			}
-			require.True(t, ok)
+			require.True(t, ok, "%s owns its MAC", ip)
 			require.Equal(t, mac, got)
 		}
 	}
@@ -39,4 +39,22 @@ func TestPadMACOctets(t *testing.T) {
 	// Already-padded and invalid input keep their existing behavior.
 	require.Equal(t, "00:11:32:43:c8:ff", NormalizeMAC("00:11:32:43:c8:ff"))
 	require.Empty(t, NormalizeMAC("not-a-mac"))
+}
+
+// A router that answers for the addresses it fronts still owns its own MAC, so
+// excluding shared MACs must not strip the gateway of its identity.
+func TestARPLookupExclusive_GatewayKeepsItsOwnMAC(t *testing.T) {
+	gateways := readDefaultGateways()
+	if len(gateways) == 0 {
+		t.Skip("no default gateway on this host")
+	}
+	for _, gateway := range gateways {
+		if _, known := ARPLookup(gateway); !known {
+			continue
+		}
+		mac, ok := ARPLookupExclusive(gateway)
+		require.True(t, ok, "the gateway owns its MAC even when it fronts other IPs")
+		require.NotEmpty(t, mac)
+		require.True(t, IsDefaultGateway(gateway))
+	}
 }
