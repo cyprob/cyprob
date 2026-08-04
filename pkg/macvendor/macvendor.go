@@ -69,7 +69,7 @@ func Lookup(mac string) (string, bool) {
 // ouiPrefix normalizes a MAC to its 6-hex-character OUI, rejecting addresses
 // that cannot carry manufacturer information.
 func ouiPrefix(mac string) (string, bool) {
-	parsed, err := net.ParseMAC(strings.TrimSpace(mac))
+	parsed, err := net.ParseMAC(padMACOctets(strings.TrimSpace(mac)))
 	if err != nil || len(parsed) < 3 {
 		return "", false
 	}
@@ -95,4 +95,21 @@ func ouiPrefix(mac string) (string, bool) {
 func Size() int {
 	loadOnce.Do(load)
 	return len(ouiTable)
+}
+
+// padMACOctets zero-pads single-digit colon-separated octets. net.ParseMAC
+// requires two hex digits per octet, but several common sources — BSD arp
+// output, device web UIs, hand-entered inventory — drop the leading zero, and
+// discarding those would leave real devices without a vendor.
+func padMACOctets(mac string) string {
+	if !strings.Contains(mac, ":") {
+		return mac
+	}
+	parts := strings.Split(mac, ":")
+	for i, part := range parts {
+		if len(part) == 1 {
+			parts[i] = "0" + part
+		}
+	}
+	return strings.Join(parts, ":")
 }

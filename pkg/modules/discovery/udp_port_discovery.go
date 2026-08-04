@@ -45,8 +45,8 @@ type UDPPortDiscoveryModule struct {
 const (
 	udpPortDiscoveryModuleTypeName = "udp-port-discovery"
 	defaultUDPPortDiscoveryTimeout = 2 * time.Second
-	defaultUDPConcurrency          = 50                         // Lower than TCP (UDP slower)
-	defaultUDPPorts                = "53,123,161,514,1900,5353" // DNS, NTP, SNMP, Syslog, UPnP, mDNS
+	defaultUDPConcurrency          = 50                             // Lower than TCP (UDP slower)
+	defaultUDPPorts                = "53,123,137,161,514,1900,5353" // DNS, NTP, NetBIOS-NS, SNMP, Syslog, UPnP, mDNS
 	defaultUDPMaxRetries           = 2
 )
 
@@ -189,6 +189,23 @@ func getDefaultUDPPayloads() map[int][]byte {
 			"MAN: \"ssdp:discover\"\r\n" +
 			"MX: 1\r\n" +
 			"ST: ssdp:all\r\n\r\n"),
+
+		// NetBIOS name service (137): wildcard node status request. A host that
+		// answers lists every NetBIOS name it has registered, so the same packet
+		// that proves the port is open also names the host.
+		137: {
+			0x13, 0x37, 0x00, 0x00, 0x00, 0x01, // transaction ID, flags 0, 1 question
+			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // no answer/authority/additional
+			0x20, // encoded name length
+			// "*" padded with nulls, first-level encoded (each nibble + 'A').
+			0x43, 0x4b, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41,
+			0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41,
+			0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41,
+			0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41,
+			0x00,       // Root
+			0x00, 0x21, // Type: NBSTAT
+			0x00, 0x01, // Class: IN
+		},
 
 		// mDNS (5353): DNS-SD service enumeration (PTR _services._dns-sd._udp.local).
 		// Sent unicast, which DNS-SD responders answer directly; the reply both

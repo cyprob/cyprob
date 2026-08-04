@@ -63,3 +63,17 @@ func TestOUIPrefix(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, "40EDCF", prefix, "prefix must be uppercase hex")
 }
+
+// Sources such as BSD arp output print octets without a leading zero. Rejecting
+// those would leave real devices unidentified.
+func TestLookupAcceptsUnpaddedOctets(t *testing.T) {
+	padded, okPadded := Lookup("00:11:32:43:c8:ff")
+	require.True(t, okPadded)
+	unpadded, okUnpadded := Lookup("0:11:32:43:c8:ff")
+	require.True(t, okUnpadded, "an unpadded octet is still a valid address")
+	require.Equal(t, padded, unpadded)
+
+	espressif, ok := Lookup("5c:cf:7f:91:d:ea")
+	require.True(t, ok)
+	require.Equal(t, "Espressif", espressif)
+}

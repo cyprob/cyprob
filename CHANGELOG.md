@@ -7,7 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- NetBIOS name service probe (`nbns-probe`, UDP/137). A single unauthenticated
+  node status query makes a host list every NetBIOS name it has registered,
+  which names Windows, Samba and NAS hosts that publish no mDNS and expose no
+  banner carrying a hostname. It also reports the workgroup or domain, whether
+  the host serves SMB, whether it is a domain controller, and the adapter MAC
+  from the reply. Verified against five hosts on a live network that previously
+  resolved to a MAC vendor or nothing at all.
+- UDP/137 added to the default discovery ports, with the node status request as
+  its probe payload, so the packet that proves the port open also names the host.
+
 ### Fixed
+- A MAC shared by several IPs is no longer treated as a device identity. A router
+  doing proxy ARP answers for every address it fronts, so its MAC appears against
+  many IPs; the scanner recorded that MAC as the asset's own and derived a vendor
+  from it. Observed on a live network: a Windows host behind a firewall was
+  labelled with the firewall vendor, and three unrelated assets shared one MAC —
+  which would collapse them into one device under any MAC-keyed correlation.
+- MAC addresses with unpadded octets (`0:11:32:...`, as printed by BSD `arp` and
+  by many device web UIs) were rejected outright, leaving the device with no
+  vendor. Not reachable from the scanner's own code paths today, which format
+  addresses canonically, but it silently discarded any address entering from
+  another source.
 - mDNS missed Android TV devices. They advertise `_androidtvremote2._tcp`, which
   was absent from the identity and device-type tables, so a device that answered
   the probe was still left unclassified. The cast service that carries the model

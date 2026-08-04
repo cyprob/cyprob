@@ -63,6 +63,7 @@ func buildAssetProfileBuilderConsumes() []engine.DataContractEntry {
 		{Key: "service.smtp.details", DataTypeName: "scan.SMTPServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 		{Key: "service.snmp.details", DataTypeName: "scan.SNMPServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 		{Key: "service.mdns.details", DataTypeName: "scan.MDNSServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
+		{Key: "service.nbns.details", DataTypeName: "scan.NBNSNodeInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 		{Key: "service.dns.details", DataTypeName: "scan.DNSServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 		{Key: "service.fingerprint.details", DataTypeName: "parse.FingerprintParsedInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 		{Key: "service.tech.tags", DataTypeName: "parse.TechTagResult", Cardinality: engine.CardinalityList, IsOptional: true},
@@ -259,6 +260,19 @@ func (m *AssetProfileBuilderModule) Execute(ctx context.Context, inputs map[stri
 			}
 		} else if typed, typedOk := rawMDNS.([]scan.MDNSServiceInfo); typedOk {
 			mdnsDetails = append(mdnsDetails, typed...)
+		}
+	}
+
+	nbnsDetails := []scan.NBNSNodeInfo{}
+	if rawNBNS, ok := inputs["service.nbns.details"]; ok {
+		if list, listOk := rawNBNS.([]any); listOk {
+			for _, item := range list {
+				if casted, castOk := item.(scan.NBNSNodeInfo); castOk {
+					nbnsDetails = append(nbnsDetails, casted)
+				}
+			}
+		} else if typed, typedOk := rawNBNS.([]scan.NBNSNodeInfo); typedOk {
+			nbnsDetails = append(nbnsDetails, typed...)
 		}
 	}
 
@@ -686,7 +700,10 @@ func (m *AssetProfileBuilderModule) Execute(ctx context.Context, inputs map[stri
 		if device := deviceProfileFromTLS(tlsDetails, targetIP); device != nil {
 			asset.Device = mergeDeviceProfile(asset.Device, device)
 		}
-		if mac, ok := netutil.ARPLookup(targetIP); ok {
+		if nbns := findNBNSDetails(nbnsDetails, targetIP); nbns != nil {
+			applyNBNSIdentity(asset, *nbns)
+		}
+		if mac, ok := netutil.ARPLookupExclusive(targetIP); ok {
 			asset.MACAddress = mac
 			if vendor, found := macvendor.Lookup(mac); found {
 				asset.Device = mergeDeviceProfile(asset.Device, &engine.DeviceProfile{
@@ -1241,6 +1258,35 @@ func deviceProfileFromTLS(items []scan.TLSServiceInfo, target string) *engine.De
 		return &engine.DeviceProfile{Vendor: vendor, Product: product, Source: "tls_cert"}
 	}
 	return nil
+}
+
+func findNBNSDetails(items []scan.NBNSNodeInfo, target string) *scan.NBNSNodeInfo {
+	for i := range items {
+		if items[i].Target == target {
+			return &items[i]
+		}
+	}
+	return nil
+}
+
+// applyNBNSIdentity folds a NetBIOS node status reply into an asset.
+//
+// NetBIOS names a host that often publishes nothing else, so its hostname is
+// worth recording even when a stronger source has already named the vendor. The
+// vendor it derives comes from the adapter MAC in the reply, which is no
+// stronger than the OUI lookup, so it is merged at the same weak authority.
+func applyNBNSIdentity(asset *engine.AssetProfile, nbns scan.NBNSNodeInfo) {
+	if name := strings.TrimSpace(nbns.ComputerName); name != "" {
+		asset.Hostnames = appendUniqueString(asset.Hostnames, name)
+	}
+	if asset.MACAddress == "" && nbns.MACAddress != "" {
+		asset.MACAddress = nbns.MACAddress
+	}
+	if vendor := strings.TrimSpace(nbns.VendorHint); vendor != "" {
+		asset.Device = mergeDeviceProfile(asset.Device, &engine.DeviceProfile{
+			Vendor: vendor, Source: "nbns",
+		})
+	}
 }
 
 func findMDNSDetails(items []scan.MDNSServiceInfo, target string) *scan.MDNSServiceInfo {
