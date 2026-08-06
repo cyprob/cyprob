@@ -718,3 +718,39 @@ func TestDeviceProfileFromServiceIdentity_DoesNotOutrankStrongerSources(t *testi
 	require.Equal(t, "Synology", merged.Vendor)
 	require.Equal(t, "RS815", merged.Product)
 }
+
+func TestDeviceProfileFromMNDP(t *testing.T) {
+	t.Run("the device names its own board and release", func(t *testing.T) {
+		device := deviceProfileFromMNDP(scan.MNDPNeighborInfo{
+			Target: "192.0.2.10", Platform: "MikroTik", Board: "RB3011UiAS",
+			Version: "6.49.10 (long-term)", VersionNumber: "6.49.10",
+			SoftwareID: "3ERZ-421L",
+		})
+		require.NotNil(t, device)
+		require.Equal(t, "MikroTik", device.Vendor)
+		require.Equal(t, "RB3011UiAS", device.Model)
+		require.Equal(t, "6.49.10", device.Firmware, "the comparable release, not the announced string")
+		require.Empty(t, device.Serial, "the software ID identifies the license, not the unit")
+	})
+
+	t.Run("an announcement naming nothing yields nothing", func(t *testing.T) {
+		require.Nil(t, deviceProfileFromMNDP(scan.MNDPNeighborInfo{Target: "192.0.2.10"}))
+	})
+}
+
+// A field the merge does not carry is silently dropped, which is how identity
+// gets computed and lost.
+func TestMergeDeviceProfile_CarriesFirmware(t *testing.T) {
+	merged := mergeDeviceProfile(
+		&engine.DeviceProfile{Vendor: "MikroTik", Source: "mac_oui"},
+		&engine.DeviceProfile{Model: "RB3011UiAS", Firmware: "6.49.10", Source: "mndp"},
+	)
+	require.Equal(t, "RB3011UiAS", merged.Model)
+	require.Equal(t, "6.49.10", merged.Firmware)
+
+	stronger := mergeDeviceProfile(
+		&engine.DeviceProfile{Firmware: "7.14", Source: "snmp"},
+		&engine.DeviceProfile{Firmware: "6.49.10", Source: "mndp"},
+	)
+	require.Equal(t, "7.14", stronger.Firmware, "a weaker source must not overwrite")
+}

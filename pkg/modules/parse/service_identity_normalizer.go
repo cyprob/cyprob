@@ -28,6 +28,7 @@ const (
 	sourceSMTPNative       = "smtp_native_probe"
 	sourceSNMPNative       = "snmp_native_probe"
 	sourceMDNSNative       = "mdns_native_probe"
+	sourceMNDPProbe        = "mndp_probe"
 	sourceFaviconProbe     = "favicon_probe"
 	sourceDNSNative        = "dns_native_probe"
 	sourceFTPNative        = "ftp_native_probe"
@@ -225,6 +226,7 @@ func newServiceIdentityNormalizerModule() *serviceIdentityNormalizerModule {
 				{Key: "service.snmp.details", DataTypeName: "scan.SNMPServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 				{Key: "service.mdns.details", DataTypeName: "scan.MDNSServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 				{Key: "service.favicon.details", DataTypeName: "scan.FaviconServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
+				{Key: "service.mndp.details", DataTypeName: "scan.MNDPNeighborInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 				{Key: "service.dns.details", DataTypeName: "scan.DNSServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 				{Key: "service.smb.details", DataTypeName: "scan.SMBServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 				{Key: "service.rdp.details", DataTypeName: "scan.RDPServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
@@ -278,6 +280,7 @@ func (m *serviceIdentityNormalizerModule) Execute(ctx context.Context, inputs ma
 	m.ingestSMTPDetails(inputs, getEntry)
 	m.ingestSNMPDetails(inputs, getEntry)
 	m.ingestMDNSDetails(inputs, getEntry)
+	m.ingestMNDPDetails(inputs, getEntry)
 	m.ingestFaviconDetails(inputs, getEntry)
 	m.ingestDNSDetails(inputs, getEntry)
 	m.ingestSMBDetails(inputs, getEntry)
@@ -676,6 +679,42 @@ func (m *serviceIdentityNormalizerModule) ingestFaviconDetails(inputs map[string
 		if strings.TrimSpace(entry.Product) == "" && strings.TrimSpace(info.ProductHint) != "" {
 			setIdentityField(entry, "product", strings.TrimSpace(info.ProductHint), sourceFaviconProbe, 0.68)
 		}
+	}
+}
+
+// ingestMNDPDetails folds a MikroTik neighbor announcement into the canonical
+// identity.
+//
+// The device states its own board and firmware release without credentials, and
+// the release is what version-based CVE matching needs — so this is one of the
+// few credential-free sources that feeds more than the inventory.
+func (m *serviceIdentityNormalizerModule) ingestMNDPDetails(inputs map[string]any, getEntry func(target string, port int) *ServiceIdentityInfo) {
+	raw, ok := inputs["service.mndp.details"]
+	if !ok {
+		return
+	}
+	for _, item := range toAnyList(raw) {
+		info, ok := item.(scanpkg.MNDPNeighborInfo)
+		if !ok || info.Target == "" || info.Port <= 0 || !info.MNDPProbe {
+			continue
+		}
+		entry := getEntry(info.Target, info.Port)
+		setIdentityField(entry, "service_name", "mndp", sourceMNDPProbe, 0.7)
+		if strings.TrimSpace(entry.Vendor) == "" {
+			setIdentityField(entry, "vendor", strings.TrimSpace(info.Platform), sourceMNDPProbe, 0.78)
+		}
+		if strings.TrimSpace(entry.Product) == "" {
+			setIdentityField(entry, "product", strings.TrimSpace(info.Board), sourceMNDPProbe, 0.78)
+		}
+		// The bare release, not the announced string: "6.49.10 (long-term)" is
+		// not a version any comparison understands.
+		if strings.TrimSpace(entry.Version) == "" {
+			setIdentityField(entry, "version", strings.TrimSpace(info.VersionNumber), sourceMNDPProbe, 0.8)
+		}
+		if strings.TrimSpace(entry.HostnameHint) == "" && strings.TrimSpace(info.Identity) != "" {
+			entry.HostnameHint = strings.TrimSpace(info.Identity)
+		}
+		entry.TechTags = NormalizeTechTags(append(entry.TechTags, "mndp"))
 	}
 }
 

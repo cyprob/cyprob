@@ -17,6 +17,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   possible.
 
 ### Added
+- MikroTik neighbour discovery probe (`mndp-probe`, UDP/5678). RouterOS devices
+  announce their own board, firmware release and configured name without
+  credentials, which is unusually complete for a credential-free source: it
+  names the exact hardware and supplies a release that feeds version-based
+  vulnerability matching, not only the inventory. Verified against a live device
+  that previously resolved to `Routerboard.com` from its MAC and no name, and now
+  reports MikroTik RB3011UiAS running 6.49.10, named Habib.
+- `DeviceProfile.Firmware` records the release a device runs. It belongs to the
+  device rather than to any service on it, and it is what version matching needs
+  for an appliance exposing no service that carries its version.
 - Favicon corpus entry for Sophos appliances, verified on a live firewall. The
   product is deliberately empty: the appliance states no model anywhere reachable
   without credentials — a generic TLS appliance certificate, an obscured `Server`

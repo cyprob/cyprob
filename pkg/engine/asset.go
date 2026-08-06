@@ -103,7 +103,7 @@ type AssetProfile struct {
 	// OperatingSystem string `json:"operating_system,omitempty" yaml:"operating_system,omitempty"`
 	// MACAddress is the link-layer address, available only when the scanner
 	// shares a segment with the asset (resolved from the local neighbor table).
-	MACAddress string `json:"mac_address,omitempty" yaml:"mac_address,omitempty"`
+	MACAddress        string   `json:"mac_address,omitempty" yaml:"mac_address,omitempty"`
 	ErrorsEncountered []string `json:"errors_encountered,omitempty" yaml:"errors_encountered,omitempty"` // Errors specific to this asset during scan
 }
 
@@ -117,5 +117,10 @@ type DeviceProfile struct {
 	Model   string `json:"model,omitempty" yaml:"model,omitempty"`
 	Serial  string `json:"serial,omitempty" yaml:"serial,omitempty"`
 	Type    string `json:"type,omitempty" yaml:"type,omitempty"` // firewall, switch, router, printer, ups, storage, ...
-	Source  string `json:"source,omitempty" yaml:"source,omitempty"`
+	// Firmware is the release the device runs, as the device states it. It
+	// belongs to the device rather than to any service on it, and it is what
+	// version-based vulnerability matching needs for an appliance that exposes
+	// no service carrying its version.
+	Firmware string `json:"firmware,omitempty" yaml:"firmware,omitempty"`
+	Source   string `json:"source,omitempty" yaml:"source,omitempty"`
 }

@@ -65,6 +65,7 @@ func buildAssetProfileBuilderConsumes() []engine.DataContractEntry {
 		{Key: "service.mdns.details", DataTypeName: "scan.MDNSServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 		{Key: "service.nbns.details", DataTypeName: "scan.NBNSNodeInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 		{Key: "service.ssdp.details", DataTypeName: "scan.SSDPDeviceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
+		{Key: "service.mndp.details", DataTypeName: "scan.MNDPNeighborInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 		{Key: "service.dns.details", DataTypeName: "scan.DNSServiceInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 		{Key: "service.fingerprint.details", DataTypeName: "parse.FingerprintParsedInfo", Cardinality: engine.CardinalityList, IsOptional: true},
 		{Key: "service.tech.tags", DataTypeName: "parse.TechTagResult", Cardinality: engine.CardinalityList, IsOptional: true},
@@ -261,6 +262,19 @@ func (m *AssetProfileBuilderModule) Execute(ctx context.Context, inputs map[stri
 			}
 		} else if typed, typedOk := rawMDNS.([]scan.MDNSServiceInfo); typedOk {
 			mdnsDetails = append(mdnsDetails, typed...)
+		}
+	}
+
+	mndpDetails := []scan.MNDPNeighborInfo{}
+	if rawMNDP, ok := inputs["service.mndp.details"]; ok {
+		if list, listOk := rawMNDP.([]any); listOk {
+			for _, item := range list {
+				if casted, castOk := item.(scan.MNDPNeighborInfo); castOk {
+					mndpDetails = append(mndpDetails, casted)
+				}
+			}
+		} else if typed, typedOk := rawMNDP.([]scan.MNDPNeighborInfo); typedOk {
+			mndpDetails = append(mndpDetails, typed...)
 		}
 	}
 
@@ -707,6 +721,12 @@ func (m *AssetProfileBuilderModule) Execute(ctx context.Context, inputs map[stri
 		// resort that still names a manufacturer when nothing else does.
 		if snmp := findSNMPDetails(snmpDetails, targetIP, 161); snmp != nil {
 			asset.Device = deviceProfileFromSNMP(*snmp)
+		}
+		if mndp := findMNDPDetails(mndpDetails, targetIP); mndp != nil {
+			asset.Device = mergeDeviceProfile(asset.Device, deviceProfileFromMNDP(*mndp))
+			if name := strings.TrimSpace(mndp.Identity); name != "" {
+				asset.Hostnames = appendUniqueString(asset.Hostnames, name)
+			}
 		}
 		if ssdp := findSSDPDetails(ssdpDetails, targetIP); ssdp != nil {
 			asset.Device = mergeDeviceProfile(asset.Device, deviceProfileFromSSDP(*ssdp))
@@ -1257,6 +1277,7 @@ func mergeDeviceProfile(base, fallback *engine.DeviceProfile) *engine.DeviceProf
 	fill(&base.Model, fallback.Model)
 	fill(&base.Serial, fallback.Serial)
 	fill(&base.Type, fallback.Type)
+	fill(&base.Firmware, fallback.Firmware)
 
 	if filled && fallback.Source != "" && !strings.Contains(base.Source, fallback.Source) {
 		if base.Source == "" {
@@ -1328,6 +1349,38 @@ func deviceProfileFromServiceIdentity(items []parse.ServiceIdentityInfo, target 
 		return nil
 	}
 	profile.Source = source
+	return profile
+}
+
+func findMNDPDetails(items []scan.MNDPNeighborInfo, target string) *scan.MNDPNeighborInfo {
+	for i := range items {
+		if items[i].Target == target {
+			return &items[i]
+		}
+	}
+	return nil
+}
+
+// deviceProfileFromMNDP turns a MikroTik neighbor announcement into device
+// identity.
+//
+// The device names its own board, so this ranks with the sources that inspected
+// the hardware rather than with what a device advertises for compatibility. The
+// software ID is deliberately not recorded as a serial: it identifies the
+// license, not the unit.
+func deviceProfileFromMNDP(mndp scan.MNDPNeighborInfo) *engine.DeviceProfile {
+	profile := &engine.DeviceProfile{
+		Vendor:   strings.TrimSpace(mndp.Platform),
+		Model:    strings.TrimSpace(mndp.Board),
+		Firmware: strings.TrimSpace(mndp.VersionNumber),
+		Source:   "mndp",
+	}
+	if profile.Model != "" {
+		profile.Product = profile.Model
+	}
+	if profile.Vendor == "" && profile.Model == "" && profile.Firmware == "" {
+		return nil
+	}
 	return profile
 }
 
