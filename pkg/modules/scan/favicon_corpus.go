@@ -32,6 +32,16 @@ var faviconIdentityCorpus = map[int32]struct {
 	// FriendlyName "HUAWEI WiFi BE3" with DeviceIconType "router" from its own
 	// unauthenticated /api/system/deviceinfo endpoint.
 	1684467926: {vendor: "Huawei", product: "HUAWEI WiFi BE3"},
+
+	// Verified 2026-08-06 on a live Sophos firewall serving this icon. The
+	// product is deliberately empty: the appliance states no model anywhere
+	// reachable without credentials — its TLS certificate is a generic
+	// Appliance_Certificate, its Server header is obscured, its login page names
+	// no model, and it exposes no device-info endpoint. The vendor is supported
+	// twice over, by the IEEE OUI of its MAC and by its own SMTP banner
+	// ("Sophos ESMTP"), so naming the vendor is evidence-backed while naming a
+	// model would be a guess.
+	-1548649046: {vendor: "Sophos"},
 }
 
 // LookupFaviconIdentity resolves a favicon hash to a device. An unknown hash

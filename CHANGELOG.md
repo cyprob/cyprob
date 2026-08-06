@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- A favicon hash was computed and then discarded whenever the corpus did not
+  name it. The identity normalizer skipped any result carrying no vendor or
+  product, so the fingerprint went with it — while the corpus documents that an
+  unrecognized hash still groups identical devices across a fleet. That claim was
+  not true in practice. The hash is now recorded on the service whether or not a
+  name is known, which is also what makes seeding the corpus from a fleet
+  possible.
+
+### Added
+- MikroTik neighbour discovery probe (`mndp-probe`, UDP/5678). RouterOS devices
+  announce their own board, firmware release and configured name without
+  credentials, which is unusually complete for a credential-free source: it
+  names the exact hardware and supplies a release that feeds version-based
+  vulnerability matching, not only the inventory. Verified against a live device
+  that previously resolved to `Routerboard.com` from its MAC and no name, and now
+  reports MikroTik RB3011UiAS running 6.49.10, named Habib.
+- `DeviceProfile.Firmware` records the release a device runs. It belongs to the
+  device rather than to any service on it, and it is what version matching needs
+  for an appliance exposing no service that carries its version.
+- Favicon corpus entry for Sophos appliances, verified on a live firewall. The
+  product is deliberately empty: the appliance states no model anywhere reachable
+  without credentials — a generic TLS appliance certificate, an obscured `Server`
+  header, no model on the login page and no device-info endpoint — while the
+  vendor is supported both by the IEEE OUI of its MAC and by its own SMTP banner.
+  Naming the vendor is evidence-backed; naming a model would have been a guess.
+
+
 ## [0.16.0] - 2026-08-04
 
 ### Added
