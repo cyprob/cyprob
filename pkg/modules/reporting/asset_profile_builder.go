@@ -798,6 +798,9 @@ func applyServiceIdentity(asset *engine.AssetProfile, portProfile *engine.PortPr
 	if (identity.OSHints != parse.ServiceOSHints{}) {
 		portProfile.Service.ParsedAttributes["os_hints"] = identity.OSHints
 	}
+	if identity.FaviconHash != 0 {
+		portProfile.Service.ParsedAttributes["favicon_hash"] = identity.FaviconHash
+	}
 	if len(identity.FieldSources) > 0 {
 		portProfile.Service.ParsedAttributes["field_sources"] = identity.FieldSources
 	}

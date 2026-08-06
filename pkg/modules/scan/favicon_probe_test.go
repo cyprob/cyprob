@@ -200,3 +200,12 @@ func TestProbeFavicon_RecordsASingleAttemptOnSuccess(t *testing.T) {
 	require.Empty(t, result.ProbeError)
 	require.Equal(t, 1, result.Attempts)
 }
+
+// A vendor-only entry is legitimate: an appliance can be attributable to its
+// maker while stating no model anywhere reachable without credentials, and the
+// vendor is the half that generalises across a product line anyway.
+func TestLookupFaviconIdentity_VendorWithoutProduct(t *testing.T) {
+	vendor, product := LookupFaviconIdentity(-1548649046)
+	require.Equal(t, "Sophos", vendor)
+	require.Empty(t, product, "no model was verifiable, and guessing one would mislabel every matching device")
+}

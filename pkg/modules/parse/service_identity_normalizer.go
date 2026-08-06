@@ -65,6 +65,12 @@ type ServiceIdentityInfo struct {
 	OSHints         ServiceOSHints     `json:"os_hints,omitzero"`
 	FieldSources    map[string]string  `json:"field_sources,omitempty"`
 	FieldConfidence map[string]float64 `json:"field_confidence,omitempty"`
+	// FaviconHash fingerprints the icon a web service serves. It is recorded
+	// even when no corpus entry names the device: the same hardware and firmware
+	// serve the same icon, so identical devices group across a fleet before
+	// anyone has named them, and a hash seen repeatedly is what makes a corpus
+	// entry worth adding.
+	FaviconHash int32 `json:"favicon_hash,omitempty"`
 }
 
 type serviceIdentityNormalizerModule struct {
@@ -654,10 +660,16 @@ func (m *serviceIdentityNormalizerModule) ingestFaviconDetails(inputs map[string
 		if !ok || info.Target == "" || info.Port <= 0 {
 			continue
 		}
+		entry := getEntry(info.Target, info.Port)
+		// The hash is the fingerprint; the corpus only supplies a name for it.
+		// Dropping the hash when the name is missing threw away the part that
+		// works without one.
+		if info.FaviconHash != 0 {
+			entry.FaviconHash = info.FaviconHash
+		}
 		if strings.TrimSpace(info.VendorHint) == "" && strings.TrimSpace(info.ProductHint) == "" {
 			continue
 		}
-		entry := getEntry(info.Target, info.Port)
 		if strings.TrimSpace(entry.Vendor) == "" && strings.TrimSpace(info.VendorHint) != "" {
 			setIdentityField(entry, "vendor", strings.TrimSpace(info.VendorHint), sourceFaviconProbe, 0.68)
 		}

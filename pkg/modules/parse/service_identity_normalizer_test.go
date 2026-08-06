@@ -1363,3 +1363,28 @@ func collectIdentityOutputsByDataKey(t *testing.T, out <-chan engine.ModuleOutpu
 	}
 	return results
 }
+
+// The hash is the fingerprint; the corpus only supplies a name for it. An
+// unrecognized icon still groups identical devices across a fleet, which is
+// exactly what the corpus documents and what was being thrown away.
+func TestIngestFaviconDetails_RecordsAnUnrecognizedHash(t *testing.T) {
+	module := &serviceIdentityNormalizerModule{}
+	entry := &ServiceIdentityInfo{
+		Target: "192.0.2.10", Port: 443,
+		FieldSources: map[string]string{}, FieldConfidence: map[string]float64{},
+	}
+	getEntry := func(string, int) *ServiceIdentityInfo { return entry }
+
+	module.ingestFaviconDetails(map[string]any{
+		"service.favicon.details": []any{
+			scanpkg.FaviconServiceInfo{Target: "192.0.2.10", Port: 443, FaviconHash: -1234567},
+		},
+	}, getEntry)
+
+	if entry.FaviconHash != -1234567 {
+		t.Fatalf("favicon hash = %d, want -1234567: an unnamed device is still fingerprinted", entry.FaviconHash)
+	}
+	if entry.Vendor != "" || entry.Product != "" {
+		t.Fatalf("an unknown hash must not invent an identity, got vendor=%q product=%q", entry.Vendor, entry.Product)
+	}
+}

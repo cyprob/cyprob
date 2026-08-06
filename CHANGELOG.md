@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- A favicon hash was computed and then discarded whenever the corpus did not
+  name it. The identity normalizer skipped any result carrying no vendor or
+  product, so the fingerprint went with it — while the corpus documents that an
+  unrecognized hash still groups identical devices across a fleet. That claim was
+  not true in practice. The hash is now recorded on the service whether or not a
+  name is known, which is also what makes seeding the corpus from a fleet
+  possible.
+
+### Added
+- Favicon corpus entry for Sophos appliances, verified on a live firewall. The
+  product is deliberately empty: the appliance states no model anywhere reachable
+  without credentials — a generic TLS appliance certificate, an obscured `Server`
+  header, no model on the login page and no device-info endpoint — while the
+  vendor is supported both by the IEEE OUI of its MAC and by its own SMTP banner.
+  Naming the vendor is evidence-backed; naming a model would have been a guess.
+
+
 ## [0.16.0] - 2026-08-04
 
 ### Added
