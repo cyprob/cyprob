@@ -175,7 +175,8 @@ func (f *formatter) PrintPartialFailureSummary(summary Summary) error {
 // reported success to whatever ran them.
 func (f *formatter) PrintTotalFailureSummary(operation string, err error, errorCode string) error {
 	if f.quiet {
-		// Quiet suppresses the summary, not the failure.
+		// Quiet suppresses the summary, not the failure. Nothing was shown, so
+		// the error is not marked as reported and the caller still prints it.
 		return err
 	}
 
@@ -189,7 +190,7 @@ func (f *formatter) PrintTotalFailureSummary(operation string, err error, errorC
 		}); printErr != nil {
 			return printErr
 		}
-		return err
+		return Reported(err)
 	}
 
 	// Table mode: formatted error with suggestions
@@ -215,7 +216,7 @@ func (f *formatter) PrintTotalFailureSummary(operation string, err error, errorC
 	if _, writeErr := f.stdout.Write([]byte(sb.String())); writeErr != nil {
 		return writeErr
 	}
-	return err
+	return Reported(err)
 }
 
 var suggestionGenerators = map[string]func(string) []string{

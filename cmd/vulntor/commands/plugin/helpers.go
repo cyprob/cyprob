@@ -64,8 +64,13 @@ func getPluginService(cmd *cobra.Command, cacheDir string) (*plugin.Service, err
 // handlePartialFailure handles partial failure errors by printing results and exiting with code 8
 func handlePartialFailure(err error, formatter format.Formatter, printFunc func() error) error {
 	if err != nil && errors.Is(err, plugin.ErrPartialFailure) {
-		// Print result even on partial failure
-		if printErr := printFunc(); printErr != nil {
+		// Print result even on partial failure.
+		//
+		// The printer returns the failure it just reported, which must not be
+		// mistaken for a problem printing it: returning here would skip the
+		// exit below, and ADR-0001 gives partial failure its own code that
+		// cmd/main.go cannot recover from a wrapped error.
+		if printErr := printFunc(); printErr != nil && !format.IsAlreadyReported(printErr) {
 			return printErr
 		}
 		// Exit with code 8 for partial failure

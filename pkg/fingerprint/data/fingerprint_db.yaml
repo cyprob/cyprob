@@ -915,7 +915,7 @@ rules:
     product: 'BIND'
     vendor: 'ISC'
     cpe: 'cpe:2.3:a:isc:bind:*:*:*:*:*:*:*:*'
-    match: 'bind|named'
+    match: 'bind|named|dns'
     version_extraction: "(?:bind|named)[\\s/_-]+([\\d\\.]+)"
 
     exclude_patterns:
@@ -927,7 +927,7 @@ rules:
       - "error"
       - "refused"
 
-    pattern_strength: 0.90
+    pattern_strength: 0.85
     port_bonuses: [53]
 
   # File Sharing / Windows Services
