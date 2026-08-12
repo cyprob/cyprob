@@ -27,6 +27,7 @@ func NewFingerprintCommand() *cobra.Command {
 
 	cmd.AddCommand(newFingerprintSyncCommand())
 	cmd.AddCommand(newFingerprintValidateCommand())
+	cmd.AddCommand(newFingerprintGapsCommand())
 
 	return cmd
 }
