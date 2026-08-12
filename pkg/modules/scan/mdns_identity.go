@@ -42,6 +42,17 @@ var mdnsServiceDeviceTypes = map[string]string{
 	"_adisk._tcp":            deviceTypeStorage,
 }
 
+// appleOnlyServiceTypes are DNS-SD services published only by Apple's own
+// devices, so advertising one names the vendor even when no model record is
+// available. AirPlay and RAOP are deliberately absent: both are licensed to
+// third parties, and a Sony television advertising AirPlay is not an Apple
+// device.
+var appleOnlyServiceTypes = map[string]bool{
+	"_companion-link._tcp": true,
+	"_rdlink._tcp":         true,
+	"_apple-mobdev2._tcp":  true,
+}
+
 // appleModelFamilies maps Apple hardware-identifier prefixes (e.g. "Mac16,7")
 // to a device class. These identifier families are stable and self-describing.
 var appleModelFamilies = []struct {
@@ -100,6 +111,12 @@ func deriveMDNSIdentity(result *MDNSServiceInfo) {
 	if result.VendorHint == "" && isAppleModelIdentifier(result.Model) {
 		result.VendorHint = "Apple"
 	}
+	// A host that states no model at all can still name its vendor by the
+	// services it advertises. This is the only identity available for a device
+	// with a randomized MAC that publishes no model record.
+	if result.VendorHint == "" && advertisesAppleOnlyService(result.ServiceTypes) {
+		result.VendorHint = "Apple"
+	}
 
 	result.DeviceType = deriveMDNSDeviceType(result)
 
@@ -118,7 +135,7 @@ func deriveMDNSDeviceType(result *MDNSServiceInfo) string {
 	// Service types win: a host advertising _ipp is a printer regardless of how
 	// its model string reads.
 	for _, service := range result.ServiceTypes {
-		key := strings.TrimSuffix(strings.TrimSuffix(strings.ToLower(strings.TrimSpace(service)), "."), ".local")
+		key := normalizeMDNSServiceType(service)
 		if deviceType, ok := mdnsServiceDeviceTypes[key]; ok && deviceType != deviceTypeIoT {
 			return deviceType
 		}
@@ -131,12 +148,27 @@ func deriveMDNSDeviceType(result *MDNSServiceInfo) string {
 	// IoT is the weakest of the service signals, so it only applies when
 	// nothing more specific matched.
 	for _, service := range result.ServiceTypes {
-		key := strings.TrimSuffix(strings.TrimSuffix(strings.ToLower(strings.TrimSpace(service)), "."), ".local")
+		key := normalizeMDNSServiceType(service)
 		if deviceType, ok := mdnsServiceDeviceTypes[key]; ok {
 			return deviceType
 		}
 	}
 	return ""
+}
+
+func advertisesAppleOnlyService(serviceTypes []string) bool {
+	for _, service := range serviceTypes {
+		if appleOnlyServiceTypes[normalizeMDNSServiceType(service)] {
+			return true
+		}
+	}
+	return false
+}
+
+// normalizeMDNSServiceType reduces an advertised type to its bare form:
+// "_companion-link._tcp.local." -> "_companion-link._tcp".
+func normalizeMDNSServiceType(service string) string {
+	return strings.TrimSuffix(strings.TrimSuffix(strings.ToLower(strings.TrimSpace(service)), "."), ".local")
 }
 
 func appleModelDeviceType(model string) string {

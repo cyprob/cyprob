@@ -18,9 +18,15 @@ import (
 const (
 	mdnsNativeProbeModuleID          = "mdns-native-probe-instance"
 	mdnsNativeProbeModuleName        = "mdns-native-probe"
-	mdnsNativeProbeModuleDescription = "Runs bounded unicast mDNS (DNS-SD) probes against UDP/5353 and emits device identity metadata."
+	mdnsNativeProbeModuleDescription = "Runs bounded mDNS (DNS-SD) probes over unicast and multicast and emits device identity metadata."
 
-	mdnsPort = 5353
+	mdnsPort        = 5353
+	mdnsMulticastIP = "224.0.0.251"
+
+	// mdnsMulticastBursts is how many times the query set is repeated. UDP loses
+	// packets and a responder answers a given question once, so a single pass
+	// under-reports.
+	mdnsMulticastBursts = 2
 
 	// mdnsServiceEnumeration is the DNS-SD meta-query that lists the service
 	// types a host advertises.
@@ -38,6 +44,12 @@ const (
 type MDNSProbeOptions struct {
 	TotalTimeout time.Duration `json:"total_timeout"`
 	IOTimeout    time.Duration `json:"io_timeout"`
+	// ListenTimeout bounds the multicast collection window.
+	ListenTimeout time.Duration `json:"listen_timeout"`
+	// MulticastEnabled controls the segment-wide query. Some devices publish a
+	// record only in answer to multicast, and a host whose UDP/5353 was never
+	// detected as open is never probed by unicast at all.
+	MulticastEnabled bool `json:"multicast_enabled"`
 }
 
 // MDNSServiceInfo is the structured output of the mDNS native probe.
@@ -72,8 +84,9 @@ type mdnsProbeCandidate struct {
 }
 
 var (
-	probeMDNSDetailsFunc = probeMDNSDetails
-	mdnsQueryFunc        = executeMDNSQuery
+	probeMDNSDetailsFunc  = probeMDNSDetails
+	mdnsQueryFunc         = executeMDNSQuery
+	mdnsMulticastCollectF = collectMDNSMulticast
 
 	errMDNSNoResponse = errors.New("mdns no response")
 )
@@ -107,7 +120,14 @@ func newMDNSNativeProbeModule() *mdnsNativeProbeModule {
 					DataTypeName: "discovery.UDPPortDiscoveryResult",
 					Cardinality:  engine.CardinalityList,
 					IsOptional:   false,
-					Description:  "Open UDP ports used to identify mDNS candidates.",
+					Description:  "Open UDP ports used to identify unicast mDNS candidates, and the hosts that bound which multicast responders are in scope.",
+				},
+				{
+					Key:          "discovery.live_hosts",
+					DataTypeName: "discovery.ICMPPingDiscoveryResult",
+					Cardinality:  engine.CardinalityList,
+					IsOptional:   true,
+					Description:  "Live hosts, when host discovery ran, widening the in-scope set.",
 				},
 			},
 			Produces: []engine.DataContractEntry{
@@ -126,13 +146,27 @@ func newMDNSNativeProbeModule() *mdnsNativeProbeModule {
 					Default:     "3s",
 				},
 				"io_timeout": {
-					Description: "Timeout for each mDNS query.",
+					Description: "Timeout for each unicast mDNS query.",
 					Type:        "duration",
 					Required:    false,
 					Default:     "700ms",
 				},
+				"listen_timeout": {
+					Description: "How long to collect answers to the multicast query.",
+					Type:        "duration",
+					Required:    false,
+					Default:     "3s",
+				},
+				"multicast_enabled": {
+					Description: "Send a segment-wide DNS-SD query as well as unicast queries.",
+					Type:        "boolean",
+					Required:    false,
+					Default:     true,
+				},
 			},
-			EstimatedCost: 1,
+			// The multicast pass is one segment-wide conversation on top of the
+			// per-target queries, so the module costs more than a plain probe.
+			EstimatedCost: 2,
 		},
 		options: defaultMDNSProbeOptions(),
 	}
@@ -152,52 +186,126 @@ func (m *mdnsNativeProbeModule) Init(instanceID string, configMap map[string]any
 		if d, ok := parseDurationConfig(configMap["io_timeout"]); ok && d > 0 {
 			opts.IOTimeout = d
 		}
+		if d, ok := parseDurationConfig(configMap["listen_timeout"]); ok && d > 0 {
+			opts.ListenTimeout = d
+		}
+		if enabled, ok := configMap["multicast_enabled"].(bool); ok {
+			opts.MulticastEnabled = enabled
+		}
 	}
 	m.options = opts
 	return nil
 }
 
 func (m *mdnsNativeProbeModule) Execute(ctx context.Context, inputs map[string]any, outputChan chan<- engine.ModuleOutput) error {
-	rawOpenPorts, ok := inputs["discovery.open_udp_ports"]
-	if !ok {
-		return nil
+	inScope := map[string]bool{}
+	for _, target := range ssdpTargetsInScope(inputs) {
+		inScope[strings.TrimSpace(target)] = true
 	}
 
-	candidateMap := map[string]mdnsProbeCandidate{}
-	for _, item := range toAnySlice(rawOpenPorts) {
+	// Unicast candidates are the hosts whose UDP/5353 was detected as open.
+	candidates := map[string]mdnsProbeCandidate{}
+	for _, item := range toAnySlice(inputs["discovery.open_udp_ports"]) {
 		for _, candidate := range mdnsCandidatesFromOpenPorts(item) {
-			candidateMap[fmt.Sprintf("%s:%d", candidate.target, candidate.port)] = candidate
+			candidates[candidate.target] = candidate
 		}
 	}
-	if len(candidateMap) == 0 {
+
+	// The multicast query reaches hosts the unicast candidate list never
+	// contains: a device that answers only multicast, and any device whose
+	// UDP/5353 the port scan did not report open. It is sent once for the
+	// segment rather than per target.
+	multicast := map[string]MDNSServiceInfo{}
+	if m.options.MulticastEnabled && len(inScope) > 0 {
+		multicast = mdnsMulticastCollectF(ctx, m.options)
+	}
+
+	hosts := make([]string, 0, len(candidates)+len(multicast))
+	seen := map[string]bool{}
+	for target := range candidates {
+		seen[target] = true
+		hosts = append(hosts, target)
+	}
+	for host := range multicast {
+		// A multicast query reaches the whole segment, so hosts nobody asked to
+		// scan will answer. Reporting one would invent an asset the operator
+		// never requested.
+		if !inScope[host] || seen[host] {
+			continue
+		}
+		seen[host] = true
+		hosts = append(hosts, host)
+	}
+	if len(hosts) == 0 {
 		return nil
 	}
+	sort.Strings(hosts)
 
-	keys := make([]string, 0, len(candidateMap))
-	for key := range candidateMap {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-
-	for _, key := range keys {
-		candidate := candidateMap[key]
-		result := probeMDNSDetailsFunc(ctx, candidate.target, candidate.port, m.options)
+	for _, host := range hosts {
+		result := MDNSServiceInfo{Target: host, Port: mdnsPort, TXTAttrs: map[string]string{}}
+		if candidate, ok := candidates[host]; ok {
+			result = probeMDNSDetailsFunc(ctx, candidate.target, candidate.port, m.options)
+		}
+		if answer, ok := multicast[host]; ok {
+			mergeMDNSInfo(&result, answer)
+			// A multicast answer is a response, whatever unicast reported.
+			result.MDNSProbe = true
+			result.ProbeError = ""
+			// The merge may have supplied records the unicast pass never saw, so
+			// the identity is derived again over the union. The derived fields are
+			// cleared first: keeping them would pair a model taken from one pass
+			// with a product string built from the other.
+			result.Model, result.VendorHint, result.ProductHint = "", "", ""
+			result.VersionHint, result.DeviceType = "", ""
+			deriveMDNSIdentity(&result)
+		}
+		if len(result.TXTAttrs) == 0 {
+			result.TXTAttrs = nil
+		}
 		outputChan <- engine.ModuleOutput{
 			FromModuleName: m.meta.ID,
 			DataKey:        "service.mdns.details",
 			Data:           result,
 			Timestamp:      time.Now(),
-			Target:         candidate.target,
+			Target:         host,
 		}
 	}
 
 	return nil
 }
 
+// mergeMDNSInfo folds collected records into an existing result, filling only
+// what is missing. Unicast and multicast reach different devices and neither is
+// authoritative over the other, so the first answer to state a field keeps it.
+func mergeMDNSInfo(dst *MDNSServiceInfo, src MDNSServiceInfo) {
+	if dst.Hostname == "" {
+		dst.Hostname = src.Hostname
+	}
+	if dst.InstanceName == "" {
+		dst.InstanceName = src.InstanceName
+	}
+	for _, service := range src.ServiceTypes {
+		dst.ServiceTypes = appendUniqueSorted(dst.ServiceTypes, service)
+	}
+	if len(src.TXTAttrs) == 0 {
+		return
+	}
+	if dst.TXTAttrs == nil {
+		dst.TXTAttrs = map[string]string{}
+	}
+	for key, value := range src.TXTAttrs {
+		if _, exists := dst.TXTAttrs[key]; !exists {
+			dst.TXTAttrs[key] = value
+		}
+	}
+}
+
 func defaultMDNSProbeOptions() MDNSProbeOptions {
 	return MDNSProbeOptions{
-		TotalTimeout: 3 * time.Second,
-		IOTimeout:    700 * time.Millisecond,
+		TotalTimeout:     3 * time.Second,
+		IOTimeout:        700 * time.Millisecond,
+		ListenTimeout:    3 * time.Second,
+		MulticastEnabled: true,
 	}
 }
 
@@ -345,6 +453,75 @@ func executeMDNSQuery(
 		return nil, err
 	}
 	return response[:n], nil
+}
+
+// collectMDNSMulticast sends the DNS-SD queries to the multicast group and
+// gathers whatever answers inside a bounded window, keyed by responder.
+//
+// Unlike the unicast path this is one conversation for the whole segment, so it
+// costs the same whether the scan covers one host or a /24.
+func collectMDNSMulticast(ctx context.Context, opts MDNSProbeOptions) map[string]MDNSServiceInfo {
+	results := map[string]MDNSServiceInfo{}
+
+	if opts.ListenTimeout <= 0 {
+		opts.ListenTimeout = 3 * time.Second
+	}
+
+	// The socket deliberately does not bind UDP/5353. On any host running a
+	// system mDNS responder that port is already taken, and a probe requiring it
+	// would fail to start. Querying from an ephemeral port instead makes this a
+	// legacy query under RFC 6762 §6.7, which responders answer by unicast
+	// straight back to the source port — verified on a live segment against both
+	// a Sony TV and macOS.
+	conn, err := net.ListenPacket("udp4", "0.0.0.0:0")
+	if err != nil {
+		return results
+	}
+	defer conn.Close() //nolint:errcheck // read-only best-effort cleanup
+
+	group := &net.UDPAddr{IP: net.ParseIP(mdnsMulticastIP), Port: mdnsPort}
+	names := make([]string, 0, len(mdnsIdentityServiceTypes)+1)
+	names = append(names, mdnsServiceEnumeration)
+	names = append(names, mdnsIdentityServiceTypes...)
+
+	for burst := 0; burst < mdnsMulticastBursts; burst++ {
+		for _, name := range names {
+			query, buildErr := buildMDNSQuery(name, dnsmessage.TypePTR)
+			if buildErr != nil {
+				continue
+			}
+			_, _ = conn.WriteTo(query, group)
+		}
+	}
+
+	deadline := time.Now().Add(opts.ListenTimeout)
+	if ctxDeadline, ok := ctx.Deadline(); ok && ctxDeadline.Before(deadline) {
+		deadline = ctxDeadline
+	}
+	if err := conn.SetReadDeadline(deadline); err != nil {
+		return results
+	}
+
+	buf := make([]byte, mdnsResponseMaxBytes)
+	for {
+		n, addr, readErr := conn.ReadFrom(buf)
+		if readErr != nil {
+			break
+		}
+		host, _, splitErr := net.SplitHostPort(addr.String())
+		if splitErr != nil {
+			continue
+		}
+		// A responder answers each question separately, so its records arrive
+		// spread over several datagrams and are accumulated per host.
+		info, ok := results[host]
+		if !ok {
+			info = MDNSServiceInfo{Target: host, Port: mdnsPort, MDNSProbe: true, TXTAttrs: map[string]string{}}
+		}
+		collectMDNSRecords(buf[:n], &info)
+		results[host] = info
+	}
+	return results
 }
 
 func buildMDNSQuery(name string, qtype dnsmessage.Type) ([]byte, error) {
