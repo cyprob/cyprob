@@ -27,6 +27,9 @@ type scanCorpusHost struct {
 	} `json:"open_ports_by_ip"`
 }
 
+// varyingShownInText bounds the terminal listing only.
+const varyingShownInText = 6
+
 func newFingerprintGapsCommand() *cobra.Command {
 	var (
 		showStubs bool
@@ -150,8 +153,16 @@ func printGapReport(cmd *cobra.Command, report fingerprint.GapReport, minCount i
 		if len(gap.Varying) > 0 {
 			// Dropped from the signature because they differed between hosts.
 			// Usually the site's own naming, but a model number seen on a single
-			// host looks the same, so it is shown rather than lost.
-			fmt.Fprintf(out, "       varying: %s\n", strings.Join(gap.Varying, ", "))
+			// host looks the same, so it is shown rather than lost. The list is
+			// cut for the terminal only, and says so -- a silently cut list of
+			// model numbers reads as a complete one. --json carries them all.
+			shown := gap.Varying
+			suffix := ""
+			if len(shown) > varyingShownInText {
+				suffix = fmt.Sprintf(" (+%d more, --json for all)", len(shown)-varyingShownInText)
+				shown = shown[:varyingShownInText]
+			}
+			fmt.Fprintf(out, "       varying: %s%s\n", strings.Join(shown, ", "), suffix)
 		}
 		if showStubs {
 			for _, line := range strings.Split(gap.RuleStub(), "\n") {

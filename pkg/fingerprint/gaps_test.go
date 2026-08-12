@@ -136,12 +136,15 @@ func TestRuleStub_AnchorsOnTheRightPartAndEscapes(t *testing.T) {
 	server := Gap{Kind: "server", Signature: "ntopng 5.7.230405 (x86_64)", Protocol: "http"}
 	stub := server.RuleStub()
 	require.Contains(t, stub, "protocol: 'http'")
-	require.Contains(t, stub, `match: 'server:\s*ntopng\s+5\.7\.230405\s+\(x86_64\)'`,
-		"metacharacters are escaped, and whitespace becomes a pattern so the "+
-			"rule still matches a banner whose spacing the signature collapsed")
+	require.Contains(t, stub, `ntopng[\s\p{Cc}\p{Cf}\p{Z}]+5\.7\.230405`,
+		"metacharacters are escaped, and the separator is a class rather than "+
+			"a literal space: the sanitizer turns any non-printable character "+
+			"into one, and a plain backslash-s would not match what it replaced")
 
 	title := Gap{Kind: "title", Signature: "LS_V3700 - Log in - IBM Storwize V3700", Protocol: "http"}
-	require.Contains(t, title.RuleStub(), "<title>[^<]*")
+	require.Contains(t, title.RuleStub(), "<title[^>]*>[^<]*",
+		"a title element carries attributes often enough that a literal "+
+			"<title> misses them")
 	require.Contains(t, title.RuleStub(), "hostname",
 		"a title stub must warn that it carries the site's own naming")
 }
@@ -190,13 +193,6 @@ func TestRuleStub_QuotesApostrophesForYAML(t *testing.T) {
 
 	require.Contains(t, stub, "bob''s", "an apostrophe is doubled, not left to end the scalar")
 	require.NotContains(t, stub, "match: 'server:\\s*bob's")
-}
-
-// The protocol is embedded in generated YAML and a corpus need not be one this
-// machine produced, so an unrecognized value is dropped rather than passed on.
-func TestRuleStub_RefusesAnUnknownProtocol(t *testing.T) {
-	stub := Gap{Kind: "banner", Signature: "x", Protocol: "'; rm -rf /"}.RuleStub()
-	require.Contains(t, stub, "protocol: 'tcp'")
 }
 
 // Frequency ranking is the whole value of the report, so a signature carrying
@@ -248,11 +244,12 @@ func TestAnalyzeGaps_AUniqueBannerKeepsItsSignature(t *testing.T) {
 	require.Equal(t, "OneOfAKind/9.9", report.Gaps[0].Signature)
 }
 
-// Dropping tokens that appear on one host groups a model correctly, but a model
-// number present on a single host is indistinguishable from a hostname by that
-// measure. Measured on a real corpus, "IBM FlashSystem 5000" and "5300" lost
-// exactly the number worth writing a rule for, so what is dropped is reported.
-func TestAnalyzeGaps_ReportsWhatItDroppedFromTheSignature(t *testing.T) {
+// A token is dropped only when doing so merges signatures that agree
+// everywhere else. Two arrays differing in BOTH the hostname and the model
+// number differ in two positions, so they stay apart and keep their models --
+// which is the case an earlier corpus-wide rule got wrong, collapsing
+// "IBM FlashSystem 5000" and "5300" into one cluster with the numbers gone.
+func TestAnalyzeGaps_TwoDifferencesMeanTwoDevices(t *testing.T) {
 	const template = "HTTP/1.1 200 OK\r\nServer: SVC GUI\r\n\r\n<title>%s - Log in - IBM FlashSystem %s</title>"
 
 	report := analyzeGapsWithRules([]Observation{
@@ -260,14 +257,163 @@ func TestAnalyzeGaps_ReportsWhatItDroppedFromTheSignature(t *testing.T) {
 		{Target: "10.0.0.2", Port: 443, Protocol: "http", Banner: fmt.Sprintf(template, "SITE-B", "5300")},
 	}, gapRules())
 
+	titles := map[string]Gap{}
+	for _, gap := range report.Gaps {
+		if gap.Kind == "title" {
+			titles[gap.Signature] = gap
+		}
+	}
+	require.Len(t, titles, 2, "different models are different devices")
+	for signature := range titles {
+		require.True(t,
+			strings.Contains(signature, "5000") || strings.Contains(signature, "5300"),
+			"the model number survives: %q", signature)
+	}
+}
+
+// The same model across several hosts differs in one position, so it merges and
+// the hostnames are reported rather than silently dropped.
+func TestAnalyzeGaps_OneDifferenceMergesAndIsReported(t *testing.T) {
+	const template = "HTTP/1.1 200 OK\r\nServer: SVC GUI\r\n\r\n<title>%s - Log in - IBM FlashSystem 5000</title>"
+
+	observations := make([]Observation, 0, 3)
+	for i, host := range []string{"SITE-A", "SITE-B", "SITE-C"} {
+		observations = append(observations, Observation{
+			Target: fmt.Sprintf("10.0.0.%d", i), Port: 443, Protocol: "http",
+			Banner: fmt.Sprintf(template, host),
+		})
+	}
+
+	report := analyzeGapsWithRules(observations, gapRules())
+
 	var title Gap
 	for _, gap := range report.Gaps {
 		if gap.Kind == "title" {
 			title = gap
 		}
 	}
-	require.Equal(t, 2, title.Count, "the two arrays group together")
-	require.NotContains(t, title.Signature, "5000", "the differing token left the signature")
-	require.Subset(t, title.Varying, []string{"5000", "5300"},
-		"but it is reported, because it may be the model rather than a hostname")
+	require.Equal(t, 3, title.Count, "one model, one cluster")
+	require.Contains(t, title.Signature, "5000", "the model survives")
+	require.NotContains(t, title.Signature, "SITE-", "the site naming does not")
+	require.ElementsMatch(t, []string{"SITE-A", "SITE-B", "SITE-C"}, title.Varying,
+		"every dropped token is reported, none silently cut")
+}
+
+// Unrelated devices must not merge through whatever noise they share. An
+// earlier corpus-wide rule collapsed ten distinct appliances into clusters
+// like "- Management" and produced a stub anchored on the word "ready".
+func TestAnalyzeGaps_UnrelatedDevicesKeepTheirSignatures(t *testing.T) {
+	titles := []string{
+		"Vendor-A Box - Management",
+		"Vendor-B Unit - Console",
+		"Zeta 6000 Web Interface",
+		"Omega 7000 Web Interface",
+	}
+	observations := make([]Observation, 0, len(titles))
+	for i, title := range titles {
+		observations = append(observations, Observation{
+			Target: fmt.Sprintf("10.0.1.%d", i), Port: 443, Protocol: "http",
+			Banner: fmt.Sprintf("HTTP/1.1 200 OK\r\nServer: Vendor%d/1.0\r\n\r\n<title>%s</title>", i, title),
+		})
+	}
+
+	report := analyzeGapsWithRules(observations, gapRules())
+
+	seen := map[string]bool{}
+	for _, gap := range report.Gaps {
+		if gap.Kind == "title" {
+			seen[gap.Signature] = true
+		}
+	}
+	for _, title := range titles {
+		require.True(t, seen[title], "%q lost tokens to a merge that never happened", title)
+	}
+}
+
+// A protocol is not free text, and RuleStub output is pasted into YAML.
+func TestRuleStub_RefusesAProtocolThatIsNotAPlainToken(t *testing.T) {
+	stub := Gap{Kind: "banner", Signature: "x", Protocol: "'; rm -rf /"}.RuleStub()
+	require.Contains(t, stub, "protocol: 'tcp'")
+	require.NotContains(t, stub, "rm -rf")
+}
+
+// The scan names a service whatever it likes, and the two callers of the shared
+// derivation pass different things into it: production passes a value from the
+// probe catalog, the tool passes the recorded service name. A name no rule
+// declares selects no rules at all, so the service looks unrecognized when it
+// was only mis-hinted -- the same class of false gap as the https case, reached
+// through the argument rather than the function.
+func TestResolvableProtocol_UnknownNamesFallBackToTryingEveryRule(t *testing.T) {
+	known := ruleProtocols(loadBuiltinRules())
+
+	for _, tc := range []struct{ in, want string }{
+		{"http", "http"},
+		{"HTTP", "http"},
+		{"ssh", "ssh"},
+		// Named by a scan, keyed on by no rule.
+		{"memcached-alt", ""},
+		{"vnc-http", ""},
+		{"", ""},
+		// The transport says nothing the rules key on.
+		{"tcp", ""},
+		{"udp", ""},
+	} {
+		require.Equal(t, tc.want, resolvableProtocol(tc.in, known), "input %q", tc.in)
+	}
+}
+
+func TestRuleProtocols_ComesFromTheRulesThemselves(t *testing.T) {
+	known := ruleProtocols([]StaticRule{
+		{Protocol: "http"}, {Protocol: "HTTP"}, {Protocol: " ssh "}, {Protocol: ""},
+	})
+	require.Equal(t, map[string]bool{"http": true, "ssh": true}, known,
+		"a list kept by hand drifts from the rules; this is derived from them")
+}
+
+// A banner whose tokens are separated by something the sanitizer replaced must
+// still be matched by the rule generated from it. The sanitizer turns every
+// non-printable character into an ASCII space, and a plain \s cannot match what
+// it replaced.
+func TestRuleStub_MatchesBannersSeparatedByNonPrintableCharacters(t *testing.T) {
+	for _, separator := range []string{
+		"\u00a0", // no-break space
+		"\u200b", // zero-width space
+		"\ufeff", // byte order mark
+		"\u00ad", // soft hyphen
+		"\u0085", // C1 NEL
+		"\u3000", // ideographic space
+		"\x1b",   // escape
+		"\x00",   // NUL
+	} {
+		t.Run(fmt.Sprintf("%U", []rune(separator)[0]), func(t *testing.T) {
+			banner := "HTTP/1.1 200 OK\r\nServer: Acme" + separator + "Array/1.0\r\n\r\n"
+			report := analyzeGapsWithRules([]Observation{
+				{Target: "10.0.0.1", Port: 80, Protocol: "http", Banner: banner},
+			}, gapRules())
+			require.NotEmpty(t, report.Gaps)
+
+			pattern := report.Gaps[0].matchExpression()
+			compiled, err := regexp.Compile(pattern)
+			require.NoError(t, err)
+			require.True(t, compiled.MatchString(strings.ToLower(banner)),
+				"generated %q does not match the banner it came from", pattern)
+		})
+	}
+}
+
+// The ellipsis marks that this tool cut the signature; it is not something the
+// host sent, and anchoring it produces a rule no banner can match.
+func TestRuleStub_DoesNotAnchorOnTheTruncationMark(t *testing.T) {
+	long := "HTTP/1.1 200 OK\r\nServer: " + strings.Repeat("Acme Array ", 30) + "\r\n\r\n"
+	report := analyzeGapsWithRules([]Observation{
+		{Target: "10.0.0.1", Port: 80, Protocol: "http", Banner: long},
+	}, gapRules())
+	require.NotEmpty(t, report.Gaps)
+
+	pattern := report.Gaps[0].matchExpression()
+	require.NotContains(t, pattern, "\u2026")
+	compiled, err := regexp.Compile(pattern)
+	require.NoError(t, err)
+	require.True(t, compiled.MatchString(strings.ToLower(long)),
+		"a truncated signature must still match the banner it came from")
 }
