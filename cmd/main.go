@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"os"
 
 	vulntorCli "github.com/cyprob/cyprob/cmd/vulntor/commands"
@@ -25,6 +26,13 @@ func main() {
 
 	err := command.Execute()
 	if err != nil {
+		// Cobra is silenced so that a failure a command already summarized is
+		// not stated twice. Everything it has NOT shown — an unknown flag, a
+		// wrong argument count, a bad config file — is printed here, otherwise
+		// the process would exit non-zero saying nothing at all.
+		if !vulntorCli.IsAlreadyReported(err) {
+			fmt.Fprintln(os.Stderr, "Error:", err)
+		}
 		// Determine exit code based on error type
 		exitCode := getExitCode(err)
 		os.Exit(exitCode)

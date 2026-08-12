@@ -107,12 +107,24 @@ func newFingerprintValidateCommand() *cobra.Command {
 
 			// Output results
 			if jsonOutput {
-				return formatter.PrintJSON(map[string]any{
+				if printErr := formatter.PrintJSON(map[string]any{
 					"valid":      result.IsValid(),
 					"rule_count": result.RuleCount,
 					"errors":     result.Errors,
 					"warnings":   result.Warnings,
-				})
+				}); printErr != nil {
+					return printErr
+				}
+				// The JSON object already states the outcome, so the failure is
+				// reported; it still has to fail. CI calls this command without
+				// --json, so what closes that gate is the sibling change in the
+				// summary printer -- but a caller parsing the JSON was reading
+				// "valid": false out of a process that had just exited 0.
+				if !result.IsValid() {
+					return format.Reported(fingerprint.NewValidationError(
+						len(result.Errors), len(result.Warnings)))
+				}
+				return nil
 			}
 
 			// Text output

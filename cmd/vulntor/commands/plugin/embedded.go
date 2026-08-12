@@ -98,7 +98,11 @@ func filterPluginsByCategory(plugins map[plugin.Category][]*plugin.YAMLPlugin, c
 		case "misc":
 			categoryFilter = plugin.CategoryMisc
 		default:
-			return nil, formatter.PrintTotalFailureSummary("embedded", fmt.Errorf("unknown category: %s", category), "INVALID_CATEGORY")
+			// Same reason as info: the sentinel is what carries the ADR-0001
+			// exit code, and a plain Errorf drops it.
+			return nil, formatter.PrintTotalFailureSummary("embedded",
+				fmt.Errorf("unknown category: %s: %w", category, plugin.ErrInvalidCategory),
+				"INVALID_CATEGORY")
 		}
 
 		// Get plugins for the specified category

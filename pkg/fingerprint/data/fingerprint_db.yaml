@@ -453,7 +453,14 @@ rules:
     product: 'Memcached'
     vendor: 'Memcached'
     cpe: 'cpe:2.3:a:memcached:memcached:*:*:*:*:*:*:*:*'
-    match: 'version\s+[\d\.]+'
+    # Anchored, because an unanchored "version N.N.N" appears in the banner of
+    # almost every service that states one: unanchored it claimed Dovecot,
+    # ProFTPD, Postfix, RealVNC, BIND, nginx and IIS, all of which have rules of
+    # their own. What identifies memcached is the shape of its replies -- VERSION
+    # at the start of a line for the "version" command, and STAT lines for
+    # "stats", of which "STAT pid" is only one; a real stats reply may begin with
+    # any counter.
+    match: '(?m)^version\s+[\d\.]+|memcached|^stat\s+[a-z_]+\s+\S'
     version_extraction: 'version\s+([\d\.]+)'
 
     exclude_patterns:
@@ -981,27 +988,6 @@ rules:
   # (netbios-session and rpc-bind probes in probes.yaml) rather than pattern matching to avoid false positives.
 
   # DNS Servers
-  - id: 'dns.bind'
-    protocol: 'dns'
-    description: 'ISC BIND DNS server'
-    product: 'BIND'
-    vendor: 'ISC'
-    cpe: 'cpe:2.3:a:isc:bind:*:*:*:*:*:*:*:*'
-    match: 'BIND|named'
-    version_extraction: "BIND\\s+([0-9.]+)"
-
-    exclude_patterns:
-      - "http"
-      - "smtp"
-      - "ftp"
-
-    soft_exclude_patterns:
-      - "error"
-      - "refused"
-
-    pattern_strength: 0.90
-    port_bonuses: [53]
-
   # RPC Services
   # Note: RPC responses are binary protocol that's difficult to fingerprint reliably.
   # RPC portmapper detection relies on port-based hints (port 111) and active probes

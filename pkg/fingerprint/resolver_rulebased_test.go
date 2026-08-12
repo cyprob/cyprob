@@ -1061,21 +1061,14 @@ func TestResolve_MongoDB(t *testing.T) {
 	}
 }
 
+// TestResolve_Memcached exercises the rule as shipped.
+//
+// It previously built an inline copy of the YAML, which meant it asserted
+// against a rule nobody runs: the copy kept passing while the shipped rule
+// stopped matching one of these very banners. A test that carries its own
+// definition of the thing it tests measures nothing.
 func TestResolve_Memcached(t *testing.T) {
-	rules := []StaticRule{{
-		ID:                  "db.memcached",
-		Protocol:            "memcached",
-		Product:             "Memcached",
-		Vendor:              "Memcached",
-		CPE:                 "cpe:2.3:a:memcached:memcached:*:*:*:*:*:*:*:*",
-		Match:               `version\s+[\d\.]+`,
-		VersionExtraction:   `version\s+([\d\.]+)`,
-		ExcludePatterns:     []string{`mysql`, `postgres`, `redis`, `mongodb`},
-		SoftExcludePatterns: []string{`error`, `denied`, `refused`, `unavailable`},
-		PatternStrength:     0.85,
-		PortBonuses:         []int{11211, 11212},
-	}}
-	rb := NewRuleBasedResolver(rules)
+	rb := NewRuleBasedResolver(loadBuiltinRules())
 
 	testCases := []struct {
 		name            string
@@ -1084,34 +1077,41 @@ func TestResolve_Memcached(t *testing.T) {
 		expectedVersion string
 		shouldMatch     bool
 	}{
-		{"Memcached 1.6.17", "VERSION 1.6.17", 11211, "1.6.17", true},
-		{"Memcached stats", "STAT version 1.5.22", 11211, "1.5.22", true},
-		{"Memcached 1.4.39", "version 1.4.39", 11212, "1.4.39", true},
+		{"version reply", "VERSION 1.6.17", 11211, "1.6.17", true},
+		{"stats reply beginning with version", "STAT version 1.5.22", 11211, "1.5.22", true},
+		{"stats reply beginning with another counter", "STAT uptime 91\r\nSTAT version 1.6.21\r\nEND", 11211, "1.6.21", true},
+		{"stats reply with no version line at all", "STAT pid 2314\r\nSTAT uptime 91", 11211, "", true},
+		{"lowercase version reply", "version 1.4.39", 11212, "1.4.39", true},
+		{"named outright", "memcached 1.6.21", 0, "", true},
 		{"Redis banner (should reject)", "redis_version:7.0.5", 6379, "", false},
 		{"PostgreSQL banner (should reject)", "PostgreSQL 14.5", 5432, "", false},
+		// A version string belongs to whichever service stated it. These have
+		// rules of their own, and an unanchored memcached pattern took them.
+		{"BIND stating a version", "named version 9.18.4", 5300, "", false},
+		{"a web server stating a version", "nginx version 1.24.0", 8080, "", false},
+		{"an FTP server stating a version", "220 ProFTPD version 1.3.8 Server ready", 2121, "", false},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			ctx := context.Background()
-			input := Input{Protocol: "memcached", Banner: tc.banner, Port: tc.port}
-			res, err := rb.Resolve(ctx, input)
+			// Fallback mode, which is what production uses for a service on a
+			// port the catalog does not recognize.
+			res, err := rb.Resolve(context.Background(), Input{Banner: tc.banner, Port: tc.port})
 
-			if tc.shouldMatch {
-				if err != nil {
-					t.Fatalf("expected match, got error: %v", err)
+			if !tc.shouldMatch {
+				if err == nil && res.Product == "Memcached" {
+					t.Fatalf("expected not to be Memcached, got %+v", res)
 				}
-				if res.Product != "Memcached" {
-					t.Fatalf("expected Memcached, got %s", res.Product)
-				}
-				if res.Vendor != "Memcached" {
-					t.Fatalf("expected Memcached, got %s", res.Vendor)
-				}
-				if tc.expectedVersion != "" && res.Version != tc.expectedVersion {
-					t.Fatalf("expected version %s, got %s", tc.expectedVersion, res.Version)
-				}
-			} else if err == nil {
-				t.Fatalf("expected no match, but got result: %+v", res)
+				return
+			}
+			if err != nil {
+				t.Fatalf("expected match, got error: %v", err)
+			}
+			if res.Product != "Memcached" || res.Vendor != "Memcached" {
+				t.Fatalf("expected Memcached/Memcached, got %s/%s", res.Vendor, res.Product)
+			}
+			if tc.expectedVersion != "" && res.Version != tc.expectedVersion {
+				t.Fatalf("expected version %s, got %s", tc.expectedVersion, res.Version)
 			}
 		})
 	}
@@ -1670,12 +1670,12 @@ func TestResolve_BuiltinSmarterMail(t *testing.T) {
 	rb := NewRuleBasedResolver(loadBuiltinRules())
 
 	testCases := []struct {
-		name     string
-		input    Input
-		product  string
-		vendor   string
-		version  string
-		wantErr  bool
+		name    string
+		input   Input
+		product string
+		vendor  string
+		version string
+		wantErr bool
 	}{
 		{
 			name: "imap direct banner",

@@ -12,6 +12,7 @@ import (
 	pluginCmd "github.com/cyprob/cyprob/cmd/vulntor/commands/plugin"
 	serverCmd "github.com/cyprob/cyprob/cmd/vulntor/commands/server"
 	storageCmd "github.com/cyprob/cyprob/cmd/vulntor/commands/storage"
+	"github.com/cyprob/cyprob/cmd/vulntor/internal/format"
 	"github.com/cyprob/cyprob/pkg/appctx"
 	"github.com/cyprob/cyprob/pkg/cli"
 	"github.com/cyprob/cyprob/pkg/config"
@@ -98,6 +99,10 @@ func NewCommand() *cobra.Command {
 	}
 
 	cmd.SilenceUsage = true
+	// Errors are printed by main rather than by cobra, so that a failure the
+	// command has already summarized is not stated twice while cobra's own
+	// errors — an unknown flag, a wrong argument count — still reach the user.
+	cmd.SilenceErrors = true
 
 	cmd.PersistentFlags().StringVarP(&configFile, "config", "c", "", "Configuration file path")
 	cmd.PersistentFlags().StringVar(&storageDir, "storage-dir", "", "Override storage root directory")
@@ -121,4 +126,10 @@ func NewCommand() *cobra.Command {
 	cmd.AddCommand(NewStatsCommand())
 
 	return cmd
+}
+
+// IsAlreadyReported reports whether a command has already shown err to the
+// user. Exposed for main, which cannot import the internal format package.
+func IsAlreadyReported(err error) bool {
+	return format.IsAlreadyReported(err)
 }

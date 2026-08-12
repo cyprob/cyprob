@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -73,8 +74,13 @@ func executeInfoCommand(cmd *cobra.Command, pluginName, cacheDir string) error {
 	// Call service layer
 	info, err := svc.GetInfo(ctx, pluginName)
 	if err != nil {
-		if err == plugin.ErrPluginNotFound {
-			return formatter.PrintTotalFailureSummary("info", fmt.Errorf("plugin '%s' not found", pluginName), plugin.ErrorCode(err))
+		if errors.Is(err, plugin.ErrPluginNotFound) {
+			// The sentinel has to survive into the returned error: it is what
+			// cmd/main.go maps to the ADR-0001 "not found" code. Dropping it
+			// printed the right code and exited with the wrong one.
+			return formatter.PrintTotalFailureSummary("info",
+				fmt.Errorf("plugin '%s' not found: %w", pluginName, plugin.ErrPluginNotFound),
+				plugin.ErrorCode(err))
 		}
 		return formatter.PrintTotalFailureSummary("info", err, plugin.ErrorCode(err))
 	}

@@ -17,7 +17,9 @@ func TestFingerprintSyncCommand_SourceRequiredSuggestions(t *testing.T) {
 	cmd.SetArgs([]string{"sync"})
 
 	err := cmd.Execute()
-	require.NoError(t, err)
+	// The command reports a failure, so it must also RETURN one: this is what
+	// gives the process a non-zero exit code.
+	require.Error(t, err)
 
 	output := out.String()
 	require.Contains(t, output, "✗ Failed to sync fingerprint catalog")
