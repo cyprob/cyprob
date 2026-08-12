@@ -72,6 +72,13 @@ var (
 	gapWhitespace = regexp.MustCompile(`\s+`)
 )
 
+// gapSeparatorClass matches one character the sanitizer turns into a space.
+// \p{C} covers Cc, Cf, Co, Cs and Cn; \p{Z} the spaces; and U+FFFD is what an
+// invalid byte decodes to before it is replaced. The quantifier is applied at
+// each use, since a separator between tokens must be present while one after a
+// header colon need not be.
+const gapSeparatorClass = `[\s\p{C}\p{Z}\x{FFFD}]`
+
 const (
 	gapMaxSignature = 120
 	gapMaxSamples   = 3
@@ -91,7 +98,6 @@ func AnalyzeGaps(observations []Observation) GapReport {
 
 func analyzeGapsWithRules(observations []Observation, rules []StaticRule) GapReport {
 	resolver := NewRuleBasedResolver(rules)
-	known := ruleProtocols(rules)
 	ctx := context.Background()
 
 	report := GapReport{}
@@ -107,9 +113,8 @@ func analyzeGapsWithRules(observations []Observation, rules []StaticRule) GapRep
 		}
 		report.Observations++
 
-		protocol := resolvableProtocol(obs.Protocol, known)
 		if _, err := resolver.Resolve(ctx, Input{
-			Protocol: protocol,
+			Protocol: obs.Protocol,
 			Banner:   obs.Banner,
 			Port:     obs.Port,
 		}); err == nil {
@@ -125,7 +130,7 @@ func analyzeGapsWithRules(observations []Observation, rules []StaticRule) GapRep
 		found = append(found, unmatchedObservation{
 			location:   fmt.Sprintf("%s:%d", host, obs.Port),
 			host:       host,
-			protocol:   protocol,
+			protocol:   obs.Protocol,
 			signatures: signatures,
 		})
 		for _, sig := range signatures {
@@ -505,15 +510,25 @@ func (g Gap) matchExpression() string {
 		parts[i] = regexp.QuoteMeta(part)
 	}
 	// Whitespace in the signature stands for whatever separated the tokens in
-	// the banner, and that is not necessarily a space: the sanitizer turns any
-	// non-printable character into one, so a banner separated by a no-break
-	// space, a zero-width space or a stray control byte would not match a plain
-	// \\s. The class covers control, format and every Unicode space.
-	anchor := strings.Join(parts, `[\s\p{Cc}\p{Cf}\p{Z}]+`)
+	// the banner, and that is not necessarily a space: the sanitizer replaces
+	// everything unprintable with one, so the class here has to be the
+	// complement of what the sanitizer keeps. That is wider than control and
+	// format characters -- it also covers unassigned and private-use code
+	// points, and the replacement character an invalid byte decodes to, all of
+	// which appear in binary banners and vendor strings carrying custom glyphs.
+	anchor := strings.Join(parts, gapSeparatorClass+`+`)
 
 	switch g.Kind {
 	case "server":
-		return `server:[\s\p{Cc}\p{Cf}\p{Z}]*` + anchor
+		if len(g.Varying) > 0 {
+			// A token was dropped from the front of this signature, so the
+			// header begins with text the pattern must not require to be
+			// absent. Anchoring straight onto the first surviving token
+			// produced a rule that matched none of the banners in its own
+			// cluster.
+			return `server:[^\r\n]*?` + anchor
+		}
+		return `server:` + gapSeparatorClass + `*` + anchor
 	case "title":
 		// The title element carries attributes often enough that a literal
 		// <title> misses them.
@@ -528,36 +543,4 @@ func (g Gap) matchExpression() string {
 // and produce a file that does not parse.
 func yamlSingleQuoted(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
-}
-
-// ruleProtocols is the set of protocols the rules actually key on, derived from
-// the rules themselves rather than kept by hand: a list maintained separately
-// drifts, and the drift is silent -- an unrecognized hint matches no rule at
-// all instead of trying every one.
-func ruleProtocols(rules []StaticRule) map[string]bool {
-	known := make(map[string]bool, len(rules))
-	for _, rule := range rules {
-		if protocol := strings.ToLower(strings.TrimSpace(rule.Protocol)); protocol != "" {
-			known[protocol] = true
-		}
-	}
-	return known
-}
-
-// resolvableProtocol keeps a hint only when some rule keys on it.
-//
-// The scan pipeline hands the resolver whatever the service was named, and a
-// name no rule declares selects no rules at all -- the service then looks
-// unrecognized when it was only mis-hinted. An empty hint puts the resolver in
-// the mode that tries every rule, which is the honest answer when the name
-// means nothing to the rules.
-func resolvableProtocol(protocol string, known map[string]bool) string {
-	normalized := strings.ToLower(strings.TrimSpace(protocol))
-	if normalized == "" || normalized == "tcp" || normalized == "udp" {
-		return ""
-	}
-	if known[normalized] {
-		return normalized
-	}
-	return ""
 }

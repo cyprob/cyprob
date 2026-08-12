@@ -136,10 +136,10 @@ func TestRuleStub_AnchorsOnTheRightPartAndEscapes(t *testing.T) {
 	server := Gap{Kind: "server", Signature: "ntopng 5.7.230405 (x86_64)", Protocol: "http"}
 	stub := server.RuleStub()
 	require.Contains(t, stub, "protocol: 'http'")
-	require.Contains(t, stub, `ntopng[\s\p{Cc}\p{Cf}\p{Z}]+5\.7\.230405`,
+	require.Contains(t, stub, `ntopng`+gapSeparatorClass+`+5\.7\.230405`,
 		"metacharacters are escaped, and the separator is a class rather than "+
-			"a literal space: the sanitizer turns any non-printable character "+
-			"into one, and a plain backslash-s would not match what it replaced")
+			"a literal space: the sanitizer replaces every unprintable character "+
+			"with one, so the class has to be the complement of what it keeps")
 
 	title := Gap{Kind: "title", Signature: "LS_V3700 - Log in - IBM Storwize V3700", Protocol: "http"}
 	require.Contains(t, title.RuleStub(), "<title[^>]*>[^<]*",
@@ -154,24 +154,65 @@ func TestRuleStub_DefaultsProtocolWhenUnknown(t *testing.T) {
 }
 
 // A stub that does not match the banner it was generated from is a dead rule,
-// and nothing about the file it lands in would say so. The signature has had
-// its whitespace collapsed, while the banner it came from wraps its title
-// across lines and indents it, so anchoring the collapsed text literally was
-// enough to break this.
-func TestRuleStub_MatchesTheBannerItWasGeneratedFrom(t *testing.T) {
-	report := analyzeGapsWithRules([]Observation{
-		{Target: "10.0.0.1", Port: 443, Protocol: "http", Banner: storwizeBanner},
-	}, gapRules())
-	require.NotEmpty(t, report.Gaps)
+// and nothing about the file it lands in would say so.
+//
+// The first version of this test fed ONE observation, which meant no position
+// ever qualified as site naming and the merged shape -- the one where a token
+// has been dropped from the signature -- was never exercised at all. It passed
+// while the server-kind stub matched none of the banners in its own cluster.
+// Every case here therefore supplies at least two hosts, and the generated
+// pattern is required to match EVERY banner in the cluster it came from.
+func TestRuleStub_MatchesEveryBannerInItsCluster(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		banners []string
+	}{
+		{"single observation, nothing dropped", []string{
+			storwizeBanner,
+		}},
+		{"server kind, leading token differs", []string{
+			"HTTP/1.1 200 OK\r\nServer: node01 Acme Array 9000\r\n\r\n",
+			"HTTP/1.1 200 OK\r\nServer: node02 Acme Array 9000\r\n\r\n",
+		}},
+		{"title kind, leading token differs", []string{
+			"HTTP/1.1 200 OK\r\nServer: X\r\n\r\n<title>node01 - Acme Array 9000</title>",
+			"HTTP/1.1 200 OK\r\nServer: X\r\n\r\n<title>node02 - Acme Array 9000</title>",
+		}},
+		{"banner kind, leading token differs", []string{
+			"node01 Acme FTP ready\r\n",
+			"node02 Acme FTP ready\r\n",
+		}},
+		{"title wrapped across lines, as a real one is", []string{
+			"HTTP/1.1 200 OK\r\nServer: SVC GUI\r\n\r\n<title>\n  ls_v3700 - Log in - \n  IBM Storwize V3700\n</title>",
+			"HTTP/1.1 200 OK\r\nServer: SVC GUI\r\n\r\n<title>\n  ls_v3701 - Log in - \n  IBM Storwize V3700\n</title>",
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			observations := make([]Observation, 0, len(tc.banners))
+			for i, banner := range tc.banners {
+				observations = append(observations, Observation{
+					Target: fmt.Sprintf("10.9.0.%d", i), Port: 80,
+					Protocol: "http", Banner: banner,
+				})
+			}
+			report := analyzeGapsWithRules(observations, gapRules())
+			require.NotEmpty(t, report.Gaps)
 
-	for _, gap := range report.Gaps {
-		t.Run(gap.Kind, func(t *testing.T) {
-			pattern := gap.matchExpression()
-			compiled, err := regexp.Compile(pattern)
-			require.NoError(t, err, "the generated pattern must compile")
+			for _, gap := range report.Gaps {
+				pattern := gap.matchExpression()
+				compiled, err := regexp.Compile(pattern)
+				require.NoError(t, err, "%s: the generated pattern must compile", gap.Kind)
 
-			require.True(t, compiled.MatchString(strings.ToLower(storwizeBanner)),
-				"generated %q does not match the banner it came from", pattern)
+				matched := 0
+				for _, banner := range tc.banners {
+					if compiled.MatchString(strings.ToLower(banner)) {
+						matched++
+					}
+				}
+				require.Equal(t, gap.Count, matched,
+					"%s: generated %q matched %d of the %d banners in its cluster",
+					gap.Kind, pattern, matched, gap.Count)
+			}
 		})
 	}
 }
@@ -337,37 +378,29 @@ func TestRuleStub_RefusesAProtocolThatIsNotAPlainToken(t *testing.T) {
 	require.NotContains(t, stub, "rm -rf")
 }
 
-// The scan names a service whatever it likes, and the two callers of the shared
-// derivation pass different things into it: production passes a value from the
-// probe catalog, the tool passes the recorded service name. A name no rule
-// declares selects no rules at all, so the service looks unrecognized when it
-// was only mis-hinted -- the same class of false gap as the https case, reached
-// through the argument rather than the function.
-func TestResolvableProtocol_UnknownNamesFallBackToTryingEveryRule(t *testing.T) {
-	known := ruleProtocols(loadBuiltinRules())
+// The tool must ask the resolver the same question production asks, or its
+// report is about a scanner nobody runs.
+//
+// An earlier version filtered the hint against the protocols the rules declare,
+// which made the tool MORE generous than production: a service production
+// cannot identify was resolved here in fallback mode and quietly left out of
+// the report. That is the wrong direction for a gap report, and it also made
+// the shared derivation dead code -- mutating it changed nothing. The filter is
+// gone; the derivation is the only thing deciding the hint.
+func TestAnalyzeGaps_UsesTheHintProductionWouldUse(t *testing.T) {
+	// A service name no rule keys on is a real gap: production passes the same
+	// name, matches nothing, and reports nothing about the host either.
+	report := analyzeGapsWithRules([]Observation{
+		{Target: "10.3.0.1", Port: 5672, Protocol: "rabbitmq",
+			Banner: "AMQP\x00\x00\x09\x01"},
+	}, gapRules())
 
-	for _, tc := range []struct{ in, want string }{
-		{"http", "http"},
-		{"HTTP", "http"},
-		{"ssh", "ssh"},
-		// Named by a scan, keyed on by no rule.
-		{"memcached-alt", ""},
-		{"vnc-http", ""},
-		{"", ""},
-		// The transport says nothing the rules key on.
-		{"tcp", ""},
-		{"udp", ""},
-	} {
-		require.Equal(t, tc.want, resolvableProtocol(tc.in, known), "input %q", tc.in)
-	}
-}
-
-func TestRuleProtocols_ComesFromTheRulesThemselves(t *testing.T) {
-	known := ruleProtocols([]StaticRule{
-		{Protocol: "http"}, {Protocol: "HTTP"}, {Protocol: " ssh "}, {Protocol: ""},
-	})
-	require.Equal(t, map[string]bool{"http": true, "ssh": true}, known,
-		"a list kept by hand drifts from the rules; this is derived from them")
+	require.Equal(t, 1, report.Unmatched,
+		"a service production cannot resolve must be reported, not resolved by a "+
+			"more generous hint than production uses")
+	require.NotEmpty(t, report.Gaps)
+	require.Equal(t, "rabbitmq", report.Gaps[0].Protocol,
+		"and the stub must declare the protocol production hands the resolver")
 }
 
 // A banner whose tokens are separated by something the sanitizer replaced must
@@ -376,14 +409,24 @@ func TestRuleProtocols_ComesFromTheRulesThemselves(t *testing.T) {
 // it replaced.
 func TestRuleStub_MatchesBannersSeparatedByNonPrintableCharacters(t *testing.T) {
 	for _, separator := range []string{
-		"\u00a0", // no-break space
-		"\u200b", // zero-width space
-		"\ufeff", // byte order mark
-		"\u00ad", // soft hyphen
-		"\u0085", // C1 NEL
-		"\u3000", // ideographic space
-		"\x1b",   // escape
-		"\x00",   // NUL
+		"\u00a0", // no-break space (Z)
+		"\u200b", // zero-width space (Cf)
+		"\ufeff", // byte order mark (Cf)
+		"\u00ad", // soft hyphen (Cf)
+		"\u0085", // C1 NEL (Cc)
+		"\u3000", // ideographic space (Z)
+		"\x1b",   // escape (Cc)
+		"\x00",   // NUL (Cc)
+		// The sanitizer replaces everything unprintable, which is wider than
+		// control and format characters. These are the classes a class built
+		// from Cc+Cf+Z alone lets through, and they occur in binary banners and
+		// in vendor strings carrying custom glyphs.
+		"\ufffd",     // replacement character
+		"\ue000",     // private use (Co)
+		"\uf8ff",     // private use (Co)
+		"\u0378",     // unassigned (Cn)
+		"\u05ff",     // unassigned (Cn)
+		"\xff",       // an invalid byte, which decodes to U+FFFD
 	} {
 		t.Run(fmt.Sprintf("%U", []rune(separator)[0]), func(t *testing.T) {
 			banner := "HTTP/1.1 200 OK\r\nServer: Acme" + separator + "Array/1.0\r\n\r\n"
