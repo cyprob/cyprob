@@ -98,6 +98,9 @@ func NewCommand() *cobra.Command {
 	}
 
 	cmd.SilenceUsage = true
+	// The commands print their own failure summary before returning the error,
+	// so cobra restating it as "Error: ..." would say the same thing twice.
+	cmd.SilenceErrors = true
 
 	cmd.PersistentFlags().StringVarP(&configFile, "config", "c", "", "Configuration file path")
 	cmd.PersistentFlags().StringVar(&storageDir, "storage-dir", "", "Override storage root directory")

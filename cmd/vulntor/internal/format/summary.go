@@ -168,20 +168,28 @@ func (f *formatter) PrintPartialFailureSummary(summary Summary) error {
 //	💡 Suggestions:
 //	  → List available plugins:  vulntor plugin list
 //	  → Try GitHub source:       vulntor plugin install ssh-weak-cipher --source github
+// The reported operation FAILED, so this returns that failure. Callers use it
+// as `return formatter.PrintTotalFailureSummary(...)`, and returning nil there
+// made every one of those paths exit 0 while printing "Failed to ...": a failed
+// scan, a server that could not start and a validation that found errors all
+// reported success to whatever ran them.
 func (f *formatter) PrintTotalFailureSummary(operation string, err error, errorCode string) error {
 	if f.quiet {
-		// Quiet mode: suppress summary
-		return nil
+		// Quiet suppresses the summary, not the failure.
+		return err
 	}
 
 	if f.mode == ModeJSON {
 		// JSON mode: structured output
-		return f.PrintJSON(map[string]any{
+		if printErr := f.PrintJSON(map[string]any{
 			"success":    false,
 			"operation":  operation,
 			"error":      err.Error(),
 			"error_code": errorCode,
-		})
+		}); printErr != nil {
+			return printErr
+		}
+		return err
 	}
 
 	// Table mode: formatted error with suggestions
@@ -204,8 +212,10 @@ func (f *formatter) PrintTotalFailureSummary(operation string, err error, errorC
 		}
 	}
 
-	_, writeErr := f.stdout.Write([]byte(sb.String()))
-	return writeErr
+	if _, writeErr := f.stdout.Write([]byte(sb.String())); writeErr != nil {
+		return writeErr
+	}
+	return err
 }
 
 var suggestionGenerators = map[string]func(string) []string{

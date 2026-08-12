@@ -915,7 +915,7 @@ rules:
     product: 'BIND'
     vendor: 'ISC'
     cpe: 'cpe:2.3:a:isc:bind:*:*:*:*:*:*:*:*'
-    match: 'bind|named|dns'
+    match: 'bind|named'
     version_extraction: "(?:bind|named)[\\s/_-]+([\\d\\.]+)"
 
     exclude_patterns:
@@ -927,7 +927,7 @@ rules:
       - "error"
       - "refused"
 
-    pattern_strength: 0.85
+    pattern_strength: 0.90
     port_bonuses: [53]
 
   # File Sharing / Windows Services
@@ -981,27 +981,6 @@ rules:
   # (netbios-session and rpc-bind probes in probes.yaml) rather than pattern matching to avoid false positives.
 
   # DNS Servers
-  - id: 'dns.bind'
-    protocol: 'dns'
-    description: 'ISC BIND DNS server'
-    product: 'BIND'
-    vendor: 'ISC'
-    cpe: 'cpe:2.3:a:isc:bind:*:*:*:*:*:*:*:*'
-    match: 'BIND|named'
-    version_extraction: "BIND\\s+([0-9.]+)"
-
-    exclude_patterns:
-      - "http"
-      - "smtp"
-      - "ftp"
-
-    soft_exclude_patterns:
-      - "error"
-      - "refused"
-
-    pattern_strength: 0.90
-    port_bonuses: [53]
-
   # RPC Services
   # Note: RPC responses are binary protocol that's difficult to fingerprint reliably.
   # RPC portmapper detection relies on port-based hints (port 111) and active probes
