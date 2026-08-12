@@ -992,3 +992,83 @@ rules:
   # Note: RPC responses are binary protocol that's difficult to fingerprint reliably.
   # RPC portmapper detection relies on port-based hints (port 111) and active probes
   # rather than banner pattern matching to avoid false positives.
+
+  # IBM block storage
+  #
+  # These arrays state their exact model in the page title of their management
+  # interface, and the SAN Volume Controller family in the Server header. Both
+  # are readable without credentials. Written from banners captured on live
+  # arrays, 2026-08-12, and each model below was observed on a real device.
+  #
+  # Two of the four served no Server header at all, so the title is the only
+  # anchor for them; two served the header with no title on some ports. Neither
+  # rule type covers the estate alone.
+  #
+  # The model goes in `product`, never in `version`: that field feeds
+  # version-based CVE correlation, and a model number read as a firmware version
+  # mismatches every advisory. `version` stays free for the firmware, which none
+  # of these state without credentials.
+  #
+  # The CPEs follow NVD naming convention but were NOT verified against the
+  # dictionary. The risk is bounded -- a product string that does not exist
+  # yields no CVEs, and one under vendor `ibm` cannot pull in another vendor's
+  # advisories -- but verify before relying on CVE counts for these models.
+  #
+  # Model rules outrank the family rule below, so a title that names the model
+  # wins over a header that names only the family.
+
+  - id: 'http.ibm_storwize_v3700'
+    protocol: 'http'
+    description: 'IBM Storwize V3700 management interface'
+    product: 'Storwize V3700'
+    vendor: 'IBM'
+    cpe: 'cpe:2.3:h:ibm:storwize_v3700:*:*:*:*:*:*:*:*'
+    match: '<title[^>]*>[^<]*ibm\s+storwize\s+v3700'
+    pattern_strength: 0.95
+    port_bonuses: [80, 443, 8443]
+
+  - id: 'http.ibm_storwize_v5000'
+    protocol: 'http'
+    description: 'IBM Storwize V5000 management interface'
+    product: 'Storwize V5000'
+    vendor: 'IBM'
+    cpe: 'cpe:2.3:h:ibm:storwize_v5000:*:*:*:*:*:*:*:*'
+    match: '<title[^>]*>[^<]*ibm\s+storwize\s+v5000'
+    pattern_strength: 0.95
+    port_bonuses: [80, 443, 8443]
+
+  # "IBM FlashSystem 5000" and "IBM Storage FlashSystem 5300" are both observed
+  # spellings of the same product line, so the word is optional.
+  - id: 'http.ibm_flashsystem_5000'
+    protocol: 'http'
+    description: 'IBM FlashSystem 5000 management interface'
+    product: 'FlashSystem 5000'
+    vendor: 'IBM'
+    cpe: 'cpe:2.3:h:ibm:flashsystem_5000:*:*:*:*:*:*:*:*'
+    match: '<title[^>]*>[^<]*ibm\s+(?:storage\s+)?flashsystem\s+5000'
+    pattern_strength: 0.95
+    port_bonuses: [80, 443, 8443]
+
+  - id: 'http.ibm_flashsystem_5300'
+    protocol: 'http'
+    description: 'IBM FlashSystem 5300 management interface'
+    product: 'FlashSystem 5300'
+    vendor: 'IBM'
+    cpe: 'cpe:2.3:h:ibm:flashsystem_5300:*:*:*:*:*:*:*:*'
+    match: '<title[^>]*>[^<]*ibm\s+(?:storage\s+)?flashsystem\s+5300'
+    pattern_strength: 0.95
+    port_bonuses: [80, 443, 8443]
+
+  # Family fallback. "SVC GUI" is the SAN Volume Controller interface every array
+  # above serves, including its Service Assistant pages, and it is the only
+  # anchor on ports that answer with no title. It names the family and not the
+  # model, so it stays unspecific and ranks below the model rules.
+  - id: 'http.ibm_svc'
+    protocol: 'http'
+    description: 'IBM SAN Volume Controller management interface'
+    product: 'SAN Volume Controller'
+    vendor: 'IBM'
+    cpe: 'cpe:2.3:a:ibm:san_volume_controller:*:*:*:*:*:*:*:*'
+    match: 'server:\s*svc gui'
+    pattern_strength: 0.75
+    port_bonuses: [80, 443, 8443]
