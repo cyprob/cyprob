@@ -453,7 +453,12 @@ rules:
     product: 'Memcached'
     vendor: 'Memcached'
     cpe: 'cpe:2.3:a:memcached:memcached:*:*:*:*:*:*:*:*'
-    match: 'version\s+[\d\.]+'
+    # Anchored, because an unanchored "version N.N.N" appears in the banner of
+    # almost every service that states one: it claimed BIND, nginx and anything
+    # else naming a version. Memcached answers "version" with VERSION at the
+    # start of the line, and "stats" with STAT lines, so those are the shapes
+    # that actually identify it.
+    match: '(?m)^version\s+[\d\.]+|memcached|^stat\s+pid\s+\d+'
     version_extraction: 'version\s+([\d\.]+)'
 
     exclude_patterns:

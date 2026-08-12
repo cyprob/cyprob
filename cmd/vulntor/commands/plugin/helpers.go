@@ -61,6 +61,10 @@ func getPluginService(cmd *cobra.Command, cacheDir string) (*plugin.Service, err
 	return svc, nil
 }
 
+// exitProcess is the process exit used by handlePartialFailure. It is a
+// variable so a test can observe the code instead of ending the test binary.
+var exitProcess = os.Exit
+
 // handlePartialFailure handles partial failure errors by printing results and exiting with code 8
 func handlePartialFailure(err error, formatter format.Formatter, printFunc func() error) error {
 	if err != nil && errors.Is(err, plugin.ErrPartialFailure) {
@@ -74,7 +78,7 @@ func handlePartialFailure(err error, formatter format.Formatter, printFunc func(
 			return printErr
 		}
 		// Exit with code 8 for partial failure
-		os.Exit(plugin.ExitCode(err))
+		exitProcess(plugin.ExitCode(err))
 	}
 	return nil
 }

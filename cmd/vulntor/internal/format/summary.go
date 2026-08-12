@@ -175,9 +175,12 @@ func (f *formatter) PrintPartialFailureSummary(summary Summary) error {
 // reported success to whatever ran them.
 func (f *formatter) PrintTotalFailureSummary(operation string, err error, errorCode string) error {
 	if f.quiet {
-		// Quiet suppresses the summary, not the failure. Nothing was shown, so
-		// the error is not marked as reported and the caller still prints it.
-		return err
+		// Quiet suppresses the summary, not the failure. The error is still
+		// marked: the user asked for silence, so nobody else should print it
+		// either, and the exit code is the channel that carries the failure.
+		// Leaving it unmarked both leaked a line to stderr under --quiet and
+		// cost the plugin commands their ADR-0001 exit code.
+		return Reported(err)
 	}
 
 	if f.mode == ModeJSON {

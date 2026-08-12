@@ -116,9 +116,10 @@ func newFingerprintValidateCommand() *cobra.Command {
 					return printErr
 				}
 				// The JSON object already states the outcome, so the failure is
-				// reported; it still has to fail. This is the flag CI reaches
-				// for, and returning success on an invalid database here would
-				// leave the check as decorative as it was before.
+				// reported; it still has to fail. CI calls this command without
+				// --json, so what closes that gate is the sibling change in the
+				// summary printer -- but a caller parsing the JSON was reading
+				// "valid": false out of a process that had just exited 0.
 				if !result.IsValid() {
 					return format.Reported(fingerprint.NewValidationError(
 						len(result.Errors), len(result.Warnings)))

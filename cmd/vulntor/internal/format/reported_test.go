@@ -40,16 +40,22 @@ func TestPrintTotalFailureSummary_ReturnsTheFailureMarkedAsReported(t *testing.T
 	require.Contains(t, out.String(), "Failed to install plugin")
 }
 
-// Quiet suppresses the summary, not the failure. Nothing was shown, so the
-// error must NOT claim to have been reported or it would be swallowed silently.
-func TestPrintTotalFailureSummary_QuietFailsWithoutClaimingToHavePrinted(t *testing.T) {
+// Quiet suppresses the summary, not the failure — and the error is still
+// marked. The user asked for silence, so nobody downstream should print it
+// either, and the exit code is what carries the failure.
+//
+// The first version of this test asserted the opposite, and pinned the
+// precondition for a real defect: an unmarked error made the plugin commands
+// skip their ADR-0001 exit code under --quiet and leaked a line to stderr that
+// --quiet had asked not to see.
+func TestPrintTotalFailureSummary_QuietStaysSilentAndStillFails(t *testing.T) {
 	out := &bytes.Buffer{}
 	f := &formatter{stdout: out, mode: ModeTable, quiet: true}
 
 	err := f.PrintTotalFailureSummary("install plugin", errSentinel, "PLUGIN_NOT_FOUND")
 
-	require.ErrorIs(t, err, errSentinel)
-	require.False(t, IsAlreadyReported(err), "nothing was printed, so nothing was reported")
+	require.ErrorIs(t, err, errSentinel, "quiet suppresses the summary, not the failure")
+	require.True(t, IsAlreadyReported(err), "the user asked for silence, so nobody prints it")
 	require.Empty(t, out.String())
 }
 

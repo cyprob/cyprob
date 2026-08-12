@@ -22,8 +22,10 @@ func (e reportedError) Unwrap() error { return e.cause }
 
 func (e reportedError) Is(target error) bool { return target == errAlreadyReported }
 
-// Reported marks err as already shown to the user. It returns nil for nil, so
-// it can wrap a printer's result without inventing a failure.
+// Reported marks err as handled for display: either it has been shown to the
+// user, or the user asked for silence and it deliberately was not. Either way
+// nobody else should print it. It returns nil for nil, so it can wrap a
+// printer's result without inventing a failure.
 func Reported(err error) error {
 	if err == nil {
 		return nil
@@ -31,8 +33,8 @@ func Reported(err error) error {
 	return reportedError{cause: err}
 }
 
-// IsAlreadyReported reports whether err has been shown to the user, and so
-// should not be printed again.
+// IsAlreadyReported reports whether err has already been handled for display
+// and so must not be printed again.
 func IsAlreadyReported(err error) bool {
 	return errors.Is(err, errAlreadyReported)
 }
