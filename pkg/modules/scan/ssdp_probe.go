@@ -14,6 +14,7 @@ import (
 
 	"github.com/cyprob/cyprob/pkg/engine"
 	"github.com/cyprob/cyprob/pkg/modules/discovery"
+	"github.com/cyprob/cyprob/pkg/stringutil"
 )
 
 const (
@@ -446,19 +447,14 @@ func ssdpLocationBelongsToTarget(location, target string) bool {
 	return strings.EqualFold(strings.Trim(host, "[]"), target)
 }
 
-// sanitizeSSDPValue strips control characters so a hostile reply cannot inject
-// terminal escapes into a report, and bounds the length a device can claim.
+// sanitizeSSDPValue makes a value a device stated about itself safe to report.
+//
+// A device description is attacker-controlled text. The shared implementation
+// removes what a control-character check misses -- C1, bidirectional overrides,
+// zero-width characters -- and bounds by runes rather than bytes, so a long
+// value cannot be cut into invalid UTF-8.
 func sanitizeSSDPValue(value string) string {
-	cleaned := strings.Map(func(r rune) rune {
-		if r < 0x20 || r == 0x7f {
-			return -1
-		}
-		return r
-	}, strings.TrimSpace(value))
-	if len(cleaned) > 256 {
-		cleaned = cleaned[:256]
-	}
-	return cleaned
+	return stringutil.SanitizeUntrusted(value, 256)
 }
 
 func init() {

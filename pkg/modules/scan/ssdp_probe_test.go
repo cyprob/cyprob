@@ -59,10 +59,16 @@ func TestApplySSDPDescription_FirstValueWins(t *testing.T) {
 }
 
 func TestSanitizeSSDPValue(t *testing.T) {
-	require.Equal(t, "AB[31mC", sanitizeSSDPValue("AB\x1b[31mC"),
+	// The unsafe character becomes a space rather than vanishing: deleting it
+	// would let its neighbors join into a token the device never sent.
+	require.Equal(t, "AB [31mC", sanitizeSSDPValue("AB\x1b[31mC"),
 		"a hostile reply must not carry escapes into a report")
+	require.Equal(t, "ngi nx", sanitizeSSDPValue("ngi\u200bnx"),
+		"a zero-width character separates rather than joining")
 	require.Len(t, sanitizeSSDPValue(strings.Repeat("x", 500)), 256,
 		"a device does not get to claim an unbounded name")
+	require.Equal(t, 256, len([]rune(sanitizeSSDPValue(strings.Repeat("配", 500)))),
+		"the bound counts runes, so a name cannot be cut into invalid UTF-8")
 }
 
 // A device must not be able to point the scanner at a host of its choosing.

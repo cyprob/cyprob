@@ -241,20 +241,9 @@ func (m *FingerprintParserModule) processBannerCandidates(ctx context.Context, b
 			Str("response_preview", response[:min(len(response), 50)]).
 			Msg("Processing banner candidate")
 
-		protocolHint := strings.ToLower(candidate.Protocol)
-		if protocolHint == "" || protocolHint == "tcp" || protocolHint == "udp" {
-			protocolHint = strings.ToLower(banner.Protocol)
-		}
-		if protocolHint == "" || protocolHint == "tcp" || protocolHint == "udp" {
-			detectedHint := fingerprintProtocolHint(banner.Port, response)
-			if detectedHint != "" {
-				protocolHint = detectedHint
-			} else {
-				// Phase 1: If no hint found, leave as generic to trigger fallback in resolver
-				// This enables detection on non-standard ports (e.g., MySQL on 3210, HTTP on 2096)
-				protocolHint = "" // Empty triggers fallback mode
-			}
-		}
+		// An empty result triggers the resolver's fallback mode, which is what
+		// finds a service on a non-standard port (MySQL on 3210, HTTP on 2096).
+		protocolHint := protocolHintFor(candidate.Protocol, banner.Protocol, banner.Port, response)
 		resolverProtocolHint := normalizeResolverProtocol(protocolHint, response, candidate.ProbeID)
 
 		result, err := resolver.Resolve(ctx, fingerprint.Input{
@@ -603,4 +592,44 @@ func fingerprintParserModuleFactory() engine.Module {
 
 func init() {
 	engine.RegisterModuleFactory(fingerprintParserModuleName, fingerprintParserModuleFactory)
+}
+
+// protocolHintFor derives the protocol hint from what the scan recorded, before
+// the resolver-specific normalization. This is the single copy of that chain:
+// the scan pipeline and ResolverProtocolHint both go through it, so a report
+// about what the rules would match cannot drift from what they do match.
+func protocolHintFor(serviceName, transport string, port int, banner string) string {
+	hint := strings.ToLower(strings.TrimSpace(serviceName))
+	if isGenericTransportHint(hint) {
+		hint = strings.ToLower(strings.TrimSpace(transport))
+	}
+	if isGenericTransportHint(hint) {
+		// An empty result here is meaningful: it puts the resolver into the
+		// mode that tries every rule.
+		hint = fingerprintProtocolHint(port, banner)
+	}
+	return hint
+}
+
+// isGenericTransportHint reports whether a hint names the transport rather than
+// the protocol, which is to say it names nothing the rules key on.
+func isGenericTransportHint(hint string) bool {
+	return hint == "" || hint == "tcp" || hint == "udp"
+}
+
+// ResolverProtocolHint returns the protocol hint the fingerprint resolver is
+// given for a banner, as the scan pipeline would derive it.
+//
+// It exists so that anything reasoning about what the rules would match -- the
+// gap report, for instance -- asks the same question production asks. The
+// mismatch it prevents is silent: a hint of "https" matches no rule, because
+// the rules are keyed on "http", and the service then looks unrecognized rather
+// than mis-hinted.
+//
+// One deliberate difference: without a probe id, an ambiguous response needs two
+// HTTP header markers to be treated as HTTP rather than one. That is the
+// conservative direction, and a real HTTP response carries several.
+func ResolverProtocolHint(serviceName, transport string, port int, banner string) string {
+	return normalizeResolverProtocol(
+		protocolHintFor(serviceName, transport, port, banner), banner, "")
 }
