@@ -417,3 +417,52 @@ func TestRuleStub_DoesNotAnchorOnTheTruncationMark(t *testing.T) {
 	require.True(t, compiled.MatchString(strings.ToLower(long)),
 		"a truncated signature must still match the banner it came from")
 }
+
+// A single differing token cannot be classified from the text alone: "NODE-A"
+// and "NODE-B" are hostnames, while "Router" and "Switch" in "Acme Router 1000"
+// name two different products, and both are one token apart. The rule is
+// therefore narrow, and narrow in the safe direction — refusing a merge splits
+// one model across a few clusters, which is visible and recoverable, while
+// accepting a wrong one hides two products behind a single line.
+func TestAnalyzeGaps_DoesNotMergeTwoProductsThatDifferByOneWord(t *testing.T) {
+	report := analyzeGapsWithRules([]Observation{
+		{Target: "10.4.0.1", Port: 443, Protocol: "http",
+			Banner: "HTTP/1.1 200 OK\r\nServer: AcmeOS\r\n\r\n<title>Acme Router 1000</title>"},
+		{Target: "10.4.0.2", Port: 443, Protocol: "http",
+			Banner: "HTTP/1.1 200 OK\r\nServer: AcmeOS\r\n\r\n<title>Acme Switch 1000</title>"},
+	}, gapRules())
+
+	titles := map[string]bool{}
+	for _, gap := range report.Gaps {
+		if gap.Kind == "title" {
+			titles[gap.Signature] = true
+		}
+	}
+	require.True(t, titles["Acme Router 1000"], "the router keeps its name")
+	require.True(t, titles["Acme Switch 1000"], "and so does the switch")
+	require.False(t, titles["Acme 1000"], "two products must not merge into one line")
+}
+
+func TestLooksLikeSiteNaming(t *testing.T) {
+	hosts := func(values ...string) map[string]map[string]bool {
+		out := map[string]map[string]bool{}
+		for i, v := range values {
+			out[v] = map[string]bool{fmt.Sprintf("10.0.0.%d", i): true}
+		}
+		return out
+	}
+
+	// Naming observed on real estates: digits, underscores, hyphens.
+	require.True(t, looksLikeSiteNaming(0, hosts("ls_v3700", "lsv5030")))
+	require.True(t, looksLikeSiteNaming(0, hosts("node-a", "node-b")))
+	require.True(t, looksLikeSiteNaming(0, hosts("site-a", "site-b")))
+
+	// Product vocabulary is plain words, and never dropped.
+	require.False(t, looksLikeSiteNaming(0, hosts("router", "switch")))
+	require.False(t, looksLikeSiteNaming(0, hosts("alpha", "beta")))
+
+	// Only a leading token is treated as naming; every observed hostname is a
+	// prefix, and a token inside a title is part of what the device calls itself.
+	require.False(t, looksLikeSiteNaming(1, hosts("ls_v3700", "lsv5030")))
+	require.False(t, looksLikeSiteNaming(2, hosts("5000", "5300")))
+}

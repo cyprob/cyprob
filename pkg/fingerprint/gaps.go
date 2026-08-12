@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/cyprob/cyprob/pkg/stringutil"
 )
@@ -284,6 +285,9 @@ func chooseDroppedPositions(found []unmatchedObservation) map[dropKey]int {
 			continue
 		}
 		position := maskPosition(maskID)
+		if !looksLikeSiteNaming(position, entry.values) {
+			continue
+		}
 		for _, member := range entry.members {
 			if size, seen := bestSize[member]; !seen || len(entry.members) > size ||
 				(len(entry.members) == size && position < best[member]) {
@@ -293,6 +297,51 @@ func chooseDroppedPositions(found []unmatchedObservation) map[dropKey]int {
 		}
 	}
 	return best
+}
+
+// looksLikeSiteNaming decides whether a differing position is the operator's
+// own naming rather than part of the product name.
+//
+// A single differing token cannot be classified from the text alone: "NODE-A"
+// and "NODE-B" are hostnames, while "Router" and "Switch" in "Acme Router 1000"
+// name two different products, and both are one token apart. So this is
+// deliberately narrow, and narrow in the safe direction -- refusing a merge
+// splits one model across a few clusters, which is visible and recoverable,
+// while accepting a wrong one hides two products behind a single line in a
+// ranking whose whole purpose is to say what is worth writing a rule for.
+//
+// Two conditions, both drawn from the naming actually observed on real estates
+// (LS_V3700, LSV5030, LS5030FLASH, NODE-A, SITE-B):
+//
+//   - It is the FIRST token. Every observed hostname is a prefix, followed by a
+//     separator and then the product. A token in the middle of a title is part
+//     of what the device calls itself.
+//   - It is not purely alphabetic. Site naming carries digits, underscores or
+//     hyphens; a plain word is product vocabulary.
+func looksLikeSiteNaming(position int, values map[string]map[string]bool) bool {
+	if position != 0 {
+		return false
+	}
+	for value := range values {
+		if isPlainWord(value) {
+			return false
+		}
+	}
+	return true
+}
+
+// isPlainWord reports whether a token is only letters, which is what product
+// vocabulary looks like and what a hostname almost never is.
+func isPlainWord(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, r := range value {
+		if !unicode.IsLetter(r) {
+			return false
+		}
+	}
+	return true
 }
 
 func maskPosition(maskID string) int {
