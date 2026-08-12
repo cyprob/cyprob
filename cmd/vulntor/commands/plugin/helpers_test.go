@@ -3,6 +3,8 @@ package plugin
 import (
 	"bytes"
 	"errors"
+	"os"
+	"reflect"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -144,4 +146,15 @@ func TestCommandErrorsKeepTheirSentinel(t *testing.T) {
 			require.Equal(t, tc.wantCode, plugin.ExitCode(err))
 		})
 	}
+}
+
+// The seam exists so a test can read the exit code. Nothing else pins that
+// production still exits the process through it: replacing the variable with a
+// no-op left the whole suite green, which means the seam was protecting the
+// tests and not the behavior.
+func TestExitProcessStillExitsTheProcess(t *testing.T) {
+	require.Equal(t,
+		reflect.ValueOf(os.Exit).Pointer(),
+		reflect.ValueOf(exitProcess).Pointer(),
+		"exitProcess must be os.Exit outside a test that deliberately captures it")
 }
