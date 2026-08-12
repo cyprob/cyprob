@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/cyprob/cyprob/pkg/engine"
+	"github.com/cyprob/cyprob/pkg/stringutil"
 )
 
 const (
@@ -305,20 +306,14 @@ func parseMNDPAnnouncement(packet []byte) MNDPNeighborInfo {
 	return info
 }
 
-// sanitizeMNDPText strips control characters so a hostile or corrupt
-// announcement cannot inject terminal escapes into a report, and bounds what a
-// device can claim.
+// sanitizeMNDPText makes an announcement field safe to report.
+//
+// The announcement is whatever the device chose to broadcast. The shared
+// implementation removes what a control-character check misses -- C1,
+// bidirectional overrides, zero-width characters -- and bounds by runes, so a
+// device cannot have its name cut into invalid UTF-8.
 func sanitizeMNDPText(value []byte) string {
-	cleaned := strings.Map(func(r rune) rune {
-		if r < 0x20 || r == 0x7f {
-			return -1
-		}
-		return r
-	}, strings.TrimSpace(string(value)))
-	if len(cleaned) > 128 {
-		cleaned = cleaned[:128]
-	}
-	return cleaned
+	return stringutil.SanitizeUntrusted(string(value), 128)
 }
 
 func init() {

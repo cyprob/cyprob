@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/cyprob/cyprob/pkg/fingerprint"
+	"github.com/cyprob/cyprob/pkg/modules/parse"
 )
 
 // scanCorpusHost is the subset of a scan result this command reads. It is
@@ -60,6 +61,9 @@ much each one is worth.
 			report := fingerprint.AnalyzeGaps(observations)
 
 			if asJSON {
+				// --min-count filters the report, not just its rendering, so a
+				// machine reading the JSON sees the same set a person does.
+				report.Gaps = gapsAtLeast(report.Gaps, minCount)
 				encoder := json.NewEncoder(cmd.OutOrStdout())
 				encoder.SetIndent("", "  ")
 				return encoder.Encode(report)
@@ -102,18 +106,17 @@ func loadScanCorpus(paths []string) ([]fingerprint.Observation, error) {
 					if strings.TrimSpace(port.Service.RawBanner) == "" {
 						continue
 					}
-					// The service name is what the rules key on; the transport
-					// is only a fallback, and it puts the resolver into the mode
-					// that tries every rule.
-					protocol := strings.TrimSpace(port.Service.Name)
-					if protocol == "" {
-						protocol = strings.TrimSpace(port.Protocol)
-					}
+					// Derived the way the scan pipeline derives it, rather than
+					// from the service name alone. Taking the name at face value
+					// reported every TLS service as unrecognized: the rules are
+					// keyed on "http", the scan names the service "https", and
+					// nothing matched.
 					observations = append(observations, fingerprint.Observation{
-						Target:   target,
-						Port:     port.PortNumber,
-						Protocol: protocol,
-						Banner:   port.Service.RawBanner,
+						Target: target,
+						Port:   port.PortNumber,
+						Protocol: parse.ResolverProtocolHint(
+							port.Service.Name, port.Protocol, port.PortNumber, port.Service.RawBanner),
+						Banner: port.Service.RawBanner,
 					})
 				}
 			}
@@ -140,13 +143,16 @@ func printGapReport(cmd *cobra.Command, report fingerprint.GapReport, minCount i
 	}
 
 	shown := 0
-	for _, gap := range report.Gaps {
-		if gap.Count < minCount {
-			continue
-		}
+	for _, gap := range gapsAtLeast(report.Gaps, minCount) {
 		shown++
 		fmt.Fprintf(out, "%4dx  [%s]  %s\n", gap.Count, gap.Kind, gap.Signature)
 		fmt.Fprintf(out, "       seen at: %s\n", strings.Join(gap.Samples, ", "))
+		if len(gap.Varying) > 0 {
+			// Dropped from the signature because they differed between hosts.
+			// Usually the site's own naming, but a model number seen on a single
+			// host looks the same, so it is shown rather than lost.
+			fmt.Fprintf(out, "       varying: %s\n", strings.Join(gap.Varying, ", "))
+		}
 		if showStubs {
 			for _, line := range strings.Split(gap.RuleStub(), "\n") {
 				fmt.Fprintf(out, "       %s\n", line)
@@ -162,4 +168,18 @@ func printGapReport(cmd *cobra.Command, report fingerprint.GapReport, minCount i
 	// A banner can be counted under both its Server header and its page title,
 	// so the per-signature counts deliberately do not sum to the total.
 	fmt.Fprintln(out, "A banner offering two anchors appears under both, so these counts overlap.")
+}
+
+// gapsAtLeast drops the gaps seen fewer than minCount times.
+func gapsAtLeast(gaps []fingerprint.Gap, minCount int) []fingerprint.Gap {
+	if minCount <= 1 {
+		return gaps
+	}
+	kept := make([]fingerprint.Gap, 0, len(gaps))
+	for _, gap := range gaps {
+		if gap.Count >= minCount {
+			kept = append(kept, gap)
+		}
+	}
+	return kept
 }

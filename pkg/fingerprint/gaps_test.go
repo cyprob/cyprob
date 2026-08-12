@@ -1,6 +1,8 @@
 package fingerprint
 
 import (
+	"fmt"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -134,8 +136,9 @@ func TestRuleStub_AnchorsOnTheRightPartAndEscapes(t *testing.T) {
 	server := Gap{Kind: "server", Signature: "ntopng 5.7.230405 (x86_64)", Protocol: "http"}
 	stub := server.RuleStub()
 	require.Contains(t, stub, "protocol: 'http'")
-	require.Contains(t, stub, `match: 'server:\s*ntopng 5\.7\.230405 \(x86_64\)'`,
-		"regex metacharacters in a banner must be escaped, not interpreted")
+	require.Contains(t, stub, `match: 'server:\s*ntopng\s+5\.7\.230405\s+\(x86_64\)'`,
+		"metacharacters are escaped, and whitespace becomes a pattern so the "+
+			"rule still matches a banner whose spacing the signature collapsed")
 
 	title := Gap{Kind: "title", Signature: "LS_V3700 - Log in - IBM Storwize V3700", Protocol: "http"}
 	require.Contains(t, title.RuleStub(), "<title>[^<]*")
@@ -145,4 +148,126 @@ func TestRuleStub_AnchorsOnTheRightPartAndEscapes(t *testing.T) {
 
 func TestRuleStub_DefaultsProtocolWhenUnknown(t *testing.T) {
 	require.Contains(t, Gap{Kind: "banner", Signature: "x"}.RuleStub(), "protocol: 'tcp'")
+}
+
+// A stub that does not match the banner it was generated from is a dead rule,
+// and nothing about the file it lands in would say so. The signature has had
+// its whitespace collapsed, while the banner it came from wraps its title
+// across lines and indents it, so anchoring the collapsed text literally was
+// enough to break this.
+func TestRuleStub_MatchesTheBannerItWasGeneratedFrom(t *testing.T) {
+	report := analyzeGapsWithRules([]Observation{
+		{Target: "10.0.0.1", Port: 443, Protocol: "http", Banner: storwizeBanner},
+	}, gapRules())
+	require.NotEmpty(t, report.Gaps)
+
+	for _, gap := range report.Gaps {
+		t.Run(gap.Kind, func(t *testing.T) {
+			pattern := gap.matchExpression()
+			compiled, err := regexp.Compile(pattern)
+			require.NoError(t, err, "the generated pattern must compile")
+
+			require.True(t, compiled.MatchString(strings.ToLower(storwizeBanner)),
+				"generated %q does not match the banner it came from", pattern)
+		})
+	}
+}
+
+// The loader requires a CPE and rejects the whole file without one, so a stub
+// that omits it silently disables every rule in the file it is pasted into.
+func TestRuleStub_CarriesEveryFieldTheLoaderRequires(t *testing.T) {
+	stub := Gap{Kind: "server", Signature: "SVC GUI", Protocol: "http"}.RuleStub()
+
+	for _, required := range []string{"protocol:", "product:", "vendor:", "cpe:", "match:"} {
+		require.Contains(t, stub, required)
+	}
+}
+
+// A banner containing an apostrophe would end a single-quoted YAML scalar early
+// and produce a file that does not parse.
+func TestRuleStub_QuotesApostrophesForYAML(t *testing.T) {
+	stub := Gap{Kind: "server", Signature: "Bob's Router", Protocol: "http"}.RuleStub()
+
+	require.Contains(t, stub, "bob''s", "an apostrophe is doubled, not left to end the scalar")
+	require.NotContains(t, stub, "match: 'server:\\s*bob's")
+}
+
+// The protocol is embedded in generated YAML and a corpus need not be one this
+// machine produced, so an unrecognized value is dropped rather than passed on.
+func TestRuleStub_RefusesAnUnknownProtocol(t *testing.T) {
+	stub := Gap{Kind: "banner", Signature: "x", Protocol: "'; rm -rf /"}.RuleStub()
+	require.Contains(t, stub, "protocol: 'tcp'")
+}
+
+// Frequency ranking is the whole value of the report, so a signature carrying
+// the site's own naming splits one device model into as many clusters as there
+// are copies of it and buries the thing worth writing a rule for.
+func TestAnalyzeGaps_OneModelIsOneClusterAcrossManyHosts(t *testing.T) {
+	const template = "HTTP/1.1 200 OK\r\nServer: SVC GUI\r\n\r\n" +
+		"<html><head><title>\n    %s - Log in - \n    %s\n  </title></head>"
+
+	observations := make([]Observation, 0, 8)
+	for i, model := range []string{"IBM Storwize V3700", "IBM FlashSystem 5300"} {
+		for copy := 0; copy < 4; copy++ {
+			observations = append(observations, Observation{
+				Target:   fmt.Sprintf("10.0.%d.%d", i, copy),
+				Port:     443,
+				Protocol: "http",
+				// Each copy carries a different hostname, as a real estate does.
+				Banner: fmt.Sprintf(template, fmt.Sprintf("SITE-%s-%02d", model[4:8], copy), model),
+			})
+		}
+	}
+
+	report := analyzeGapsWithRules(observations, gapRules())
+
+	titles := map[string]int{}
+	for _, gap := range report.Gaps {
+		if gap.Kind == "title" {
+			titles[gap.Signature] = gap.Count
+		}
+	}
+	require.Len(t, titles, 2, "two models, two clusters — not one per host")
+
+	for signature, count := range titles {
+		require.Equal(t, 4, count, "every copy of a model lands in its cluster")
+		require.NotContains(t, signature, "SITE-",
+			"the site's own naming must not survive into the signature")
+	}
+}
+
+// A banner with nothing in common with any other keeps its whole signature:
+// dropping every token would leave nothing to write a rule from.
+func TestAnalyzeGaps_AUniqueBannerKeepsItsSignature(t *testing.T) {
+	report := analyzeGapsWithRules([]Observation{
+		{Target: "10.0.0.1", Port: 80, Protocol: "http",
+			Banner: "HTTP/1.1 200 OK\r\nServer: OneOfAKind/9.9\r\n\r\n"},
+	}, gapRules())
+
+	require.Len(t, report.Gaps, 1)
+	require.Equal(t, "OneOfAKind/9.9", report.Gaps[0].Signature)
+}
+
+// Dropping tokens that appear on one host groups a model correctly, but a model
+// number present on a single host is indistinguishable from a hostname by that
+// measure. Measured on a real corpus, "IBM FlashSystem 5000" and "5300" lost
+// exactly the number worth writing a rule for, so what is dropped is reported.
+func TestAnalyzeGaps_ReportsWhatItDroppedFromTheSignature(t *testing.T) {
+	const template = "HTTP/1.1 200 OK\r\nServer: SVC GUI\r\n\r\n<title>%s - Log in - IBM FlashSystem %s</title>"
+
+	report := analyzeGapsWithRules([]Observation{
+		{Target: "10.0.0.1", Port: 443, Protocol: "http", Banner: fmt.Sprintf(template, "SITE-A", "5000")},
+		{Target: "10.0.0.2", Port: 443, Protocol: "http", Banner: fmt.Sprintf(template, "SITE-B", "5300")},
+	}, gapRules())
+
+	var title Gap
+	for _, gap := range report.Gaps {
+		if gap.Kind == "title" {
+			title = gap
+		}
+	}
+	require.Equal(t, 2, title.Count, "the two arrays group together")
+	require.NotContains(t, title.Signature, "5000", "the differing token left the signature")
+	require.Subset(t, title.Varying, []string{"5000", "5300"},
+		"but it is reported, because it may be the model rather than a hostname")
 }

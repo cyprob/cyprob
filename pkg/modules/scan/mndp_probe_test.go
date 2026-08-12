@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -96,8 +97,14 @@ func TestParseMNDPAnnouncement_TruncatedInputIsRejectedWithoutPanicking(t *testi
 
 // A hostile or corrupt announcement must not carry escapes into a report.
 func TestSanitizeMNDPText(t *testing.T) {
-	require.Equal(t, "AB[31mC", sanitizeMNDPText([]byte("AB\x1b[31mC")))
-	require.Len(t, sanitizeMNDPText(make([]byte, 400)), 0, "control bytes are stripped entirely")
+	// The unsafe character becomes a space rather than vanishing: deleting it
+	// would let its neighbors join into a token the device never sent.
+	require.Equal(t, "AB [31mC", sanitizeMNDPText([]byte("AB\x1b[31mC")))
+	require.Len(t, sanitizeMNDPText(make([]byte, 400)), 0, "control bytes leave nothing behind")
+	require.Equal(t, "ab cd", sanitizeMNDPText([]byte("ab\u200bcd")),
+		"a zero-width character separates rather than joining")
+	require.Equal(t, 128, len([]rune(sanitizeMNDPText([]byte(strings.Repeat("配", 400))))),
+		"the bound counts runes, so a name cannot be cut into invalid UTF-8")
 }
 
 // The request reaches the whole segment, so devices nobody asked to scan will
