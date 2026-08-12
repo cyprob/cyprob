@@ -103,3 +103,45 @@ func TestPrinterOutputIsMarkedInBothPaths(t *testing.T) {
 		quiet.PrintTotalFailureSummary("install plugin", cause, "PLUGIN_NOT_FOUND")),
 		"quiet still counts as handled: the user asked for silence")
 }
+
+// The ADR-0001 exit codes are reachable only through the sentinels, so an error
+// that reports the right code on screen while dropping the sentinel exits with
+// the wrong one. These commands construct their error by hand, which is exactly
+// where the sentinel gets lost.
+func TestCommandErrorsKeepTheirSentinel(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		args     []string
+		sentinel error
+		wantCode int
+	}{
+		{
+			name:     "info on a plugin that is not installed",
+			args:     []string{"info", "no-such-plugin-xyz", "--cache-dir", t.TempDir()},
+			sentinel: plugin.ErrPluginNotFound,
+			wantCode: 4,
+		},
+		{
+			name:     "embedded with a category that does not exist",
+			args:     []string{"embedded", "--category", "no-such-category"},
+			sentinel: plugin.ErrInvalidCategory,
+			wantCode: 2,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Built from the parent, because the output and quiet flags the
+			// formatter reads are persistent flags on it.
+			cmd := NewCommand()
+			cmd.SetOut(&bytes.Buffer{})
+			cmd.SetErr(&bytes.Buffer{})
+			cmd.SetArgs(tc.args)
+
+			err := cmd.Execute()
+
+			require.Error(t, err)
+			require.ErrorIs(t, err, tc.sentinel,
+				"the sentinel is what cmd/main.go maps to an exit code")
+			require.Equal(t, tc.wantCode, plugin.ExitCode(err))
+		})
+	}
+}
