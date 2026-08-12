@@ -271,3 +271,52 @@ func TestMDNSMulticast_Live(t *testing.T) {
 	}
 	require.NotEmpty(t, found, "expected at least one mDNS responder on this segment")
 }
+
+// The multicast pass sends eighteen datagrams and a TXT key keeps the first
+// value it sees, so applying answers in arrival order would let the network
+// decide which model string survives: the same host could report a different
+// product between two runs. Records are collected first and ordered by content
+// before being parsed, which this pins by feeding the same answers in both
+// orders and requiring the same result.
+func TestCollectMDNSMulticast_ResultDoesNotDependOnArrivalOrder(t *testing.T) {
+	first := buildMDNSResponse(t, mdnsDeviceInfo,
+		[]string{"Device._device-info._tcp.local."}, "", []string{"model=FirstAnswer"})
+	second := buildMDNSResponse(t, "_googlecast._tcp.local.",
+		[]string{"Cast._googlecast._tcp.local."}, "", []string{"model=SecondAnswer"})
+
+	forward := mergeMDNSPackets("192.0.2.10", [][]byte{first, second})
+	reverse := mergeMDNSPackets("192.0.2.10", [][]byte{second, first})
+	deriveMDNSIdentity(&forward)
+	deriveMDNSIdentity(&reverse)
+
+	require.Equal(t, forward.Model, reverse.Model,
+		"the surviving value must not depend on which datagram arrived first")
+	require.NotEmpty(t, forward.Model)
+}
+
+// deriveMDNSIdentity resets what it derives, so running it twice over the same
+// records gives the same answer and a stale value from an earlier pass cannot
+// survive. Without that, a field guarded by "only if empty" keeps a value
+// derived from one transport while its siblings are recomputed from both.
+func TestDeriveMDNSIdentity_IsIdempotentAndClearsStaleDerivations(t *testing.T) {
+	info := MDNSServiceInfo{
+		ServiceTypes: []string{"_ipp._tcp.local."},
+		TXTAttrs:     map[string]string{"ty": "OfficeJet 9010"},
+		// Left over from an earlier derivation over different records.
+		Model:       "StaleModel",
+		ProductHint: "Stale Product",
+		VendorHint:  "StaleVendor",
+		VersionHint: "0.0.0",
+		DeviceType:  deviceTypeMediaDevice,
+	}
+
+	deriveMDNSIdentity(&info)
+	once := info
+	deriveMDNSIdentity(&info)
+
+	require.Equal(t, once, info, "deriving twice must not change the answer")
+	require.Equal(t, "OfficeJet 9010", info.Model)
+	require.Equal(t, deviceTypePrinter, info.DeviceType)
+	require.NotContains(t, info.ProductHint, "Stale")
+	require.Empty(t, info.VersionHint, "no record states a version, so none is claimed")
+}

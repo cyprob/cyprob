@@ -1,6 +1,7 @@
 package scan
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -252,11 +253,9 @@ func (m *mdnsNativeProbeModule) Execute(ctx context.Context, inputs map[string]a
 			result.MDNSProbe = true
 			result.ProbeError = ""
 			// The merge may have supplied records the unicast pass never saw, so
-			// the identity is derived again over the union. The derived fields are
-			// cleared first: keeping them would pair a model taken from one pass
-			// with a product string built from the other.
-			result.Model, result.VendorHint, result.ProductHint = "", "", ""
-			result.VersionHint, result.DeviceType = "", ""
+			// the identity is derived again over the union. deriveMDNSIdentity
+			// resets what it derives, so this cannot pair a model taken from one
+			// pass with a product string built from the other.
 			deriveMDNSIdentity(&result)
 		}
 		if len(result.TXTAttrs) == 0 {
@@ -502,6 +501,12 @@ func collectMDNSMulticast(ctx context.Context, opts MDNSProbeOptions) map[string
 		return results
 	}
 
+	// A responder answers each question separately, so its records arrive
+	// spread over several datagrams. They are collected first and parsed
+	// afterwards: a TXT key keeps the first value seen, so applying them in
+	// arrival order would let the network decide which model string survives,
+	// and the same host could report a different product between two runs.
+	packets := map[string][][]byte{}
 	buf := make([]byte, mdnsResponseMaxBytes)
 	for {
 		n, addr, readErr := conn.ReadFrom(buf)
@@ -512,16 +517,38 @@ func collectMDNSMulticast(ctx context.Context, opts MDNSProbeOptions) map[string
 		if splitErr != nil {
 			continue
 		}
-		// A responder answers each question separately, so its records arrive
-		// spread over several datagrams and are accumulated per host.
-		info, ok := results[host]
-		if !ok {
-			info = MDNSServiceInfo{Target: host, Port: mdnsPort, MDNSProbe: true, TXTAttrs: map[string]string{}}
-		}
-		collectMDNSRecords(buf[:n], &info)
-		results[host] = info
+		// The read buffer is reused, so the datagram has to be copied to
+		// outlive this iteration.
+		packet := make([]byte, n)
+		copy(packet, buf[:n])
+		packets[host] = append(packets[host], packet)
+	}
+
+	for host, received := range packets {
+		results[host] = mergeMDNSPackets(host, received)
 	}
 	return results
+}
+
+// mergeMDNSPackets folds a host's datagrams into one result in an order that
+// does not depend on which of them overtook which.
+//
+// Ordering by content is stable across runs for the same set of answers, which
+// is what makes the outcome reproducible: a TXT key keeps the first value seen,
+// so parsing in arrival order would let the network choose which model string
+// survives.
+func mergeMDNSPackets(host string, packets [][]byte) MDNSServiceInfo {
+	ordered := make([][]byte, len(packets))
+	copy(ordered, packets)
+	sort.Slice(ordered, func(i, j int) bool {
+		return bytes.Compare(ordered[i], ordered[j]) < 0
+	})
+
+	info := MDNSServiceInfo{Target: host, Port: mdnsPort, MDNSProbe: true, TXTAttrs: map[string]string{}}
+	for _, packet := range ordered {
+		collectMDNSRecords(packet, &info)
+	}
+	return info
 }
 
 func buildMDNSQuery(name string, qtype dnsmessage.Type) ([]byte, error) {

@@ -83,6 +83,19 @@ func deriveMDNSIdentity(result *MDNSServiceInfo) {
 		return
 	}
 
+	// Everything below is derived from TXTAttrs and ServiceTypes, so it is
+	// cleared first and the function becomes a pure function of them. That
+	// matters because it runs a second time after the unicast and multicast
+	// records are merged: without the reset, a field guarded by "only if empty"
+	// would keep a value derived from one transport while its siblings were
+	// recomputed from both. Resetting here rather than at the call site means a
+	// field added later cannot be left out of it.
+	result.Model = ""
+	result.VendorHint = ""
+	result.ProductHint = ""
+	result.VersionHint = ""
+	result.DeviceType = ""
+
 	// Model: several DNS-SD conventions carry it under different keys.
 	// "model" (Apple AirPlay), "md" (HomeKit / Chromecast), "usb_MDL" and
 	// "product" (printers).
