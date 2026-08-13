@@ -1,0 +1,114 @@
+name: Vulnerability Watch
+
+# The delta gate on pull requests answers "did this change add one". It cannot
+# answer "did one appear", because the code does not move when an advisory is
+# published — and that is the case that had gone unmeasured for a year here.
+#
+# So: same tool, different trigger, different verdict. This one never fails a
+# build. It opens an issue, or updates the one it opened before, and closes it
+# when the tree comes back clean.
+
+on:
+  schedule:
+    # Daily. The database moves on its own schedule and nothing here is urgent
+    # enough to want a red mark before someone is awake to read it.
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+env:
+  GO_VERSION: '1.26.6'
+  ISSUE_TITLE: 'Reachable vulnerabilities on main'
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Go ${{ env.GO_VERSION }}
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          check-latest: true
+
+      - name: Scan main
+        id: scan
+        run: |
+          set -euo pipefail
+          # --scan never fails on findings, so a non-zero here means the scan
+          # itself broke and the result below must not be read as "clean".
+          ./scripts/govulncheck-delta.sh --scan "${GITHUB_SHA}" > /tmp/reachable.txt
+          COUNT="$(grep -c '[^[:space:]]' /tmp/reachable.txt || true)"
+          echo "count=${COUNT}" >> "$GITHUB_OUTPUT"
+          echo "found ${COUNT} reachable"
+
+      - name: Open, update or close the issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COUNT: ${{ steps.scan.outputs.count }}
+        run: |
+          set -euo pipefail
+
+          # `gh issue list` prints nothing and exits 0 when there is no match, so
+          # an empty NUMBER means "none open" rather than "the query failed".
+          #
+          # The first match is taken inside jq rather than with `| head -1`: this
+          # block runs under `set -euo pipefail`, and a reader that leaves early
+          # makes the writer take SIGPIPE, which pipefail then turns into a dead
+          # step with nothing printed. Same shape cost three rounds in
+          # cyprob/cyprob-appliance-builder#7.
+          NUMBER="$(gh issue list --state open --search "\"${ISSUE_TITLE}\" in:title" \
+                    --json number,title \
+                    --jq "[.[] | select(.title == \"${ISSUE_TITLE}\") | .number] | first // empty")"
+
+          if [ "${COUNT}" = "0" ]; then
+            if [ -n "${NUMBER}" ]; then
+              gh issue close "${NUMBER}" --comment \
+                "Nothing reachable from this code as of \`${GITHUB_SHA}\`. Reopened automatically if that changes."
+              echo "closed #${NUMBER}"
+            else
+              echo "clean, and no issue open"
+            fi
+            exit 0
+          fi
+
+          {
+            echo "\`govulncheck\` reports ${COUNT} vulnerabilities reachable from our own code on \`main\`."
+            echo ""
+            echo "Commit: \`${GITHUB_SHA}\`"
+            echo ""
+            # if/then rather than `[ -n "$ID" ] && echo`. Measured, because the
+            # obvious claim is wrong: under `set -e` a false test in an AND-list
+            # does NOT kill the loop — bash exempts every element of an AND-OR
+            # list except the one after the final `&&`, so the loop runs to
+            # completion either way.
+            #
+            # What it does do is leave 1 as the exit status. Harmless here, fatal
+            # the moment such a list is the LAST command of a step, which is how
+            # it killed a step in cyprob/cyprob-appliance-builder#6. if/then
+            # cannot acquire that property by being moved.
+            while IFS= read -r ID; do
+              if [ -n "${ID}" ]; then
+                echo "- [${ID}](https://pkg.go.dev/vuln/${ID})"
+              fi
+            done < /tmp/reachable.txt
+            echo ""
+            echo "Reachable means our code calls the affected symbol, not merely that the module is in the graph."
+            echo "Nothing changed in this repository to cause this — an advisory was published, or the toolchain moved."
+            echo ""
+            echo "Updated by \`.github/workflows/vulncheck-schedule.yaml\` (run ${GITHUB_RUN_ID})."
+          } > /tmp/body.md
+
+          if [ -n "${NUMBER}" ]; then
+            gh issue edit "${NUMBER}" --body-file /tmp/body.md
+            echo "updated #${NUMBER}"
+          else
+            gh issue create --title "${ISSUE_TITLE}" --body-file /tmp/body.md
+            echo "opened a new issue"
+          fi
