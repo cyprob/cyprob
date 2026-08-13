@@ -1,6 +1,7 @@
 package fingerprint
 
 import (
+	"context"
 	"fmt"
 	"testing"
 
@@ -12,10 +13,17 @@ import (
 // anybody made, and it is invisible: the right answer still comes out, until
 // somebody reorders the file or adds a rule above another one.
 //
-// This test turns "file order is saving us" into a build failure. It is the
-// cheap half of the fix; the other half is ranking on the unclamped score, so
-// that pattern_strength keeps distinguishing rules in its top band instead of
-// saturating.
+// This test turns "file order is saving us" into a build failure.
+//
+// It finds nothing today, and it is worth recording how hard that was looked
+// for: 322 probes here (161 banners x 2 hints), and 11,130 in the review
+// sweep (161 banners x 7 hints x 10 ports), producing 250 probes with more
+// than one candidate and zero ties in either. The emptiness is structural
+// rather than a sampling accident -- no shipped rule can exceed the ceiling,
+// so a tie needs equal pattern_strength, equal bonus eligibility, and a banner
+// matching both, and the corpus holds no such banner. One exists in reality:
+// a page serving `Server: Jetty(9.4.z)` with an IBM Storwize title puts two
+// rules at exactly 1.0000.
 func TestRulePrecedence_NoTieDecidesAMatchInTheShippedCorpus(t *testing.T) {
 	resolver := NewRuleBasedResolver(loadBuiltinRules())
 
@@ -87,4 +95,34 @@ func truncateForMessage(banner string) string {
 		return banner
 	}
 	return fmt.Sprintf("%s...", banner[:limit])
+}
+
+// Resolve must answer with what the ranking says, or extracting the ranking
+// bought nothing: a helper production has stopped calling is worse than never
+// having extracted it, because the tests around it keep passing while the
+// behavior they describe has moved elsewhere.
+func TestRulePrecedence_ResolveAnswersWithTheTopRankedCandidate(t *testing.T) {
+	resolver := NewRuleBasedResolver(loadBuiltinRules())
+	checked := 0
+
+	for _, sample := range loadValidationCorpus(t) {
+		for _, protocol := range []string{sample.Protocol, ""} {
+			input := Input{Protocol: protocol, Banner: sample.Banner, Port: sample.Port}
+
+			ranked := resolver.rankedCandidates(input)
+			result, err := resolver.Resolve(context.Background(), input)
+
+			if len(ranked) == 0 {
+				require.Error(t, err, "no candidate ranked, so nothing may be resolved")
+				continue
+			}
+			require.NoError(t, err)
+			require.Equal(t, ranked[0].rule.Product, result.Product,
+				"Resolve disagreed with the ranking on %q", truncateForMessage(sample.Banner))
+			require.Equal(t, ranked[0].rule.Vendor, result.Vendor)
+			require.Equal(t, ranked[0].confidence, result.Confidence)
+			checked++
+		}
+	}
+	require.NotZero(t, checked, "the corpus must exercise at least one match")
 }
