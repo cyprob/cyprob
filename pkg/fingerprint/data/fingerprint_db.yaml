@@ -922,7 +922,12 @@ rules:
     product: 'BIND'
     vendor: 'ISC'
     cpe: 'cpe:2.3:a:isc:bind:*:*:*:*:*:*:*:*'
-    match: 'bind|named|dns'
+    # The leading boundaries keep rpcbind, dnsmasq and powerdns from being
+    # reported as BIND; there is deliberately none after 'bind', or the
+    # bind9 spelling stops matching. Guarded by
+    # TestDNSIdentificationSurvivesTheNarrowing in pkg/modules/parse, which
+    # cannot live here: that package imports this one.
+    match: '\bbind|\bnamed|\bdns\b'
     version_extraction: "(?:bind|named)[\\s/_-]+([\\d\\.]+)"
 
     exclude_patterns:

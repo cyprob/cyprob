@@ -26,9 +26,18 @@ func TestResolverProtocolHint(t *testing.T) {
 			want: "http",
 		},
 		{
-			name:        "https stays https when the response is not HTTP",
+			// Not "https": no rule declares it, so keeping it excluded every
+			// rule and the service resolved to nothing. TLS-but-not-HTTP says
+			// nothing about the protocol, and an empty hint says that.
+			name:        "https becomes unknown when the response is not HTTP",
 			serviceName: "https", transport: "tcp", port: 443, banner: "\x16\x03\x01\x00\xa5\x01",
-			want: "https",
+			want: "",
+		},
+		{
+			name:        "SSH answering on 443 is not hidden by the https hint",
+			serviceName: "https", transport: "tcp", port: 443,
+			banner: "SSH-2.0-OpenSSH_9.6p1 Ubuntu-3ubuntu13.5\r\n",
+			want:   "",
 		},
 		{
 			name:        "a named service is kept",

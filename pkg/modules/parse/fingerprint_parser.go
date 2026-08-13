@@ -478,10 +478,16 @@ func normalizeResolverProtocol(protocolHint, response, probeID string) string {
 	if protocolHint != "https" {
 		return protocolHint
 	}
-	if !looksLikeHTTPResponse(response, probeID) {
-		return protocolHint
+	if looksLikeHTTPResponse(response, probeID) {
+		return "http"
 	}
-	return "http"
+	// No rule declares https, and a hint no rule declares is still specific
+	// enough to switch fallback off -- so returning it here excluded every
+	// candidate. What is actually known at this point is that the service
+	// answered over TLS with something that is not HTTP, which says nothing
+	// about the protocol; an empty hint says exactly that and lets every rule
+	// compete. SSH on 443 and SMTP on 8443 both resolve to nothing otherwise.
+	return ""
 }
 
 func looksLikeHTTPResponse(response, probeID string) bool {
@@ -565,23 +571,25 @@ func detectProtocolFromPort(port int) string {
 	case 389, 636, 3268, 3269:
 		return "ldap"
 	case 5672, 5671:
-		return "rabbitmq"
+		// The rule for RabbitMQ declares amqp; naming the product here instead
+		// of the protocol filtered every rule out and resolved the port to
+		// nothing.
+		return "amqp"
 	case 9092, 9093:
 		return "kafka"
 	case 9200, 9300:
-		return "elasticsearch"
+		// Elasticsearch answers over HTTP and both of its rules declare http.
+		return "http"
 	case 161, 162:
 		return "snmp"
 	// File Sharing / Windows Services
-	case 135:
-		return "msrpc"
-	case 139:
-		return "netbios"
-	case 445:
+	// 135 is the RPC endpoint mapper and no rule identifies it. An empty hint
+	// says that honestly and lets every rule compete; a hint no rule declares
+	// says the opposite while excluding all of them.
+	case 139, 445:
 		return "smb"
 	// Infrastructure Services
-	case 111:
-		return "rpc"
+	// 111 is rpcbind, which no rule identifies either. See 135 above.
 	}
 	return ""
 }
