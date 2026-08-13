@@ -358,18 +358,26 @@ func TestDetectProtocolFromPort(t *testing.T) {
 		{"LDAPS secure port", 636, "ldap"},
 		{"LDAP global catalog", 3268, "ldap"},
 		{"LDAP global catalog SSL", 3269, "ldap"},
-		{"RabbitMQ standard port", 5672, "rabbitmq"},
-		{"RabbitMQ secure port", 5671, "rabbitmq"},
+		// These four named the product or the service rather than the
+		// protocol the rules declare, and this test asserted that as correct.
+		// A hint no rule declares excludes every candidate, so each of them
+		// meant the port resolved to nothing at all.
+		{"RabbitMQ standard port hints its rule's protocol", 5672, "amqp"},
+		{"RabbitMQ secure port hints its rule's protocol", 5671, "amqp"},
 		{"Kafka standard port", 9092, "kafka"},
 		{"Kafka secure port", 9093, "kafka"},
-		{"Elasticsearch HTTP port", 9200, "elasticsearch"},
-		{"Elasticsearch transport port", 9300, "elasticsearch"},
+		{"Elasticsearch answers over HTTP", 9200, "http"},
+		{"Elasticsearch transport port answers over HTTP", 9300, "http"},
 		{"SNMP standard port", 161, "snmp"},
 		{"SNMP trap port", 162, "snmp"},
-		{"msrpc", 135, "msrpc"},
-		{"netbios", 139, "netbios"},
+		{"netbios", 139, "smb"},
 		{"smb", 445, "smb"},
-		{"rpc", 111, "rpc"},
+
+		// No rule identifies the RPC endpoint mapper or rpcbind. An empty
+		// hint is the honest answer and lets every rule compete; naming a
+		// protocol no rule declares does the opposite.
+		{"msrpc has no rule, so no hint", 135, ""},
+		{"rpcbind has no rule, so no hint", 111, ""},
 
 		// Unknown ports
 		{"Unknown port 1234", 1234, ""},
@@ -685,7 +693,12 @@ func TestFingerprintParserModule_HTTPSResolverProtocolNormalization(t *testing.T
 	}
 }
 
-func TestFingerprintParserModule_HTTPSResolverProtocolNotNormalizedForNonHTTPResponse(t *testing.T) {
+// A TLS probe that gets back something which is not HTTP knows only that: not
+// the protocol. This asserted the resolver was handed "https", which no rule
+// declares -- and a hint no rule declares excludes every candidate, so the
+// service resolved to nothing. The fixture below is the case itself: an SMTP
+// greeting answering on 443, which is identifiable the moment the hint is empty.
+func TestFingerprintParserModule_HTTPSResolverProtocolIsClearedForNonHTTPResponse(t *testing.T) {
 	originalGetResolver := getResolver
 	defer func() { getResolver = originalGetResolver }()
 
@@ -727,8 +740,9 @@ func TestFingerprintParserModule_HTTPSResolverProtocolNotNormalizedForNonHTTPRes
 	if len(calledInputs) != 1 {
 		t.Fatalf("expected 1 resolver call, got %d", len(calledInputs))
 	}
-	if calledInputs[0].Protocol != "https" {
-		t.Fatalf("expected resolver protocol https, got %q", calledInputs[0].Protocol)
+	if calledInputs[0].Protocol != "" {
+		t.Fatalf("expected an empty resolver protocol so every rule competes, got %q",
+			calledInputs[0].Protocol)
 	}
 }
 

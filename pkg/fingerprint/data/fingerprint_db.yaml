@@ -922,7 +922,7 @@ rules:
     product: 'BIND'
     vendor: 'ISC'
     cpe: 'cpe:2.3:a:isc:bind:*:*:*:*:*:*:*:*'
-    match: 'bind|named|dns'
+    match: '\bbind\b|\bnamed\b|\bdns\b'
     version_extraction: "(?:bind|named)[\\s/_-]+([\\d\\.]+)"
 
     exclude_patterns:
