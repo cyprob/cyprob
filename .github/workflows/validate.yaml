@@ -95,7 +95,10 @@ jobs:
       # reachable from our own code, and deliberately does not fail on it yet.
       #
       # Set GOVULNCHECK_BLOCK=1 to make additions fail the job. It is off until
-      # this has run for two weeks without a false positive (cyprob/cyprob#247).
+      # this has run for two weeks without a false positive (cyprob/cyprob#247),
+      # and the commit that sets it must also pin GOVULNCHECK_VERSION — a
+      # floating tool version is harmless while this reports and is a way to
+      # stop CI from outside git once it blocks. See scripts/govulncheck-delta.sh.
       # A gate nobody has watched is worse than no gate, because it is trusted
       # without being looked at — and this repository runs with `strict: false`,
       # so a required check is less required than it looks anyway.
