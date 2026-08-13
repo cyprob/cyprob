@@ -2,6 +2,8 @@ module github.com/cyprob/cyprob
 
 go 1.25.0
 
+toolchain go1.26.6
+
 require (
 	github.com/Masterminds/semver/v3 v3.4.0
 	github.com/charmbracelet/lipgloss v1.1.0
