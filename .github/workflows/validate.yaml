@@ -72,6 +72,39 @@ jobs:
           go mod tidy
           git diff --exit-code
 
+  vulncheck:
+    name: Vulnerability Scan (delta)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+        with:
+          # Both the base and the head commit have to be present locally: the
+          # scan below builds each in its own worktree, and a shallow clone has
+          # neither.
+          fetch-depth: 0
+
+      - name: Set up Go ${{ env.GO_VERSION }}
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          check-latest: true
+
+      # Reports what this pull request ADDS to the set of vulnerabilities
+      # reachable from our own code, and deliberately does not fail on it yet.
+      #
+      # Set GOVULNCHECK_BLOCK=1 to make additions fail the job. It is off until
+      # this has run for two weeks without a false positive (cyprob/cyprob#247).
+      # A gate nobody has watched is worse than no gate, because it is trusted
+      # without being looked at — and this repository runs with `strict: false`,
+      # so a required check is less required than it looks anyway.
+      - name: govulncheck (delta against base)
+        run: |
+          ./scripts/govulncheck-delta.sh \
+            "${{ github.event.pull_request.base.sha }}" \
+            "${{ github.event.pull_request.head.sha }}"
+
   fingerprint-db-validation:
     name: Validate Fingerprint Database
     runs-on: ubuntu-latest
