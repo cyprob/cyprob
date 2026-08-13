@@ -21,12 +21,12 @@ require (
 	github.com/spf13/cast v1.8.0
 	github.com/spf13/cobra v1.9.1
 	github.com/stretchr/testify v1.11.1
-	golang.org/x/mod v0.29.0
-	golang.org/x/net v0.42.0
+	golang.org/x/mod v0.36.0
+	golang.org/x/net v0.56.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
-require golang.org/x/text v0.27.0 // indirect
+require golang.org/x/text v0.38.0 // indirect
 
 require (
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
@@ -50,8 +50,8 @@ require (
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	go.yaml.in/yaml/v3 v3.0.3 // indirect
-	golang.org/x/crypto v0.40.0 // indirect
-	golang.org/x/sync v0.16.0 // indirect
+	golang.org/x/crypto v0.53.0 // indirect
+	golang.org/x/sync v0.21.0 // indirect
 )
 
 require (
@@ -60,5 +60,5 @@ require (
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/spf13/pflag v1.0.6
-	golang.org/x/sys v0.37.0 // indirect
+	golang.org/x/sys v0.46.0 // indirect
 )
