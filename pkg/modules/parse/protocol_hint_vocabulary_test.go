@@ -145,3 +145,41 @@ func TestRPCBindIsNotIdentifiedAsBIND(t *testing.T) {
 			"the substring bind inside rpcbind must not identify a DNS server")
 	}
 }
+
+// The narrowing that keeps rpcbind from being identified as BIND has to leave
+// the spellings a real BIND server answers with, and the validation corpus
+// cannot show that: its four DNS banners all carry the token as a separate
+// word, so every form that a trailing boundary would break is absent from it.
+// These are the forms, asserted directly.
+func TestDNSIdentificationSurvivesTheNarrowing(t *testing.T) {
+	resolver := fingerprint.GetFingerprintResolver()
+
+	identifiedAsBIND := func(t *testing.T, banner string, port int) bool {
+		t.Helper()
+		result, err := resolver.Resolve(context.Background(), fingerprint.Input{
+			Protocol: ResolverProtocolHint("", "tcp", port, banner), Banner: banner, Port: port,
+		})
+		return err == nil && result.Product == "BIND"
+	}
+
+	for _, banner := range []string{
+		"9.16.23-RH BIND",
+		"bind 9.11.4-p2-redhat",
+		// Debian and Ubuntu spell the package bind9, with the version run
+		// straight onto it. A boundary after "bind" drops both.
+		"bind9 9.16.1-0ubuntu2",
+		"bind9.16.1",
+		"named-9.16.1",
+	} {
+		require.True(t, identifiedAsBIND(t, banner, 53), "BIND went unidentified: %q", banner)
+	}
+
+	// Not BIND, and each was reported as ISC BIND before the narrowing.
+	for _, banner := range []string{
+		"dnsmasq-2.85",
+		"powerdns authoritative server 4.7.3",
+	} {
+		require.False(t, identifiedAsBIND(t, banner, 53),
+			"a different DNS server was reported as BIND: %q", banner)
+	}
+}
