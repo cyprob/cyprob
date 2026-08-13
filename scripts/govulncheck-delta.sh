@@ -32,6 +32,16 @@
 # in this repository yet, and a blocking check whose behaviour nobody has watched
 # is worse than no check, because it is trusted without being looked at. Turn it
 # on once it has run for two weeks without a false positive.
+#
+# TURNING IT ON IS TWO CHANGES, NOT ONE. Pin GOVULNCHECK_VERSION in the same
+# commit that sets GOVULNCHECK_BLOCK=1.
+#
+# A floating `latest` is right while this only reports: the newest advisory data
+# is what you want, and base and head share one process, so both sides see the
+# same tool and the delta stays consistent. Once it blocks, that same float is a
+# tool upgrade that can stop CI on a day no commit in this repository changed
+# anything — and nothing in git says what moved, so nobody can find it. The
+# variable already exists; only its default has to change.
 
 set -euo pipefail
 
