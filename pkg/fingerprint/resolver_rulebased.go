@@ -73,16 +73,31 @@ func (r *RuleBasedResolver) SetTelemetry(telemetry *TelemetryWriter) {
 //	Result - The result of the fingerprinting process, populated if a rule matches.
 //	error             - An error if no matching rule is found.
 //
+// ruleCandidate is a rule that matched, with the score used to rank it and the
+// confidence reported for it.
+//
+// The two are not the same number. Confidence is clamped to 1.0 because that is
+// what the field means to a reader, but clamping before the comparison threw
+// away the ordering: 8 of the shipped rules reach the ceiling once a port bonus
+// applies, so within that band pattern_strength distinguished nothing and the
+// winner was decided by the order the rules appear in the file.
+//
 //nolint:gocyclo // Telemetry logging adds complexity, refactor planned for later
-func (r *RuleBasedResolver) Resolve(_ context.Context, in Input) (Result, error) {
-	normalizedBanner := strings.ToLower(in.Banner)
+type ruleCandidate struct {
+	rule       StaticRule
+	version    string
+	score      float64
+	confidence float64
+}
 
-	type candidate struct {
-		rule       StaticRule
-		version    string
-		confidence float64
-	}
-	cands := make([]candidate, 0, 8)
+// rankedCandidates returns every rule that matched, strongest first.
+//
+// Exposed to the package so a test can assert on the ranking itself rather than
+// only on the winner. A test that checks the winner alone cannot tell a rule
+// that won on merit from one that won because it is listed first.
+func (r *RuleBasedResolver) rankedCandidates(in Input) []ruleCandidate {
+	normalizedBanner := strings.ToLower(in.Banner)
+	cands := make([]ruleCandidate, 0, 8)
 
 	// Phase 1: Determine if we should try all rules (fallback mode)
 	// Fallback activates when protocol hint is generic (tcp/udp) or unknown
@@ -122,6 +137,8 @@ func (r *RuleBasedResolver) Resolve(_ context.Context, in Input) (Result, error)
 		}
 		// Base strength defaulted in prepareRules()
 		base := rule.PatternStrength
+		// Ranked on the unclamped score, reported on the clamped one.
+		score := base - softPenalty + portBonus
 		conf := calculateConfidence(base, softPenalty, portBonus)
 
 		// Threshold filter
@@ -132,8 +149,15 @@ func (r *RuleBasedResolver) Resolve(_ context.Context, in Input) (Result, error)
 			}
 			continue
 		}
-		cands = append(cands, candidate{rule: rule, version: version, confidence: conf})
+		cands = append(cands, ruleCandidate{rule: rule, version: version, score: score, confidence: conf})
 	}
+
+	sort.SliceStable(cands, func(i, j int) bool { return cands[i].score > cands[j].score })
+	return cands
+}
+
+func (r *RuleBasedResolver) Resolve(_ context.Context, in Input) (Result, error) {
+	cands := r.rankedCandidates(in)
 
 	if len(cands) == 0 {
 		// Log no match if telemetry is enabled
@@ -142,7 +166,6 @@ func (r *RuleBasedResolver) Resolve(_ context.Context, in Input) (Result, error)
 		}
 		return Result{}, fmt.Errorf("no matching rule found")
 	}
-	sort.SliceStable(cands, func(i, j int) bool { return cands[i].confidence > cands[j].confidence })
 	best := cands[0]
 
 	result := Result{
