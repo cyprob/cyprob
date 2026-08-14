@@ -543,6 +543,18 @@ true_positives:
     expected_version: ''
     description: 'Dovecot IMAP server'
 
+  # The greeting above advertises CAPABILITY, and that is the only IMAP shape
+  # the dataset carried. imap.generic has a second branch for servers that
+  # answer with a plain OK, that branch was dead for as long as it existed, and
+  # nothing here could see it. This case is the one that would have.
+  - protocol: imap
+    port: 143
+    banner: '* OK IMAP4rev1 Server ready'
+    expected_product: 'IMAP'
+    expected_vendor: 'Various'
+    expected_version: ''
+    description: 'Generic IMAP greeting without CAPABILITY'
+
   - protocol: smtp
     port: 25
     banner: '220 ESMTP Postfix (Ubuntu)'
