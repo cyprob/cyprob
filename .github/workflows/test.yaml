@@ -117,17 +117,21 @@ jobs:
     needs: test-unit
     strategy:
       matrix:
+        # The Go version is deliberately not a matrix dimension. GitHub appends
+        # matrix values to the job name, which makes them part of the status
+        # check's identity -- so a required check named after the Go version
+        # can never run again once the version changes, and every bump blocks
+        # itself with all checks green. See #248.
         os: [ubuntu-latest, macos-latest]
-        go-version: ['1.26.6']
 
     steps:
       - name: Check out code
         uses: actions/checkout@v4
 
-      - name: Set up Go ${{ matrix.go-version }}
+      - name: Set up Go ${{ env.GO_VERSION }}
         uses: actions/setup-go@v5
         with:
-          go-version: ${{ matrix.go-version }}
+          go-version: ${{ env.GO_VERSION }}
           check-latest: true
 
       - name: Set up pnpm
