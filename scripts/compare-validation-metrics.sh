@@ -29,6 +29,21 @@ percent_change() {
   awk -v b="$base" -v n="$new" 'BEGIN { printf("%.2f", ((n-b)/b)*100) }'
 }
 
+# percent_change emits the literal "0" only from its divide-by-zero path. Every
+# real metric goes through printf "%.2f" and arrives as "0.00", which a string
+# comparison against "0" does not match — so an unchanged metric fell through to
+# the regression branch and was labelled a regression while nothing had moved.
+#
+# Comparing numerically recognises an unchanged metric whatever it is formatted
+# as, including "-0.00". "inf" is rejected first: it is a sentinel, not a
+# number, and how awk reads it is implementation-defined — some parse it as
+# infinity, some as 0, and the second reading would label a metric that went
+# from nothing to something as unchanged.
+is_no_change() {
+  [[ "$1" == "inf" ]] && return 1
+  awk -v c="$1" 'BEGIN{exit !(c==0)}'
+}
+
 metrics=("False Positive Rate" "True Positive Rate" "Precision" "F1 Score")
 # Use name-mangled variables instead of associative arrays for macOS bash 3.2 compatibility
 for k in "${metrics[@]}"; do
@@ -70,12 +85,12 @@ for k in "${metrics[@]}"; do
   change=$(percent_change "$b" "$n")
   arrow="↑"; color="✅ Improved"; regressed=0
   # Neutral case: baseline==0 and pr==0
-  if [[ "$change" == "0" ]]; then
+  if is_no_change "$change"; then
     arrow="→"; color="OK"; regressed=0
   fi
   if [[ "$k" == "False Positive Rate" ]]; then
     # Lower is better
-    if [[ "$change" == "0" ]]; then
+    if is_no_change "$change"; then
       arrow="→"; color="OK"; regressed=0
     elif [[ "$change" == "inf" ]]; then
       arrow="↑"; color="❌ Regressed"; regressed=1
@@ -86,7 +101,7 @@ for k in "${metrics[@]}"; do
     fi
   else
     # Higher is better
-    if [[ "$change" == "0" ]]; then
+    if is_no_change "$change"; then
       arrow="→"; color="OK"; regressed=0
     elif [[ "$change" == "inf" ]]; then
       arrow="↑"; color="✅ Improved"; regressed=0
