@@ -646,7 +646,7 @@ rules:
     product: 'IMAP'
     vendor: 'Various'
     cpe: 'cpe:2.3:a:*:imap:*:*:*:*:*:*:*:*'
-    match: '\\*\\s+ok\\s+.*imap|capability.*imap4'
+    match: '\*\s+ok\s+.*imap|capability.*imap4'
     version_extraction: ''
 
     soft_exclude_patterns:
