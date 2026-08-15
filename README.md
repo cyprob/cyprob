@@ -1,13 +1,17 @@
-# Vulntor
+# Cyprob
 
-[![Go Report Card](https://goreportcard.com/badge/github.com/vulntor/vulntor)](https://goreportcard.com/report/github.com/vulntor/vulntor)
-[![Test](https://github.com/vulntor/vulntor/actions/workflows/test.yaml/badge.svg)](https://github.com/vulntor/vulntor/actions/workflows/test.yaml)
-![Coverage](https://img.shields.io/codecov/c/github/vulntor/vulntor)
+[![Go Report Card](https://goreportcard.com/badge/github.com/cyprob/cyprob)](https://goreportcard.com/report/github.com/cyprob/cyprob)
+[![Test](https://github.com/cyprob/cyprob/actions/workflows/test.yaml/badge.svg)](https://github.com/cyprob/cyprob/actions/workflows/test.yaml)
+![Coverage](https://img.shields.io/codecov/c/github/cyprob/cyprob)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](https://opensource.org/license/apache-2-0)
 
-> ⚠️ **Active Development Notice**: Vulntor is currently under active development and has not been released yet. APIs, CLI commands, and core features are subject to change. This project is not production-ready.
+> ⚠️ **Active Development Notice**: Cyprob is currently under active development and has not been released yet. APIs, CLI commands, and core features are subject to change. This project is not production-ready.
 
-**Vulntor** is a modular, high-performance security scanner that rapidly discovers network services, captures banners, and maps findings into vulnerability intelligence. Built with a powerful DAG-based execution engine, Vulntor enables security teams to perform comprehensive network assessments with precision and efficiency.
+**Cyprob** is a modular, high-performance security scanner that rapidly discovers network services, captures banners, and maps findings into vulnerability intelligence. Built with a powerful DAG-based execution engine, Cyprob enables security teams to perform comprehensive network assessments with precision and efficiency.
+
+Cyprob is the open core (Apache-2.0) of the Cyprob vulnerability scanning platform. It is built to run on your own infrastructure: you decide what to look for, control rules are written by you in YAML, and scan data stays inside your network. The commercial edition (EE) ships as an on-premises appliance; see [cyprob.io](https://cyprob.io) for the product side.
+
+> **Naming note:** the project was renamed from its former working name to Cyprob. The Go module is `github.com/cyprob/cyprob`; the CLI binary and the `cmd/vulntor/` directory still carry the old name until the code-side rename lands.
 
 ## ✨ Key Features
 
@@ -48,8 +52,8 @@
 
 ```bash
 # Clone the repository
-git clone https://github.com/vulntor/vulntor.git
-cd vulntor
+git clone https://github.com/cyprob/cyprob.git
+cd cyprob
 
 # Build the binary (outputs to dist/)
 make binary
@@ -90,7 +94,7 @@ vulntor storage get <scan-id>
 ### Server Mode
 
 ```bash
-# Start the Vulntor server
+# Start the Cyprob server
 vulntor server start --addr 0.0.0.0 --port 8080
 
 # Submit a scan via API
@@ -196,7 +200,7 @@ See [pkg/plugin/testdata/plugins/](pkg/plugin/testdata/plugins/) and [pkg/plugin
 ## 📂 Project Structure
 
 ```
-vulntor/
+cyprob/
 ├── cmd/vulntor/           # CLI entry point
 ├── pkg/
 │   ├── api/              # REST and gRPC API servers
@@ -225,7 +229,7 @@ vulntor/
 
 ## 🔧 Architecture
 
-Vulntor is built around several core concepts:
+Cyprob is built around several core concepts:
 
 ### DAG Execution Engine
 
@@ -257,7 +261,7 @@ All scan results are stored using the `pkg/storage` abstraction layer:
 
 ### Testing Strategy
 
-Vulntor uses a comprehensive testing approach:
+Cyprob uses a comprehensive testing approach:
 
 #### Unit Tests
 
@@ -292,7 +296,7 @@ Vulntor uses a comprehensive testing approach:
 - Unit tests run on every commit (fast feedback)
 - Integration tests run on PR events (comprehensive validation)
 
-## 🔌 Extending Vulntor
+## 🔌 Extending Cyprob
 
 ### Custom Parsers
 
@@ -394,7 +398,7 @@ React to scan events:
 ```go
 package main
 
-import "github.com/vulntor/vulntor/pkg/hook"
+import "github.com/cyprob/cyprob/pkg/hook"
 
 func init() {
     hook.Register("on_scan_complete", func(data interface{}) error {
@@ -408,14 +412,14 @@ func init() {
 
 For comprehensive documentation, visit:
 
-- **Documentation Site**: https://docs.vulntor (In Development)
+- **Documentation Site**: https://cyprob.io (dedicated docs site in development)
 - **Getting Started Guide**: [docs/getting-started/installation.md](docs/docs/getting-started/installation.md)
 - **CLI Reference**: [docs/cli/overview.md](docs/docs/cli/overview.md)
 - **Architecture Overview**: [docs/architecture/overview.md](docs/docs/architecture/overview.md)
 
 ## 🤝 Contributing
 
-We welcome contributions! Vulntor is in active development, and we're building the foundation for a powerful security scanning platform.
+We welcome contributions! Cyprob is in active development, and we're building the foundation for a powerful security scanning platform.
 
 Areas where we need help:
 
@@ -445,19 +449,19 @@ Licensed under the Apache License, Version 2.0. See [LICENSE.md](LICENSE.md) for
 
 ## 🔗 Links
 
-- **Website**: https://vulntor
-- **Documentation**: https://docs.vulntor
-- **GitHub**: https://github.com/vulntor/vulntor
-- **Issues**: https://github.com/vulntor/vulntor/issues
-- **Discussions**: https://github.com/vulntor/vulntor/discussions
+- **Website**: https://cyprob.io
+- **Documentation**: https://cyprob.io (dedicated docs site in development)
+- **GitHub**: https://github.com/cyprob/cyprob
+- **Issues**: https://github.com/cyprob/cyprob/issues
+- **Discussions**: https://github.com/cyprob/cyprob/discussions
 
 ---
 
-**Note**: Vulntor is under active development. Star the repository to stay updated on releases and new features!
+**Note**: Cyprob is under active development. Star the repository to stay updated on releases and new features!
 
 ## ValidationRunner Options (Fingerprint)
 
-Vulntor's fingerprint validation supports functional options to configure thresholds, parallelism, timeouts, and progress callbacks.
+Cyprob's fingerprint validation supports functional options to configure thresholds, parallelism, timeouts, and progress callbacks.
 
 Basic usage (defaults):
 
