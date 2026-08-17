@@ -91,7 +91,7 @@ func (a *App) Run(ctx context.Context) error {
 		Bool("api", a.Config.APIEnabled).
 		Bool("ui", a.Config.UIEnabled).
 		Bool("jobs", a.Config.JobsEnabled).
-		Msg("Starting Vulntor server")
+		Msg("Starting Cyprob server")
 
 	// Start HTTP server in goroutine
 	serverErr := make(chan error, 1)

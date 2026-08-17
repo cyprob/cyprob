@@ -95,7 +95,7 @@ type Service struct {
 // All options are optional - sensible defaults are used when not specified.
 //
 // Returns a fully configured service with defaults:
-//   - CacheManager for managing cached plugins (XDG cache: e.g., ~/.cache/vulntor/plugins/cache)
+//   - CacheManager for managing cached plugins (XDG cache: e.g., ~/.cache/cyprob/plugins/cache)
 //   - ManifestManager for tracking installed plugins
 //   - Default plugin sources (official repository)
 //   - Default logger (zerolog)
@@ -183,7 +183,7 @@ func NewService(opts ...ServiceOption) (*Service, error) {
 
 // defaultSources returns the default plugin sources.
 //
-// By default, we use the official Vulntor plugin repository with a GitHub mirror.
+// By default, we use the official Cyprob plugin repository with a GitHub mirror.
 func defaultSources() []PluginSource {
 	return []PluginSource{
 		{

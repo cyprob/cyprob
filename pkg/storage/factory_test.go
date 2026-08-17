@@ -27,7 +27,7 @@ func TestNewBackend_NoDefaultFactory(t *testing.T) {
 	DefaultFactory = nil
 
 	cfg := &Config{
-		WorkspaceRoot: "~/.local/share/vulntor",
+		WorkspaceRoot: "~/.local/share/cyprob",
 	}
 	_, err := NewBackend(context.Background(), cfg)
 	if err == nil {
@@ -47,7 +47,7 @@ func TestNewBackend_FactoryReturnsError(t *testing.T) {
 	}
 
 	cfg := &Config{
-		WorkspaceRoot: "~/.local/share/vulntor",
+		WorkspaceRoot: "~/.local/share/cyprob",
 	}
 	_, err := NewBackend(context.Background(), cfg)
 	if err == nil {
@@ -69,7 +69,7 @@ func TestNewBackend_PropagatesFactoryResult(t *testing.T) {
 	}
 
 	cfg := &Config{
-		WorkspaceRoot: "~/.local/share/vulntor",
+		WorkspaceRoot: "~/.local/share/cyprob",
 	}
 	b, err := NewBackend(context.Background(), cfg)
 	if err != nil {

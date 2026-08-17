@@ -56,7 +56,7 @@ const (
 
 // VulnerabilityFinding details a specific vulnerability found.
 type VulnerabilityFinding struct {
-	ID           string          `json:"id" yaml:"id"`                       // CVE ID, Vulntor Vuln ID, etc.
+	ID           string          `json:"id" yaml:"id"`                       // CVE ID, Cyprob Vuln ID, etc.
 	SourceModule string          `json:"source_module" yaml:"source_module"` // Which module instance found this
 	Summary      string          `json:"summary" yaml:"summary"`
 	Severity     FindingSeverity `json:"severity" yaml:"severity"`

@@ -197,11 +197,11 @@ func GetSuggestion(err error) string {
 
 	switch {
 	case errors.Is(err, ErrPluginNotFound):
-		return "list available plugins with: vulntor plugin list"
+		return "list available plugins with: cyprob plugin list"
 	case errors.Is(err, ErrPluginNotInstalled):
-		return "install the plugin first with: vulntor plugin install <name>"
+		return "install the plugin first with: cyprob plugin install <name>"
 	case errors.Is(err, ErrNoPluginsFound):
-		return "check plugin category and try: vulntor plugin update"
+		return "check plugin category and try: cyprob plugin update"
 	case errors.Is(err, ErrInvalidCategory):
 		return "valid categories: ssh, http, tls, database, network, misc"
 	case errors.Is(err, ErrInvalidPluginID):

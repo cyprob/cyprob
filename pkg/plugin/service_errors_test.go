@@ -200,17 +200,17 @@ func TestGetSuggestion(t *testing.T) {
 		{
 			name:     "ErrPluginNotFound suggests listing plugins",
 			err:      ErrPluginNotFound,
-			expected: "list available plugins with: vulntor plugin list",
+			expected: "list available plugins with: cyprob plugin list",
 		},
 		{
 			name:     "ErrPluginNotInstalled suggests installing",
 			err:      ErrPluginNotInstalled,
-			expected: "install the plugin first with: vulntor plugin install <name>",
+			expected: "install the plugin first with: cyprob plugin install <name>",
 		},
 		{
 			name:     "ErrNoPluginsFound suggests updating",
 			err:      ErrNoPluginsFound,
-			expected: "check plugin category and try: vulntor plugin update",
+			expected: "check plugin category and try: cyprob plugin update",
 		},
 		{
 			name:     "ErrInvalidCategory suggests valid categories",

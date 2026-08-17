@@ -12,7 +12,7 @@ import "slices"
 // ValidSources defines the allowed plugin source names.
 // These are the officially supported plugin repositories.
 var ValidSources = []string{
-	"official", // Official Pentora plugin repository (plugins.vulntor.io)
+	"official", // Official plugin repository (the actual endpoint is resolved via config, not this comment)
 	"github",   // GitHub mirror fallback
 }
 

@@ -55,9 +55,9 @@ type Config struct {
 
 	// WorkspaceRoot is the root directory for file-based storage (OSS).
 	// Default: Platform-specific (see DefaultWorkspaceRoot())
-	//   - Linux:   ~/.local/share/vulntor
-	//   - macOS:   ~/Library/Application Support/Vulntor
-	//   - Windows: %AppData%\Vulntor
+	//   - Linux:   ~/.local/share/cyprob
+	//   - macOS:   ~/Library/Application Support/Cyprob
+	//   - Windows: %AppData%\Cyprob
 	WorkspaceRoot string `yaml:"workspace_root" env:"VULNTOR_WORKSPACE"`
 
 	// Retention policy configuration (applies to both OSS and Enterprise)
@@ -131,36 +131,63 @@ func (c *Config) validateOSS() error {
 
 // DefaultWorkspaceRoot returns the default workspace root for the current platform.
 //
-// Linux:   ~/.local/share/vulntor
-// macOS:   ~/Library/Application Support/Vulntor
-// Windows: %AppData%\Vulntor
+// Linux:   ~/.local/share/cyprob
+// macOS:   ~/Library/Application Support/Cyprob
+// Windows: %AppData%\Cyprob
+//
+// One-release migration aid (#258): the module renamed from vulntor to cyprob,
+// and this path used to be named after the old one. An install that already
+// has scan history and config under the old path keeps using it, so upgrading
+// does not make existing data look like it vanished — it only silently starts
+// a fresh, empty workspace at the new path if that fallback isn't here. Remove
+// this once users have had a release to migrate; VULNTOR_WORKSPACE (the env
+// override) is untouched and still wins over both.
 func DefaultWorkspaceRoot() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("failed to get home directory: %w", err)
 	}
 
+	newPath := platformWorkspaceRoot(home, "Cyprob", "cyprob")
+	if !dirExists(newPath) {
+		oldPath := platformWorkspaceRoot(home, "Vulntor", "vulntor")
+		if dirExists(oldPath) {
+			return oldPath, nil
+		}
+	}
+	return newPath, nil
+}
+
+// platformWorkspaceRoot joins the platform-specific base directory with the
+// given app name. titled is used where the platform convention capitalizes
+// (macOS, Windows); lower is used for the XDG-style Linux/Unix path.
+func platformWorkspaceRoot(home, titled, lower string) string {
 	switch {
 	case isWindows():
-		// Windows: %AppData%\Vulntor
 		appData := os.Getenv("AppData")
 		if appData == "" {
 			appData = filepath.Join(home, "AppData", "Roaming")
 		}
-		return filepath.Join(appData, "Vulntor"), nil
+		return filepath.Join(appData, titled)
 
 	case isDarwin():
-		// macOS: ~/Library/Application Support/Vulntor
-		return filepath.Join(home, "Library", "Application Support", "Vulntor"), nil
+		return filepath.Join(home, "Library", "Application Support", titled)
 
 	default:
-		// Linux/Unix: ~/.local/share/vulntor
 		xdgData := os.Getenv("XDG_DATA_HOME")
 		if xdgData == "" {
 			xdgData = filepath.Join(home, ".local", "share")
 		}
-		return filepath.Join(xdgData, "vulntor"), nil
+		return filepath.Join(xdgData, lower)
 	}
+}
+
+// dirExists reports whether path exists and is a directory. A file at path is
+// not treated as existing here — DefaultWorkspaceRoot only wants an actual
+// prior workspace, not a stray file that happens to share the name.
+func dirExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
 }
 
 // DefaultConfig returns a configuration with default values.

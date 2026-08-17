@@ -1,4 +1,4 @@
-// Package storage provides a unified storage abstraction layer for Vulntor.
+// Package storage provides a unified storage abstraction layer for Cyprob.
 //
 // The storage package defines the Backend interface that abstracts storage
 // operations for both OSS (file-based) and Enterprise (PostgreSQL + S3) editions.

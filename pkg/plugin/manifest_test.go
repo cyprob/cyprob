@@ -465,7 +465,7 @@ func TestManifestManager_SetGetRegistryURL(t *testing.T) {
 	require.NoError(t, err)
 
 	// Set URL
-	testURL := "https://registry.vulntor.io/plugins"
+	testURL := "https://registry.cyprob.io/plugins"
 	err = mm.SetRegistryURL(testURL)
 	require.NoError(t, err)
 
@@ -529,7 +529,7 @@ func TestManifestManager_SaveAndLoad_RoundTrip(t *testing.T) {
 	err = mm1.Add(entry)
 	require.NoError(t, err)
 
-	err = mm1.SetRegistryURL("https://registry.vulntor.io")
+	err = mm1.SetRegistryURL("https://registry.cyprob.io")
 	require.NoError(t, err)
 
 	err = mm1.Save()
@@ -552,7 +552,7 @@ func TestManifestManager_SaveAndLoad_RoundTrip(t *testing.T) {
 
 	url, err := mm2.GetRegistryURL()
 	require.NoError(t, err)
-	require.Equal(t, "https://registry.vulntor.io", url)
+	require.Equal(t, "https://registry.cyprob.io", url)
 }
 
 func TestManifestManager_Add_AutoLoad(t *testing.T) {
@@ -896,7 +896,7 @@ func TestGetRegistryURL_AutoLoad(t *testing.T) {
 		Version:     "1.0",
 		LastUpdated: time.Now(),
 		Plugins:     make(map[string]*ManifestEntry),
-		RegistryURL: "https://registry.vulntor.io",
+		RegistryURL: "https://registry.cyprob.io",
 	}
 	data, err := json.MarshalIndent(manifest, "", "  ")
 	require.NoError(t, err)
@@ -911,7 +911,7 @@ func TestGetRegistryURL_AutoLoad(t *testing.T) {
 	// GetRegistryURL should auto-load
 	url, err := mm.GetRegistryURL()
 	require.NoError(t, err)
-	require.Equal(t, "https://registry.vulntor.io", url)
+	require.Equal(t, "https://registry.cyprob.io", url)
 	require.NotNil(t, mm.manifest) // Now loaded
 }
 
@@ -941,7 +941,7 @@ func TestSetRegistryURL_LoadError(t *testing.T) {
 	}
 
 	// SetRegistryURL should fail to load
-	err := mm.SetRegistryURL("https://registry.vulntor.io")
+	err := mm.SetRegistryURL("https://registry.cyprob.io")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "failed to load manifest")
 }

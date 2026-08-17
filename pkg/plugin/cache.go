@@ -15,9 +15,9 @@ import (
 )
 
 // CacheManager manages plugin download cache.
-// Default cache location: XDG cache dir (e.g., ~/.cache/vulntor/plugins/cache).
+// Default cache location: XDG cache dir (e.g., ~/.cache/cyprob/plugins/cache).
 type CacheManager struct {
-	// Base cache directory (e.g., ~/.cache/vulntor/plugins/cache/)
+	// Base cache directory (e.g., ~/.cache/cyprob/plugins/cache/)
 	cacheDir string
 
 	// Registry for tracking cached plugins

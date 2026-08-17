@@ -223,7 +223,7 @@ linters:
           - gochecknoinits # init() OK in main packages
 
       # Phase 4: CLI commands - fmt.Print* OK for user output
-      - path: cmd/vulntor/commands/
+      - path: cmd/cyprob/commands/
         linters:
           - forbidigo # CLI needs fmt.Print for user-facing output
 
@@ -301,7 +301,7 @@ linters:
           - gocyclo # Plugin validation checks many required fields
 
       # Phase 3: Moderate complexity - CLI commands (TODO: refactor in future)
-      - path: cmd/vulntor/commands/
+      - path: cmd/cyprob/commands/
         text: 'cyclomatic complexity (16|20|26|31) of func'
         linters:
           - gocyclo # CLI flag parsing and output formatting (refactor later)

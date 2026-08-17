@@ -1,4 +1,4 @@
-// Package deps provides dependency injection for the Vulntor server.
+// Package deps provides dependency injection for the Cyprob server.
 //
 // The Deps struct holds all dependencies required by server components
 // (HTTP handlers, API endpoints, job managers, etc.) and enables easy
