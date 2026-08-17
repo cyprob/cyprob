@@ -420,3 +420,47 @@ func TestICMPPingModuleFactory_ReturnsModule(t *testing.T) {
 		t.Errorf("Expected module Type '%s', got '%s'", engine.DiscoveryModuleType, meta.Type)
 	}
 }
+
+// TestICMPPingDiscoveryModule_Init_PrivilegedSurvivesCapabilityWithoutRoot
+// covers the case that made privileged ICMP unusable in production: a
+// non-root process that holds CAP_NET_RAW. The old check tested
+// os.Geteuid() != 0 and silently downgraded, so an appliance granted the
+// capability still logged "socket: permission denied" and sent zero packets.
+func TestICMPPingDiscoveryModule_Init_PrivilegedSurvivesCapabilityWithoutRoot(t *testing.T) {
+	original := canOpenRawICMPSocket
+	t.Cleanup(func() { canOpenRawICMPSocket = original })
+	canOpenRawICMPSocket = func() bool { return true }
+
+	mod := newICMPPingDiscoveryModule()
+	if err := mod.Init("instanceId", map[string]any{
+		"targets":    []string{"127.0.0.1"},
+		"privileged": true,
+	}); err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
+
+	if !mod.config.Privileged {
+		t.Error("privileged must stay enabled when a raw ICMP socket can be opened, even as a non-root process")
+	}
+}
+
+// TestICMPPingDiscoveryModule_Init_PrivilegedDowngradesWhenSocketUnavailable
+// keeps the protective half: when raw ICMP genuinely is not available, the
+// module must still fall back rather than attempt it and fail per-packet.
+func TestICMPPingDiscoveryModule_Init_PrivilegedDowngradesWhenSocketUnavailable(t *testing.T) {
+	original := canOpenRawICMPSocket
+	t.Cleanup(func() { canOpenRawICMPSocket = original })
+	canOpenRawICMPSocket = func() bool { return false }
+
+	mod := newICMPPingDiscoveryModule()
+	if err := mod.Init("instanceId", map[string]any{
+		"targets":    []string{"127.0.0.1"},
+		"privileged": true,
+	}); err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
+
+	if mod.config.Privileged {
+		t.Error("privileged must be downgraded when no raw ICMP socket can be opened")
+	}
+}
