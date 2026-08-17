@@ -56,8 +56,23 @@ var canOpenRawICMPSocket = func() bool {
 }
 
 // ICMPPingDiscoveryResult stores the outcome of the ping discovery.
+//
+// LiveHosts is every host this module found alive, by either route. Some of
+// them never answered an echo request: they are in the kernel neighbor table,
+// which is stronger evidence than an echo reply on a directly attached segment
+// (see appendARPConfirmedHosts). Those are listed again, on their own, in
+// ARPConfirmedHosts.
+//
+// The split exists because a caller that reports "ICMP found N hosts" from
+// LiveHosts alone states something false when the neighbor table supplied
+// them — a scan reported `icmp=1` after sending zero packets (cyprob-ee#141),
+// and that number is what an operator reads to answer "does ICMP work here".
+// A caller that only wants "who is alive" can keep using LiveHosts and ignore
+// this field.
 type ICMPPingDiscoveryResult struct {
 	LiveHosts []string `json:"live_hosts"`
+	// ARPConfirmedHosts is the subset of LiveHosts that did not answer ICMP.
+	ARPConfirmedHosts []string `json:"arp_confirmed_hosts,omitempty"`
 }
 
 // ICMPPingDiscoveryConfig holds configuration for the ICMP ping module.
@@ -416,9 +431,10 @@ func (m *ICMPPingDiscoveryModule) Execute(ctx context.Context, inputs map[string
 
 	wg.Wait()
 
-	liveHosts = appendARPConfirmedHosts(liveHosts, finalTargetsToScan, &logger)
+	icmpAnswered := len(liveHosts)
+	liveHosts, arpConfirmed := appendARPConfirmedHosts(liveHosts, finalTargetsToScan, &logger)
 
-	resultData := ICMPPingDiscoveryResult{LiveHosts: liveHosts}
+	resultData := ICMPPingDiscoveryResult{LiveHosts: liveHosts, ARPConfirmedHosts: arpConfirmed}
 	outputChan <- engine.ModuleOutput{
 		FromModuleName: m.meta.ID,
 		DataKey:        m.meta.Produces[0].Key, // "discovery.live_hosts"
@@ -426,7 +442,15 @@ func (m *ICMPPingDiscoveryModule) Execute(ctx context.Context, inputs map[string
 		Timestamp:      time.Now(),
 	}
 
-	logger.Info().Int("live_hosts_found", len(liveHosts)).Int("targets_processed", len(finalTargetsToScan)).Msg("ICMP Ping Discovery completed")
+	// icmp_answered is logged next to live_hosts_found because the two differ
+	// exactly when the neighbor table contributed, and reading the total as an
+	// ICMP result is the mistake this split exists to prevent.
+	logger.Info().
+		Int("live_hosts_found", len(liveHosts)).
+		Int("icmp_answered", icmpAnswered).
+		Int("arp_confirmed", len(arpConfirmed)).
+		Int("targets_processed", len(finalTargetsToScan)).
+		Msg("ICMP Ping Discovery completed")
 	return nil
 }
 
@@ -470,10 +494,14 @@ func (r *realPingerAdapter) GetTimeout() time.Duration   { return r.p.Timeout }
 //
 // This only ever adds hosts, and only ones that were asked for; an empty
 // neighbor table (remote segment, unsupported platform) changes nothing.
-func appendARPConfirmedHosts(liveHosts []string, targets []string, logger *zerolog.Logger) []string {
+//
+// It returns the combined list and, separately, just what it added, so the
+// caller can tell the two signals apart instead of reporting layer-2 evidence
+// as an ICMP reply (cyprob-ee#141).
+func appendARPConfirmedHosts(liveHosts []string, targets []string, logger *zerolog.Logger) (combined, arpConfirmed []string) {
 	neighbors := netutil.ARPTable()
 	if len(neighbors) == 0 {
-		return liveHosts
+		return liveHosts, nil
 	}
 
 	known := make(map[string]struct{}, len(neighbors))
@@ -485,7 +513,6 @@ func appendARPConfirmedHosts(liveHosts []string, targets []string, logger *zerol
 		already[host] = struct{}{}
 	}
 
-	added := 0
 	for _, target := range targets {
 		if _, seen := already[target]; seen {
 			continue
@@ -494,12 +521,13 @@ func appendARPConfirmedHosts(liveHosts []string, targets []string, logger *zerol
 			continue
 		}
 		liveHosts = append(liveHosts, target)
+		arpConfirmed = append(arpConfirmed, target)
 		already[target] = struct{}{}
-		added++
 	}
+	added := len(arpConfirmed)
 	if added > 0 && logger != nil {
 		logger.Info().Int("arp_confirmed_hosts", added).
 			Msg("Added hosts confirmed by the neighbor table that did not answer ICMP")
 	}
-	return liveHosts
+	return liveHosts, arpConfirmed
 }
