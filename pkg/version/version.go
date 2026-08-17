@@ -7,14 +7,14 @@ import (
 )
 
 // These variables are typically injected at build time using -ldflags
-// version holds the current version of vulntor. It is set at build time.
-// commit holds the current git commit hash of vulntor. It is set at build time.
-// buildDate holds the build date of vulntor in RFC3339 format. It is set at build time.
+// version holds the current version of cyprob. It is set at build time.
+// commit holds the current git commit hash of cyprob. It is set at build time.
+// buildDate holds the build date of cyprob in RFC3339 format. It is set at build time.
 // tag holds the git tag associated with the build. It is set at build time.
 var (
-	version   = "0.5.3"                // Version holds the current version of vulntor.
-	commit    = ""                     // Commit holds the current version commit of vulntor.
-	buildDate = "1970-01-01T00:00:00Z" // BuildDate holds the build date of vulntor.
+	version   = "0.5.3"                // Version holds the current version of cyprob.
+	commit    = ""                     // Commit holds the current version commit of cyprob.
+	buildDate = "1970-01-01T00:00:00Z" // BuildDate holds the build date of cyprob.
 	tag       = ""                     // Tag holds the git tag of the build.
 )
 

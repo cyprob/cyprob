@@ -105,7 +105,7 @@ type ModuleOutput struct {
 	Target string
 }
 
-// Module is the core interface that all functional units in Vulntor should implement.
+// Module is the core interface that all functional units in Cyprob should implement.
 type Module interface {
 	// Metadata returns descriptive information about the module.
 	Metadata() ModuleMetadata

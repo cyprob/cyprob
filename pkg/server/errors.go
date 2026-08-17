@@ -186,12 +186,12 @@ func Suggestions(err error) []string {
 	case errorCodeInvalidPort:
 		return []string{
 			"Use a port between 1 and 65535",
-			"Example:                 vulntor server start --port 8080",
+			"Example:                 cyprob server start --port 8080",
 		}
 	case errorCodeInvalidConcurrency:
 		return []string{
 			"Set jobs concurrency to at least 1",
-			"Example:                 vulntor server start --jobs-concurrency 4",
+			"Example:                 cyprob server start --jobs-concurrency 4",
 		}
 	case errorCodeFeaturesDisabled:
 		return []string{
@@ -200,7 +200,7 @@ func Suggestions(err error) []string {
 		}
 	case errorCodeConfigUnavailable:
 		return []string{
-			"Run via the vulntor CLI so AppManager initializes",
+			"Run via the cyprob CLI so AppManager initializes",
 			"Avoid calling server start from custom scripts without init",
 		}
 	case errorCodeInvalidConfig:
@@ -211,16 +211,16 @@ func Suggestions(err error) []string {
 	case errorCodeStorageInitFailed:
 		return []string{
 			"Verify storage directory permissions",
-			"Override storage root:     vulntor server start --storage-dir <path>",
+			"Override storage root:     cyprob server start --storage-dir <path>",
 		}
 	case errorCodePluginInitFailed:
 		return []string{
 			"Check plugin cache directory access",
-			"Retry after running:      vulntor plugin clean",
+			"Retry after running:      cyprob plugin clean",
 		}
 	case errorCodeAppInitFailed:
 		return []string{
-			"Retry with verbose logging: vulntor server start --verbose",
+			"Retry with verbose logging: cyprob server start --verbose",
 			"Review configuration for invalid values",
 		}
 	case errorCodeRuntimeFailed:

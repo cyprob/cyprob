@@ -21,7 +21,7 @@ import (
 //
 // Built-in sources and their priorities:
 //   - DefaultSource (10): Hardcoded default values
-//   - FileSource (20): Config file (e.g., ~/.config/vulntor/config.yaml)
+//   - FileSource (20): Config file (e.g., ~/.config/cyprob/config.yaml)
 //   - EnvSource (30): Environment variables (VULNTOR_*)
 //   - FlagSource (40): Command-line flags
 //

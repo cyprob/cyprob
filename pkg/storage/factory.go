@@ -46,7 +46,7 @@ var DefaultFactory Factory
 // Example (OSS):
 //
 //	cfg := &storage.Config{
-//	    WorkspaceRoot: "~/.local/share/vulntor",
+//	    WorkspaceRoot: "~/.local/share/cyprob",
 //	}
 //	backend, err := storage.NewBackend(ctx, cfg)
 //	if err != nil {
@@ -57,8 +57,8 @@ var DefaultFactory Factory
 // Example (Enterprise):
 //
 //	cfg := &storage.Config{
-//	    DatabaseURL: "postgresql://vulntor:password@localhost:5432/vulntor",
-//	    S3Bucket:    "vulntor-scans",
+//	    DatabaseURL: "postgresql://cyprob:password@localhost:5432/cyprob",
+//	    S3Bucket:    "cyprob-scans",
 //	    S3Region:    "us-west-2",
 //	}
 //	backend, err := storage.NewBackend(ctx, cfg)

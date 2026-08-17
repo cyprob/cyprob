@@ -928,7 +928,7 @@ func TCPPortDiscoveryModuleFactory() engine.Module {
 }
 
 func init() {
-	// Register the module factory with Vulntor's core module registry.
+	// Register the module factory with Cyprob's core module registry.
 	// The name "tcp-port-discovery" will be used in DAG definitions to instantiate this module.
 	engine.RegisterModuleFactory(tcpPortDiscoveryModuleTypeName, TCPPortDiscoveryModuleFactory)
 }

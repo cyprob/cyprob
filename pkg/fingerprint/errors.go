@@ -139,7 +139,7 @@ func Suggestions(err error) []string {
 	case errorCodeSourceRequired:
 		return []string{
 			"Provide a source:          --file <path> or --url <address>",
-			"Example:                   vulntor fingerprint sync --url https://example/catalog.yaml",
+			"Example:                   cyprob fingerprint sync --url https://example/catalog.yaml",
 		}
 	case errorCodeSourceConflict:
 		return []string{
@@ -148,7 +148,7 @@ func Suggestions(err error) []string {
 		}
 	case errorCodeStorageDisabled:
 		return []string{
-			"Set cache directory:       vulntor fingerprint sync --cache-dir <path>",
+			"Set cache directory:       cyprob fingerprint sync --cache-dir <path>",
 			"Enable storage via CLI root command",
 		}
 	case errorCodeSyncFailed:

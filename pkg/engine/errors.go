@@ -180,7 +180,7 @@ func Suggestions(err error) []string {
 		}
 	case errorCodeInvalidDAG:
 		return []string{
-			"Run vulntor dag validate on the export output",
+			"Run cyprob dag validate on the export output",
 			"Fix reported validation errors before exporting again",
 		}
 	default:

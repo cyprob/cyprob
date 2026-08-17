@@ -36,12 +36,12 @@ type serviceOptions struct {
 
 // WithCacheDir sets the plugin cache directory.
 //
-// Default: XDG cache (e.g., ~/.cache/vulntor/plugins/cache on Linux/macOS, %LocalAppData%/Vulntor/Cache/plugins/cache on Windows)
+// Default: XDG cache (e.g., ~/.cache/cyprob/plugins/cache on Linux/macOS, %LocalAppData%/Cyprob/Cache/plugins/cache on Windows)
 //
 // Example:
 //
 //	svc, err := plugin.NewService(
-//	    plugin.WithCacheDir("/var/cache/vulntor/plugins"),
+//	    plugin.WithCacheDir("/var/cache/cyprob/plugins"),
 //	)
 func WithCacheDir(dir string) ServiceOption {
 	return func(opts *serviceOptions) {
@@ -108,7 +108,7 @@ func WithStorage(backend storage.Backend) ServiceOption {
 //
 // This allows using alternative plugin repositories or mirrors.
 //
-// Default: Official Vulntor plugin repository
+// Default: Official Cyprob plugin repository
 //
 // Note: This is different from downloader.WithSources() which configures
 // the downloader component. This option configures the service-level sources.

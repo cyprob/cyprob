@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"os"
 
-	vulntorCli "github.com/cyprob/cyprob/cmd/vulntor/commands"
+	cli "github.com/cyprob/cyprob/cmd/cyprob/commands"
 	"github.com/cyprob/cyprob/pkg/plugin"
 )
 
 // main initializes the CLI application by determining the executable name and selecting
 // the appropriate command to execute. It checks the executable name from the environment
-// or the current process, then switches between available CLI commands (vulntor or vulntor-server).
+// or the current process, then switches between available CLI commands (cyprob or cyprob-server).
 // If the command execution fails, the application exits with an appropriate status code based on error type.
 //
 // Exit codes (as defined in ADR-0001):
@@ -22,7 +22,7 @@ import (
 //   - 7: Service unavailable (plugin errors: ErrSourceNotAvailable, ErrUnavailable)
 //   - 8: Partial failure (plugin errors: ErrPartialFailure)
 func main() {
-	command := vulntorCli.NewCommand()
+	command := cli.NewCommand()
 
 	err := command.Execute()
 	if err != nil {
@@ -30,7 +30,7 @@ func main() {
 		// not stated twice. Everything it has NOT shown — an unknown flag, a
 		// wrong argument count, a bad config file — is printed here, otherwise
 		// the process would exit non-zero saying nothing at all.
-		if !vulntorCli.IsAlreadyReported(err) {
+		if !cli.IsAlreadyReported(err) {
 			fmt.Fprintln(os.Stderr, "Error:", err)
 		}
 		// Determine exit code based on error type

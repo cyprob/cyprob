@@ -454,7 +454,7 @@ func (p *DAGPlanner) matchesTags(moduleTags, includeTags, excludeTags []string) 
 // default schema and overrides from the scan intent and config file.
 // Configuration precedence (highest to lowest):
 // 1. Intent-specific overrides (from CLI flags)
-// 2. Config file values (from vulntor.yaml modules.* section)
+// 2. Config file values (from cyprob.yaml modules.* section)
 // 3. Module default values (from module schema)
 func (p *DAGPlanner) configureModule(meta ModuleMetadata, intent ScanIntent) map[string]any {
 	cfg := make(map[string]any)

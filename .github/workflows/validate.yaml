@@ -122,11 +122,11 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           check-latest: true
 
-      - name: Build vulntor CLI
-        run: go build -o dist/vulntor ./cmd
+      - name: Build cyprob CLI
+        run: go build -o dist/cyprob ./cmd
 
       - name: Validate fingerprint_db.yaml
-        run: ./dist/vulntor fingerprint validate pkg/fingerprint/data/fingerprint_db.yaml
+        run: ./dist/cyprob fingerprint validate pkg/fingerprint/data/fingerprint_db.yaml
 
   error-handling:
     name: Error Handling Standards (${{ matrix.target }})
@@ -138,26 +138,26 @@ jobs:
         include:
           # Plugin commands (REQUIRED - enforced)
           - target: plugin
-            path: cmd/vulntor/commands/plugin
+            path: cmd/cyprob/commands/plugin
             pattern: 'return\s+formatter\.PrintError\s*\('
             suggestion: 'Use formatter.PrintTotalFailureSummary(operation, err, plugin.ErrorCode(err))'
             required: true
 
           # Future targets (NOT YET ENFORCED - will be enabled as standards are defined)
           # - target: scan
-          #   path: cmd/vulntor/commands/scan
+          #   path: cmd/cyprob/commands/scan
           #   pattern: 'return\s+formatter\.PrintError\s*\('
           #   suggestion: 'Use standardized error wrapper (TBD)'
           #   required: false
           #
           # - target: storage
-          #   path: cmd/vulntor/commands/storage
+          #   path: cmd/cyprob/commands/storage
           #   pattern: 'return\s+formatter\.PrintError\s*\('
           #   suggestion: 'Use standardized error wrapper (TBD)'
           #   required: false
           #
           # - target: server
-          #   path: cmd/vulntor/commands/server
+          #   path: cmd/cyprob/commands/server
           #   pattern: 'return\s+formatter\.PrintError\s*\('
           #   suggestion: 'Use standardized error wrapper (TBD)'
           #   required: false

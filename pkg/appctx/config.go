@@ -8,7 +8,7 @@ import (
 
 type key string
 
-const configKey key = "vulntor.config.manager"
+const configKey key = "cyprob.config.manager"
 
 // WithConfig stores the shared config manager on context.
 func WithConfig(ctx context.Context, manager *config.Manager) context.Context {
