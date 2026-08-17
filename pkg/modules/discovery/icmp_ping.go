@@ -24,6 +24,37 @@ import (
 	"github.com/cyprob/cyprob/pkg/output"
 )
 
+// canOpenRawICMPSocket reports whether this process can actually send raw
+// ICMP, by attempting the thing itself rather than inferring it from identity.
+//
+// Being root is sufficient but not necessary: a process granted CAP_NET_RAW —
+// via setcap on the binary, or AmbientCapabilities on a systemd unit — can
+// open the socket while running as an ordinary user, which is how a scanner
+// should be deployed. Testing `os.Geteuid() != 0` misses that case entirely
+// and silently downgrades to unprivileged ping, which then fails on any host
+// where net.ipv4.ping_group_range excludes the running group (the default on
+// Ubuntu, where the range ships as "1 0" — an empty set).
+//
+// The failure that produced this check: an appliance with CAP_NET_RAW granted
+// still logged "socket: permission denied" for every target and reported
+// sent=0, because the module had already turned privileged mode off before
+// the first packet.
+// Indirected so tests can drive both branches without depending on whether
+// the test process happens to be root or hold CAP_NET_RAW.
+var canOpenRawICMPSocket = func() bool {
+	if os.Geteuid() == 0 {
+		return true
+	}
+	c, err := net.ListenPacket("ip4:icmp", "0.0.0.0")
+	if err != nil {
+		return false
+	}
+	if closeErr := c.Close(); closeErr != nil {
+		log.Debug().Err(closeErr).Msg("closing ICMP capability probe socket")
+	}
+	return true
+}
+
 // ICMPPingDiscoveryResult stores the outcome of the ping discovery.
 type ICMPPingDiscoveryResult struct {
 	LiveHosts []string `json:"live_hosts"`
@@ -204,8 +235,8 @@ func (m *ICMPPingDiscoveryModule) Init(instanceID string, configMap map[string]a
 
 	// Handle privileged mode warning/downgrade for non-Windows OS
 	if cfg.Privileged && runtime.GOOS != "windows" {
-		if os.Geteuid() != 0 {
-			log.Warn().Msgf("Module '%s': Privileged ping requested, but process is not running as root. Falling back to unprivileged ping.", m.meta.Name)
+		if !canOpenRawICMPSocket() {
+			log.Warn().Msgf("Module '%s': Privileged ping requested, but this process cannot open a raw ICMP socket (not root and no CAP_NET_RAW). Falling back to unprivileged ping.", m.meta.Name)
 			cfg.Privileged = false
 		}
 	} else if cfg.Privileged && runtime.GOOS == "windows" {
