@@ -10,10 +10,30 @@ import (
 // Groups can map to protocol families (HTTP, SMTP, etc.) and expose one or more probe
 // definitions that should be attempted when their match conditions are satisfied.
 // FallbackProbeIDs lists probe IDs to try when no port-specific probes match (Phase 1.5).
+// NeverProbePorts extends the built-in print-port floor; it can add ports but
+// never remove one, because a catalog shipped from outside this binary is not
+// allowed to re-enable printing.
 type ProbeCatalog struct {
 	Groups           []ProbeGroup `yaml:"groups" json:"groups"`
 	FallbackProbeIDs []string     `yaml:"fallback_probes,omitempty" json:"fallback_probes,omitempty"`
+	NeverProbePorts  []int        `yaml:"never_probe_ports,omitempty" json:"never_probe_ports,omitempty"`
 }
+
+// printPorts carry no request/response protocol: the listener treats whatever
+// arrives as a job and puts it on paper. A probe payload is therefore not a
+// question the service can decline — it is a printed page, produced by the act
+// of asking. Reported from the field with the pages in hand (cyprob#268): an
+// office sweep printed our own `GET / HTTP/1.1` header block on a JetDirect
+// device, followed by a second sheet of binary.
+//
+// 9100 is raw JetDirect and 9101/9102 are its multi-port variants; 515 is LPD,
+// which spools what it is given. TCP connect and any read still work — this
+// only forbids sending bytes.
+//
+// The floor lives in code rather than in probes.yaml because the catalog can be
+// replaced at runtime from a cache directory (WarmProbeCatalogWithExternal): a
+// stale or hand-edited catalog must not be able to start printing again.
+var printPorts = []int{515, 9100, 9101, 9102}
 
 // ProbeGroup describes a family of probes sharing similar trigger conditions.
 type ProbeGroup struct {
@@ -48,6 +68,10 @@ func (c *ProbeCatalog) ProbesFor(port int, hints []string) []ProbeSpec {
 		return nil
 	}
 
+	if c.payloadForbidden(port) {
+		return nil
+	}
+
 	normalizedHints := normalizeHints(hints)
 	out := make([]ProbeSpec, 0)
 
@@ -77,6 +101,13 @@ func (c *ProbeCatalog) FallbackProbes() []ProbeSpec {
 // existing hints already point at that protocol family.
 func (c *ProbeCatalog) FallbackProbesFor(port int, hints []string) []ProbeSpec {
 	if c == nil || len(c.FallbackProbeIDs) == 0 {
+		return nil
+	}
+
+	// The fallback set exists precisely for ports the catalog does not describe,
+	// so it is the path that reaches a print port — including the TLS retry
+	// added in #267, which draws its probes from here.
+	if c.payloadForbidden(port) {
 		return nil
 	}
 
@@ -130,6 +161,20 @@ func (g ProbeGroup) matches(port int, hints map[string]struct{}) bool {
 		}
 	}
 	return false
+}
+
+// payloadForbidden reports whether sending anything to this port would produce
+// physical output rather than a reply. Port 0 means "no port in hand" — the
+// legacy unfiltered fallback set asks that way — and cannot be judged, so it is
+// allowed through unchanged.
+func (c *ProbeCatalog) payloadForbidden(port int) bool {
+	if port <= 0 {
+		return false
+	}
+	if containsInt(printPorts, port) {
+		return true
+	}
+	return c != nil && containsInt(c.NeverProbePorts, port)
 }
 
 func (p ProbeSpec) allowsPort(port int) bool {

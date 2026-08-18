@@ -168,3 +168,92 @@ func TestProbeCatalog_Validate_Errors(t *testing.T) {
 		t.Fatalf("expected probe missing payload error")
 	}
 }
+
+// A print port answers a payload with paper, so no probe may be selected for
+// one — not by port hint, not by protocol hint, not through the fallback set
+// (cyprob#268).
+func TestProbeCatalog_PrintPortsSelectNoProbe(t *testing.T) {
+	catalog := ProbeCatalog{
+		Groups: []ProbeGroup{{
+			ID:            "g1",
+			PortHints:     []int{9100},
+			ProtocolHints: []string{"http"},
+			Probes:        []ProbeSpec{{ID: "p1", Protocol: "tcp", Payload: "X"}},
+		}},
+		FallbackProbeIDs: []string{"p1"},
+	}
+
+	for _, port := range []int{515, 9100, 9101, 9102} {
+		if out := catalog.ProbesFor(port, []string{"http"}); len(out) != 0 {
+			t.Fatalf("port %d selected %d probes; a payload here prints", port, len(out))
+		}
+		if out := catalog.FallbackProbesFor(port, []string{"http"}); len(out) != 0 {
+			t.Fatalf("port %d selected %d fallback probes; a payload here prints", port, len(out))
+		}
+	}
+
+	// A neighbouring port is untouched: the guard is about these ports, not
+	// about the probes.
+	if out := catalog.ProbesFor(9103, []string{"http"}); len(out) != 0 {
+		t.Fatalf("9103 is not a print port and has no group; got %#v", out)
+	}
+	if out := catalog.FallbackProbesFor(9103, []string{"http"}); len(out) != 1 {
+		t.Fatalf("expected the fallback set on a non-print port, got %#v", out)
+	}
+}
+
+// The floor is not data: a catalog loaded from outside the binary may add
+// ports and may not drop one.
+func TestProbeCatalog_NeverProbePortsExtendsButCannotShrink(t *testing.T) {
+	catalog := ProbeCatalog{
+		Groups: []ProbeGroup{{
+			ID:        "g1",
+			PortHints: []int{9100, 9200},
+			Probes:    []ProbeSpec{{ID: "p1", Protocol: "tcp", Payload: "X"}},
+		}},
+		FallbackProbeIDs: []string{"p1"},
+		NeverProbePorts:  []int{9200},
+	}
+
+	if out := catalog.ProbesFor(9200, nil); len(out) != 0 {
+		t.Fatalf("never_probe_ports did not take effect: %#v", out)
+	}
+	if out := catalog.ProbesFor(9100, nil); len(out) != 0 {
+		t.Fatalf("a catalog that omits 9100 must not re-enable it: %#v", out)
+	}
+}
+
+// FallbackProbes() asks with no port at all; it predates this guard and must
+// keep returning the legacy set rather than nothing.
+func TestProbeCatalog_UnportedFallbackIsUnaffected(t *testing.T) {
+	catalog := ProbeCatalog{
+		Groups:           []ProbeGroup{{ID: "g1", Probes: []ProbeSpec{{ID: "p1", Protocol: "tcp", Payload: "X"}}}},
+		FallbackProbeIDs: []string{"p1"},
+	}
+
+	if out := catalog.FallbackProbes(); len(out) != 1 {
+		t.Fatalf("expected the legacy unfiltered set, got %#v", out)
+	}
+}
+
+// The shipped catalog, not a hand-built one.
+func TestProbeCatalog_EmbeddedCatalogRefusesPrintPorts(t *testing.T) {
+	catalog, err := GetProbeCatalog()
+	if err != nil {
+		t.Fatalf("probe catalog: %v", err)
+	}
+
+	for _, port := range []int{515, 9100, 9101, 9102} {
+		if out := catalog.ProbesFor(port, []string{"http", "web"}); len(out) != 0 {
+			t.Fatalf("shipped catalog selects %d probes on %d", len(out), port)
+		}
+		if out := catalog.FallbackProbesFor(port, []string{"http", "web"}); len(out) != 0 {
+			t.Fatalf("shipped catalog selects %d fallback probes on %d", len(out), port)
+		}
+	}
+
+	// Control: the fallback set is still reachable on an unlisted, harmless port.
+	if out := catalog.FallbackProbesFor(2096, nil); len(out) == 0 {
+		t.Fatal("fallback probes disappeared on a non-print port")
+	}
+}
