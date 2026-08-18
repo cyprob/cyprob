@@ -130,7 +130,7 @@ func TestRunTLSFallbackPass_SkipsProbesAlreadyAttempted(t *testing.T) {
 	}
 }
 
-// A cancelled context must stop the pass before it dials.
+// A canceled context must stop the pass before it dials.
 func TestRunTLSFallbackPass_HonoursContextCancellation(t *testing.T) {
 	host, port, closeServer := tlsTestTarget(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
