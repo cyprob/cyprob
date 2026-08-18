@@ -308,6 +308,14 @@ true_positives:
     expected_version: '8.1'
     description: 'OpenSSH 8.1'
 
+  - protocol: http
+    port: 5900
+    banner: "HTTP/1.0 200 \r\nserver: libwebsockets\r\ncontent-type: text/html\r\ncontent-length: 2524\r\nx-frame-options: SAMEORIGIN"
+    expected_product: 'libwebsockets'
+    expected_vendor: 'Warmcat'
+    expected_version: ''
+    description: 'libwebsockets server on the conventional VNC port, previously unmatched (cyprob-ee#157)'
+
   # FTP Servers (10 cases)
   - protocol: ftp
     port: 21
@@ -635,6 +643,14 @@ true_positives:
     expected_vendor: 'RealVNC'
     expected_version: '3.7'
     description: 'VNC protocol 3.7'
+
+  - protocol: tcp
+    port: 902
+    banner: '220 VMware Authentication Daemon Version 1.10: SSL Required, ServerDaemonProtocol:SOAP, MKSDisplayProtocol:VNC , VMXARGS supported, NFCSSL supported/t, SHA256 supported'
+    expected_product: 'ESXi'
+    expected_vendor: 'VMware'
+    expected_version: '1.10'
+    description: 'ESXi authd on 902, whose MKSDisplayProtocol:VNC capability line used to win vnc.realvnc (cyprob#265)'
 
   - protocol: telnet
     port: 23

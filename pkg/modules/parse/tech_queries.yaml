@@ -239,3 +239,30 @@ rules:
   - name: "Dovecot"
     part: "body"
     regex: "(?i)dovecot"
+
+  # Network Management / Monitoring (cyprob-ee#153 - confirmed-present, previously untagged)
+  - name: "ntopng"
+    part: "body"
+    regex: "(?i)Server:\\s*ntopng"
+  - name: "ClickHouse"
+    part: "body"
+    regex: "(?i)clickhouse-client program"
+  - name: "WSDAPI"
+    part: "body"
+    regex: "(?i)Server:\\s*Microsoft-HTTPAPI"
+  - name: "MSRPC"
+    part: "body"
+    regex: "(?i)ncacn_http"
+  - name: "HP_Printer"
+    part: "body"
+    regex: "(?i)Virata-EmWeb"
+  - name: "NethServer"
+    part: "body"
+    regex: "(?i)NEThServer"
+  # The signal here is only "this port requires TLS" (a stock mod_ssl bounce
+  # page, no vendor string) - not a specific product. See cyprob-ee#112 for
+  # the actual identification of these two firewall consoles, blocked on the
+  # TLS probe never being pointed at non-standard ports.
+  - name: "TLS"
+    part: "body"
+    regex: "(?i)SSL-enabled server port"
