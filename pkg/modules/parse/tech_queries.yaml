@@ -247,15 +247,28 @@ rules:
   - name: "ClickHouse"
     part: "body"
     regex: "(?i)clickhouse-client program"
+  # Microsoft-HTTPAPI/2.0 alone is not specific to WSDAPI - WinRM (fingerprint
+  # rule http.winrm) serves the identical header. That rule tells the two
+  # apart by requiring wsman/soap+xml/Negotiate alongside the header; this
+  # engine has no exclude/lookahead support (RE2), so instead this requires
+  # the co-occurring signal actually captured on the wire - a 503 from an
+  # idle WSDAPI listener, which a live WinRM endpoint (200/401, SOAP body)
+  # does not produce. Caught by Talos reviewing cyprob#266 (f65177d): the
+  # unqualified version tagged a real WinRM banner as wsdapi.
   - name: "WSDAPI"
     part: "body"
-    regex: "(?i)Server:\\s*Microsoft-HTTPAPI"
+    regex: "(?i)(?:503 service unavailable[\\s\\S]*?server:\\s*microsoft-httpapi|server:\\s*microsoft-httpapi[\\s\\S]*?503 service unavailable)"
   - name: "MSRPC"
     part: "body"
     regex: "(?i)ncacn_http"
+  # Virata-EmWeb (also shipped as Intoto EmWeb) is a generic embedded-device
+  # web server used well beyond HP - the vendor-specific signal is the page
+  # naming an HP product, not the server header alone (flagged by Talos on
+  # cyprob#266, non-blocking; tightened while in the file for the same reason
+  # as the WSDAPI fix above).
   - name: "HP_Printer"
     part: "body"
-    regex: "(?i)Virata-EmWeb"
+    regex: "(?i)Virata-EmWeb[\\s\\S]*?\\bhp\\b|\\bhp\\b[\\s\\S]*?Virata-EmWeb"
   - name: "NethServer"
     part: "body"
     regex: "(?i)NEThServer"

@@ -140,6 +140,41 @@ func TestGenerateTags_153_ConfirmedPresentSignals(t *testing.T) {
 	}
 }
 
+// TestGenerateTags_153_DoesNotCollideWithNeighboringSignatures pins two
+// false positives Talos found reviewing cyprob#266 (f65177d): the
+// unqualified WSDAPI rule matched a real WinRM banner (same
+// Microsoft-HTTPAPI/2.0 header, different product), and the unqualified
+// HP_Printer rule would match any Virata-EmWeb device, a generic embedded
+// web server used well beyond HP.
+func TestGenerateTags_153_DoesNotCollideWithNeighboringSignatures(t *testing.T) {
+	mod := newTechTaggerModule()
+
+	cases := []struct {
+		name    string
+		banner  string
+		wantNot string
+	}{
+		{
+			name:    "WinRM shares Microsoft-HTTPAPI/2.0 with WSDAPI but is not it",
+			banner:  "HTTP/1.1 401 Unauthorized\r\nContent-Type: application/soap+xml;charset=UTF-8\r\nServer: Microsoft-HTTPAPI/2.0\r\nWWW-Authenticate: Negotiate",
+			wantNot: "wsdapi",
+		},
+		{
+			name:    "non-HP embedded device on Virata-EmWeb is not an HP printer",
+			banner:  "HTTP/1.1 200 OK\r\nServer: Virata-EmWeb/R6_2_1\r\n\r\n<title>Acme Widget Configuration</title>",
+			wantNot: "hp_printer",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			data := mockTargetData("10.20.30.1", 1, "", tc.banner, nil)
+			tags := mod.generateTags(data)
+			assert.NotContains(t, tags, tc.wantNot)
+		})
+	}
+}
+
 func TestExecute_EndToEnd(t *testing.T) {
 	mod := newTechTaggerModule()
 
