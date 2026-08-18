@@ -192,7 +192,7 @@ func TestProbeCatalog_PrintPortsSelectNoProbe(t *testing.T) {
 		}
 	}
 
-	// A neighbouring port is untouched: the guard is about these ports, not
+	// A neighboring port is untouched: the guard is about these ports, not
 	// about the probes.
 	if out := catalog.ProbesFor(9103, []string{"http"}); len(out) != 0 {
 		t.Fatalf("9103 is not a print port and has no group; got %#v", out)
