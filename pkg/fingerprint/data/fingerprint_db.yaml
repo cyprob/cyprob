@@ -156,6 +156,25 @@ rules:
     pattern_strength: 0.92
     port_bonuses: [80, 443]
 
+  - id: 'http.libwebsockets'
+    protocol: 'http'
+    description: 'libwebsockets embedded HTTP/WebSocket server banner'
+    product: 'libwebsockets'
+    vendor: 'Warmcat'
+    cpe: 'cpe:2.3:a:warmcat:libwebsockets:*:*:*:*:*:*:*:*'
+    match: 'server:\s*libwebsockets'
+
+    exclude_patterns:
+      - "apache"
+      - "nginx"
+
+    soft_exclude_patterns:
+      - "error"
+      - "forbidden"
+      - "unavailable"
+
+    pattern_strength: 0.85
+
   # FTP Servers
   - id: 'ftp.pureftpd'
     protocol: 'ftp'
@@ -744,6 +763,23 @@ rules:
 
     pattern_strength: 0.88
     port_bonuses: [3389]
+
+  - id: 'vmware.esxi-auth-daemon'
+    protocol: 'vmware-auth'
+    description: 'VMware ESXi/vCenter authentication daemon banner'
+    product: 'ESXi'
+    vendor: 'VMware'
+    cpe: 'cpe:2.3:o:vmware:esxi:*:*:*:*:*:*:*:*'
+    match: '^220 vmware authentication daemon'
+    version_extraction: "daemon version\\s+([\\d\\.]+)"
+
+    soft_exclude_patterns:
+      - "error"
+      - "denied"
+      - "unavailable"
+
+    pattern_strength: 0.95
+    port_bonuses: [902]
 
   - id: 'vnc.realvnc'
     protocol: 'vnc'
