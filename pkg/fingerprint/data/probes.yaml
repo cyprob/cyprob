@@ -1,6 +1,13 @@
 # Built-in probe catalog for banner grabbing.
 # Phase 1.5: Fallback probes for non-standard ports (e.g., HTTP on 2096, MySQL on 3210)
 # These probes are tried when no port-specific probes match AND passive banner is empty/timeout.
+# Ports where a payload becomes a printed page (515 LPD, 9100-9102 JetDirect)
+# are refused in code, not here, so that a catalog loaded from a cache
+# directory cannot re-enable them - see printPorts in probe_catalog.go.
+# never_probe_ports below adds to that floor; it cannot shrink it.
+#
+# never_probe_ports: [4000]
+
 fallback_probes:
   - http-get      # Most common: web services on unusual ports (cPanel, proxies, etc.)
   - https-get     # HTTPS fallback
