@@ -2,6 +2,7 @@ package scan
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"strconv"
 	"sync/atomic"
@@ -78,5 +79,52 @@ func TestRunActiveProbes_SendsNothingToAPrintPort(t *testing.T) {
 	}
 	if len(observations) != 0 {
 		t.Fatalf("expected no probe observations on a print port, got %d", len(observations))
+	}
+}
+
+// The bypass Talos found reviewing cyprob#270: probe selection is not the only
+// path that writes. A same-host, same-scheme redirect naming a print port
+// passes every other check in resolveRedirectRequest, and following it puts a
+// request — or a TLS ClientHello — on the wire.
+func TestResolveRedirectRequest_RefusesAPrintPort(t *testing.T) {
+	for _, port := range []int{515, 9100, 9101, 9102} {
+		req := resolveRedirectRequest("https", "10.0.0.1", 8443, "/",
+			fmt.Sprintf("https://10.0.0.1:%d/", port), 1)
+		if req.SkipError != "redirect_print_port_blocked" {
+			t.Fatalf("port %d: expected the redirect to be refused, got SkipError=%q port=%d",
+				port, req.SkipError, req.Port)
+		}
+	}
+
+	// A redirect to an ordinary port on the same host is still followed.
+	req := resolveRedirectRequest("https", "10.0.0.1", 8443, "/", "https://10.0.0.1:9443/x", 1)
+	if req.SkipError != "" || req.Port != 9443 {
+		t.Fatalf("expected an ordinary redirect to survive, got SkipError=%q port=%d", req.SkipError, req.Port)
+	}
+}
+
+// Every writer in banner_grab funnels through runCommandProbe, so it carries
+// the same refusal as a backstop for paths that have not been written yet.
+func TestRunCommandProbe_RefusesToDialAPrintPort(t *testing.T) {
+	const printPort = 9100
+
+	ln, received := listenCountingBytes(t, printPort)
+	defer func() { _ = ln.Close() }()
+
+	m := newBannerGrabModule()
+	obs := m.runCommandProbe(context.Background(), "127.0.0.1", "127.0.0.1", printPort, commandProbeSpec{
+		ProbeID:  "redirect-hop-1",
+		Protocol: "https",
+		UseTLS:   true,
+		Commands: []string{"GET / HTTP/1.1\r\n\r\n"},
+	})
+
+	time.Sleep(200 * time.Millisecond)
+
+	if obs.Error != "print_port_write_blocked" {
+		t.Fatalf("expected the probe to refuse, got error=%q response=%q", obs.Error, obs.Response)
+	}
+	if n := atomic.LoadInt64(received); n != 0 {
+		t.Fatalf("%d bytes reached the print port", n)
 	}
 }

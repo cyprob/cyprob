@@ -1180,6 +1180,16 @@ func resolveRedirectRequest(currentScheme string, currentHost string, currentPor
 		req.Port = currentPort
 	}
 
+	// A redirect chooses a port that probe selection never saw, so the print-port
+	// floor has to be asked again here: a same-host, same-scheme `Location` at
+	// 9100 is accepted by every check above, and following it writes a request
+	// (or a ClientHello) onto a listener that turns bytes into paper
+	// (cyprob#268 review).
+	if fingerprint.IsPrintPort(req.Port) {
+		req.SkipError = "redirect_print_port_blocked"
+		return req
+	}
+
 	req.Scheme = targetScheme
 	req.Host = currentHost
 	req.Path = requestURIForURL(resolved)
@@ -1403,6 +1413,14 @@ func (m *BannerGrabModule) runCommandProbe(ctx context.Context, dialHost string,
 		Description: spec.Description,
 		Protocol:    spec.Protocol,
 		IsTLS:       spec.UseTLS,
+	}
+
+	// Last line rather than the only one: callers are expected to have filtered
+	// the port already, but every writer in this file funnels through here, so a
+	// future path that forgets stops at the dial instead of at the paper tray.
+	if fingerprint.IsPrintPort(port) {
+		obs.Error = "print_port_write_blocked"
+		return obs
 	}
 
 	address := net.JoinHostPort(dialHost, strconv.Itoa(port))

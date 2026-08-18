@@ -163,18 +163,23 @@ func (g ProbeGroup) matches(port int, hints map[string]struct{}) bool {
 	return false
 }
 
+// IsPrintPort reports whether writing to this port produces paper rather than a
+// reply. Exported because probe selection is not the only path that writes:
+// redirect-following dials a port the catalog never chose, so it has to ask the
+// same question without a catalog in hand (cyprob#268 review).
+func IsPrintPort(port int) bool {
+	return port > 0 && containsInt(printPorts, port)
+}
+
 // payloadForbidden reports whether sending anything to this port would produce
 // physical output rather than a reply. Port 0 means "no port in hand" — the
 // legacy unfiltered fallback set asks that way — and cannot be judged, so it is
 // allowed through unchanged.
 func (c *ProbeCatalog) payloadForbidden(port int) bool {
-	if port <= 0 {
-		return false
-	}
-	if containsInt(printPorts, port) {
+	if IsPrintPort(port) {
 		return true
 	}
-	return c != nil && containsInt(c.NeverProbePorts, port)
+	return port > 0 && c != nil && containsInt(c.NeverProbePorts, port)
 }
 
 func (p ProbeSpec) allowsPort(port int) bool {
