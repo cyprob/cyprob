@@ -458,6 +458,8 @@ func (m *BannerGrabModule) runActiveProbes(
 			break
 		}
 	}
+
+	m.runTLSFallbackPass(ctx, target, probeHost, port, catalog, observations, lastError, hintAcc, seen)
 }
 
 func (m *BannerGrabModule) runProbes(ctx context.Context, target string, probeHost string, originHost string, port int) BannerGrabResult {
