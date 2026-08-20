@@ -175,6 +175,25 @@ rules:
 
     pattern_strength: 0.85
 
+  # No Server: header on MikroTik's WebFig login page -- the only
+  # self-identifying string is the HTML <title>. Matched against the full
+  # response body like any other rule here (see http.lenovo_imm2 for the
+  # same shape against a header instead), so no new mechanism is needed.
+  - id: 'http.mikrotik_routeros'
+    protocol: 'http'
+    description: 'MikroTik RouterOS WebFig HTML title, no Server: header present'
+    product: 'RouterOS'
+    vendor: 'MikroTik'
+    cpe: 'cpe:2.3:o:mikrotik:routeros:*:*:*:*:*:*:*:*'
+    match: '<title>\s*routeros router configuration page\s*</title>'
+
+    soft_exclude_patterns:
+      - "error"
+      - "unavailable"
+
+    pattern_strength: 0.9
+    port_bonuses: [80, 443]
+
   # FTP Servers
   - id: 'ftp.pureftpd'
     protocol: 'ftp'

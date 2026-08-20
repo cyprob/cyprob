@@ -332,6 +332,14 @@ true_positives:
     expected_version: ''
     description: 'sfcHttpd CIM/WBEM interface, attributed to the SBLIM project not the device vendor, previously unmatched (cyprob#275)'
 
+  - protocol: http
+    port: 80
+    banner: '<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html><head><title>RouterOS router configuration page</title></head></html>'
+    expected_product: 'RouterOS'
+    expected_vendor: 'MikroTik'
+    expected_version: ''
+    description: 'MikroTik RouterOS WebFig page, no Server: header, identified only by HTML title, previously unmatched (cyprob#276)'
+
   # FTP Servers (10 cases)
   - protocol: ftp
     port: 21
