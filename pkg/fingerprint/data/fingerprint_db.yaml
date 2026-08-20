@@ -781,6 +781,41 @@ rules:
     pattern_strength: 0.95
     port_bonuses: [902]
 
+  - id: 'http.lenovo_imm2'
+    protocol: 'http'
+    description: 'Lenovo IMM2 (Integrated Management Module II) BMC web server banner'
+    product: 'Integrated Management Module II (IMM2)'
+    vendor: 'Lenovo'
+    cpe: 'cpe:2.3:o:lenovo:integrated_management_module_ii_firmware:*:*:*:*:*:*:*:*'
+    match: 'server:\s*lenovo imm2 web server'
+
+    soft_exclude_patterns:
+      - "error"
+      - "unavailable"
+
+    pattern_strength: 0.95
+    port_bonuses: [5985, 5986]
+
+  # sfcHttpd is the HTTP front end of SFCB (Small Footprint CIM Broker, the
+  # SBLIM project) -- an open-source CIM/WBEM broker bundled into several
+  # vendors' BMC firmware (observed alongside Lenovo IMM2, but SFCB itself
+  # isn't Lenovo's). Attributed to the upstream project, not the device
+  # vendor it happens to ship inside on any one host.
+  - id: 'http.sfcb'
+    protocol: 'http'
+    description: 'SFCB (Small Footprint CIM Broker) CIM/WBEM HTTP interface banner'
+    product: 'SFCB (Small Footprint CIM Broker)'
+    vendor: 'SBLIM'
+    cpe: 'cpe:2.3:a:sblim:sfcb:*:*:*:*:*:*:*:*'
+    match: 'server:\s*sfchttpd'
+
+    soft_exclude_patterns:
+      - "error"
+      - "unavailable"
+
+    pattern_strength: 0.85
+    port_bonuses: [5988, 5989]
+
   - id: 'vnc.realvnc'
     protocol: 'vnc'
     description: 'RealVNC or VNC protocol banner'

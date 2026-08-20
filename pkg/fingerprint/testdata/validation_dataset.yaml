@@ -316,6 +316,22 @@ true_positives:
     expected_version: ''
     description: 'libwebsockets server on the conventional VNC port, previously unmatched (cyprob-ee#157)'
 
+  - protocol: http
+    port: 5985
+    banner: 'HTTP/1.1 401 Unauthorized\r\nWWW-Authenticate: Basic realm="avocent.com"\r\nServer: Lenovo IMM2 Web Server'
+    expected_product: 'Integrated Management Module II (IMM2)'
+    expected_vendor: 'Lenovo'
+    expected_version: ''
+    description: 'Lenovo IMM2 BMC web server, WinRM-labeled port, previously unmatched (cyprob#275)'
+
+  - protocol: http
+    port: 5988
+    banner: 'HTTP/1.1 501 Not Implemented\r\nServer: sfcHttpd'
+    expected_product: 'SFCB (Small Footprint CIM Broker)'
+    expected_vendor: 'SBLIM'
+    expected_version: ''
+    description: 'sfcHttpd CIM/WBEM interface, attributed to the SBLIM project not the device vendor, previously unmatched (cyprob#275)'
+
   # FTP Servers (10 cases)
   - protocol: ftp
     port: 21
