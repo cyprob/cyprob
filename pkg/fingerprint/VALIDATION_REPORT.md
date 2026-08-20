@@ -1181,8 +1181,8 @@ Total Rules: 27
 **Contact**: See [pkg/fingerprint/](.) for implementation details
 
 - Reproducibility
-  - Rules commit: 27e5d35
-  - Dataset commit: 27e5d35
+  - Rules/dataset commit: 54ad03c (Phase 8 - the commit this report's numbers
+    were actually generated from; 27e5d35/Phase 7 predates them)
   - Commands:
     - make test
     - go test -v ./pkg/fingerprint -run TestValidationRunner
