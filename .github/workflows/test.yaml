@@ -122,7 +122,12 @@ jobs:
         # check's identity -- so a required check named after the Go version
         # can never run again once the version changes, and every bump blocks
         # itself with all checks green. See #248.
-        os: [ubuntu-latest, macos-latest]
+        #
+        # macos-latest dropped: CE is documented as cross-platform (macOS,
+        # Linux, Windows) but that's a future intent, not a current one --
+        # nothing ships or runs on macOS today, so the leg was pure CI
+        # latency with no real signal. Re-add when macOS is an actual target.
+        os: [ubuntu-latest]
 
     steps:
       - name: Check out code
