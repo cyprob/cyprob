@@ -238,29 +238,40 @@ func (m *ftpNativeProbeModule) Execute(ctx context.Context, inputs map[string]an
 		return left.target < right.target
 	})
 
-	currentTarget := ""
-	var targetCtx context.Context
-	var cancel context.CancelFunc
-	defer func() {
-		if cancel != nil {
-			cancel()
+	// keys are sorted by target first, so each target's candidates are one
+	// contiguous run. Handing the run to a helper gives the per-target timeout
+	// a scope to be created and released in, instead of one iteration canceling
+	// the context the previous iteration made (cyprob#269).
+	for start := 0; start < len(keys); {
+		target := candidates[keys[start]].target
+		end := start
+		for end < len(keys) && candidates[keys[end]].target == target {
+			end++
 		}
-	}()
+		m.probeTargetCandidates(ctx, keys[start:end], candidates, outputChan)
+		start = end
+	}
+
+	return nil
+}
+
+// probeTargetCandidates probes every candidate of one target under a single
+// timeout, and releases that timeout before it returns.
+func (m *ftpNativeProbeModule) probeTargetCandidates(
+	ctx context.Context,
+	keys []string,
+	candidates map[string]ftpProbeCandidate,
+	outputChan chan<- engine.ModuleOutput,
+) {
+	targetCtx := ctx
+	if m.options.TotalTimeout > 0 {
+		var cancel context.CancelFunc
+		targetCtx, cancel = context.WithTimeout(ctx, m.options.TotalTimeout)
+		defer cancel()
+	}
 
 	for _, key := range keys {
 		candidate := candidates[key]
-		if candidate.target != currentTarget {
-			if cancel != nil {
-				cancel()
-			}
-			currentTarget = candidate.target
-			targetCtx = ctx
-			cancel = nil
-			if m.options.TotalTimeout > 0 {
-				targetCtx, cancel = context.WithTimeout(ctx, m.options.TotalTimeout)
-			}
-		}
-
 		result := probeFTPDetailsFunc(targetCtx, candidate.target, candidate.hostname, candidate.port, candidate.protocolHint, m.options)
 		outputChan <- engine.ModuleOutput{
 			FromModuleName: m.meta.ID,
@@ -270,8 +281,6 @@ func (m *ftpNativeProbeModule) Execute(ctx context.Context, inputs map[string]an
 			Target:         candidate.target,
 		}
 	}
-
-	return nil
 }
 
 func defaultFTPProbeOptions() FTPProbeOptions {
