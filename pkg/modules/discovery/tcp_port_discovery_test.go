@@ -1058,3 +1058,178 @@ func TestTCPPortDiscoveryModule_SweepOptOut(t *testing.T) {
 		require.Equal(t, defaultTCPSweepTimeout, module.config.SweepTimeout)
 	})
 }
+
+// cyprob-ee#97: a refused connection is a definitive answer; retrying it only
+// adds churn against a healthy host for zero new information.
+func TestTCPPortDiscoveryModule_DialWithRetriesDoesNotRetryRefusedConnection(t *testing.T) {
+	module := newTCPPortDiscoveryModule()
+	module.config.Timeout = 10 * time.Millisecond
+	module.config.Retries = 3 // top_1000's forced retry count, per the issue
+
+	originalDial := dialTimeout
+	t.Cleanup(func() { dialTimeout = originalDial })
+
+	attempts := 0
+	dialTimeout = func(network, address string, timeout time.Duration) (net.Conn, error) {
+		attempts++
+		return nil, syscall.ECONNREFUSED
+	}
+
+	_, err := module.dialWithRetries(context.Background(), "127.0.0.1:81", 81, module.config.Timeout)
+	require.Error(t, err)
+	require.Equal(t, 1, attempts, "a refusal must stop the retry loop on the first attempt")
+}
+
+// cyprob-ee#97: EHOSTUNREACH is a device's own back-off signal, field-measured
+// on this estate (30 rapid connects to a management controller produced it).
+// Retrying it, or re-probing it harder in the verification pass, is the
+// opposite of what an adaptive scanner should do.
+func TestTCPPortDiscoveryModule_DialWithRetriesDoesNotRetryHostUnreachable(t *testing.T) {
+	module := newTCPPortDiscoveryModule()
+	module.config.Timeout = 10 * time.Millisecond
+	module.config.Retries = 3
+
+	originalDial := dialTimeout
+	t.Cleanup(func() { dialTimeout = originalDial })
+
+	attempts := 0
+	dialTimeout = func(network, address string, timeout time.Duration) (net.Conn, error) {
+		attempts++
+		return nil, syscall.EHOSTUNREACH
+	}
+
+	_, err := module.dialWithRetries(context.Background(), "127.0.0.1:443", 443, module.config.Timeout)
+	require.Error(t, err)
+	require.Equal(t, 1, attempts, "a back-off signal must stop the retry loop on the first attempt")
+}
+
+// cyprob-ee#97: EHOSTUNREACH must not land in the verification pass's
+// reverify set (it would be re-probed at the longer full timeout, hitting a
+// backing-off device harder), while still surfacing as OtherErrorPorts in the
+// final result so the JSON schema is unchanged.
+func TestTCPPortDiscoveryModule_ScanTargetPortsAll_HostUnreachableIsNotReverified(t *testing.T) {
+	module := newTCPPortDiscoveryModule()
+	module.config.Timeout = time.Second
+	module.config.SweepTimeout = 200 * time.Millisecond
+	module.config.Retries = 0
+
+	originalDial := dialTimeout
+	t.Cleanup(func() { dialTimeout = originalDial })
+
+	var mu sync.Mutex
+	dialCount := make(map[int]int)
+	dialTimeout = func(_ string, address string, timeout time.Duration) (net.Conn, error) {
+		_, portStr, _ := net.SplitHostPort(address)
+		port, _ := strconv.Atoi(portStr)
+		mu.Lock()
+		dialCount[port]++
+		mu.Unlock()
+		return nil, syscall.EHOSTUNREACH
+	}
+
+	openPortsByTarget := make(map[string][]int)
+	timedOutPortsByTarget := make(map[string][]int)
+	refusedPortsByTarget := make(map[string][]int)
+	otherErrorPortsByTarget := make(map[string][]int)
+	var mapMutex sync.Mutex
+
+	module.scanTargetPortsAll(
+		context.Background(),
+		"127.0.0.1",
+		[]int{443},
+		make(chan struct{}, 8),
+		&mapMutex,
+		openPortsByTarget,
+		timedOutPortsByTarget,
+		refusedPortsByTarget,
+		otherErrorPortsByTarget,
+	)
+
+	require.Equal(t, []int{443}, otherErrorPortsByTarget["127.0.0.1"],
+		"still reported as an other-error port, schema unchanged")
+	require.Empty(t, refusedPortsByTarget["127.0.0.1"],
+		"EHOSTUNREACH is not a refusal and must not be reported as one")
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.Equal(t, 1, dialCount[443], "must not be re-probed by the verification pass")
+}
+
+// cyprob-ee#97: EE has plumbed batch_enabled/batch_size/batch_delay through
+// since before this module read any of them; Init must actually parse them.
+func TestTCPPortDiscoveryModule_Init_ParsesBatchPacingOptions(t *testing.T) {
+	module := newTCPPortDiscoveryModule()
+	require.NoError(t, module.Init("tcp-1", map[string]any{
+		"batch_enabled": true,
+		"batch_size":    50,
+		"batch_delay":   "1500ms",
+	}))
+
+	require.True(t, module.config.BatchEnabled)
+	require.Equal(t, 50, module.config.BatchSize)
+	require.Equal(t, 1500*time.Millisecond, module.config.BatchDelay)
+}
+
+func TestTCPPortDiscoveryModule_Init_BatchPacingDefaultsToDisabled(t *testing.T) {
+	module := newTCPPortDiscoveryModule()
+	require.NoError(t, module.Init("tcp-1", map[string]any{}))
+
+	require.False(t, module.config.BatchEnabled)
+	require.Zero(t, module.config.BatchSize)
+	require.Zero(t, module.config.BatchDelay)
+}
+
+// cyprob-ee#97: with pacing enabled, a target's ports are probed in
+// BatchSize-sized groups with a BatchDelay pause between groups, instead of
+// all of them landing on the semaphore at once.
+func TestTCPPortDiscoveryModule_ScanPortBatch_PacesWhenBatchEnabled(t *testing.T) {
+	module := newTCPPortDiscoveryModule()
+	module.config.Timeout = time.Second
+	module.config.BatchEnabled = true
+	module.config.BatchSize = 2
+	module.config.BatchDelay = 60 * time.Millisecond
+
+	originalDial := dialTimeout
+	t.Cleanup(func() { dialTimeout = originalDial })
+	dialTimeout = func(network, address string, timeout time.Duration) (net.Conn, error) {
+		c1, c2 := net.Pipe()
+		_ = c2.Close()
+		return c1, nil
+	}
+
+	outcomes := newTCPPortScanOutcomes()
+	start := time.Now()
+	module.scanPortBatch(context.Background(), "127.0.0.1", []int{1, 2, 3, 4}, make(chan struct{}, 8), outcomes, module.config.Timeout)
+	elapsed := time.Since(start)
+
+	require.ElementsMatch(t, []int{1, 2, 3, 4}, outcomes.openPorts())
+	require.GreaterOrEqual(t, elapsed, module.config.BatchDelay,
+		"4 ports at batch_size=2 makes two groups, so one BatchDelay pause must elapse between them")
+}
+
+func TestTCPPortDiscoveryModule_ScanPortBatch_UnpacedWhenBatchDisabled(t *testing.T) {
+	module := newTCPPortDiscoveryModule()
+	module.config.Timeout = time.Second
+	module.config.BatchEnabled = false
+	// If pacing were mistakenly applied anyway, this delay would make the
+	// test time out-ish; asserting a tight upper bound below is the real check.
+	module.config.BatchSize = 2
+	module.config.BatchDelay = 2 * time.Second
+
+	originalDial := dialTimeout
+	t.Cleanup(func() { dialTimeout = originalDial })
+	dialTimeout = func(network, address string, timeout time.Duration) (net.Conn, error) {
+		c1, c2 := net.Pipe()
+		_ = c2.Close()
+		return c1, nil
+	}
+
+	outcomes := newTCPPortScanOutcomes()
+	start := time.Now()
+	module.scanPortBatch(context.Background(), "127.0.0.1", []int{1, 2, 3, 4}, make(chan struct{}, 8), outcomes, module.config.Timeout)
+	elapsed := time.Since(start)
+
+	require.ElementsMatch(t, []int{1, 2, 3, 4}, outcomes.openPorts())
+	require.Less(t, elapsed, 500*time.Millisecond,
+		"batch_enabled=false must behave exactly like before: one unpaced group")
+}

@@ -43,6 +43,16 @@ type TCPPortDiscoveryConfig struct {
 	Retries                 int                   `json:"retries"`
 	StopOnFirstOpen         bool                  `json:"stop_on_first_open"`
 	VerificationPassEnabled bool                  `json:"verification_pass_enabled"`
+	// BatchEnabled paces a target's port probes in groups of BatchSize,
+	// waiting BatchDelay between groups, instead of letting Concurrency alone
+	// decide how many connections a single host receives at once. EE has
+	// plumbed batch_enabled/batch_size/batch_delay through since before this
+	// module read them (cyprob-ee#97) - a single scan of one host could open
+	// up to Concurrency simultaneous connections against it with nothing to
+	// space them out.
+	BatchEnabled bool          `json:"batch_enabled,omitempty"`
+	BatchSize    int           `json:"batch_size,omitempty"`
+	BatchDelay   time.Duration `json:"batch_delay,omitempty"`
 }
 
 // TCPPortDiscoveryModule implements the engine.Module interface for TCP port discovery.
@@ -191,6 +201,24 @@ func newTCPPortDiscoveryModule() *TCPPortDiscoveryModule {
 					Required:    false,
 					Default:     defaultConfig.VerificationPassEnabled,
 				},
+				"batch_enabled": {
+					Description: "Pace a target's port probes in groups of batch_size, waiting batch_delay between groups, instead of sending all of them at once (bounded only by concurrency).",
+					Type:        "bool",
+					Required:    false,
+					Default:     defaultConfig.BatchEnabled,
+				},
+				"batch_size": {
+					Description: "Number of ports probed per group when batch_enabled is true.",
+					Type:        "int",
+					Required:    false,
+					Default:     0,
+				},
+				"batch_delay": {
+					Description: "Pause between port groups when batch_enabled is true (e.g., '500ms').",
+					Type:        "duration",
+					Required:    false,
+					Default:     "0s",
+				},
 			},
 			// ActivationTriggers: Usually none for a primary discovery module, unless it depends on a very specific prior state.
 			// IsDynamic: false,
@@ -258,6 +286,23 @@ func (m *TCPPortDiscoveryModule) Init(instanceID string, moduleConfig map[string
 	}
 	if verificationPassEnabled, ok := moduleConfig["verification_pass_enabled"]; ok {
 		cfg.VerificationPassEnabled = cast.ToBool(verificationPassEnabled)
+	}
+	if batchEnabledVal, ok := moduleConfig["batch_enabled"]; ok {
+		cfg.BatchEnabled = cast.ToBool(batchEnabledVal)
+	}
+	if batchSizeVal, ok := moduleConfig["batch_size"]; ok {
+		cfg.BatchSize = cast.ToInt(batchSizeVal)
+		if cfg.BatchSize < 0 {
+			fmt.Printf("[WARN] Module '%s': batch_size in config is < 0 (%d). Disabling pacing.\n", m.meta.Name, cfg.BatchSize)
+			cfg.BatchSize = 0
+		}
+	}
+	if batchDelayStr, ok := moduleConfig["batch_delay"].(string); ok && strings.TrimSpace(batchDelayStr) != "" {
+		if dur, err := time.ParseDuration(batchDelayStr); err == nil && dur >= 0 {
+			cfg.BatchDelay = dur
+		} else {
+			fmt.Printf("[WARN] Module '%s': Invalid 'batch_delay' format in config: '%s'. Keeping default: %s\n", m.meta.Name, batchDelayStr, cfg.BatchDelay)
+		}
 	}
 
 	// Sanitize final values
@@ -691,7 +736,60 @@ func (m *TCPPortDiscoveryModule) scanTargetPortsAll(
 	return openPorts
 }
 
+// scanPortBatch probes ports, optionally paced in groups of m.config.BatchSize
+// with m.config.BatchDelay between groups (cyprob-ee#97): without pacing,
+// Concurrency alone bounds how many connections a single host receives at
+// once, and a single-target scan can open up to Concurrency of them
+// simultaneously against that one IP.
 func (m *TCPPortDiscoveryModule) scanPortBatch(
+	ctx context.Context,
+	ip string,
+	ports []int,
+	sem chan struct{},
+	outcomes *tcpPortScanOutcomes,
+	timeout time.Duration,
+) {
+	chunks := m.chunkPortsForPacing(ports)
+
+	for i, chunk := range chunks {
+		if ctx.Err() != nil {
+			return
+		}
+
+		m.dialChunk(ctx, ip, chunk, sem, outcomes, timeout)
+
+		if i == len(chunks)-1 || m.config.BatchDelay <= 0 {
+			continue
+		}
+
+		timer := time.NewTimer(m.config.BatchDelay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+	}
+}
+
+// chunkPortsForPacing splits ports into BatchSize-sized groups when pacing is
+// enabled; otherwise every port stays in a single group, which is the
+// original, unpaced behavior.
+func (m *TCPPortDiscoveryModule) chunkPortsForPacing(ports []int) [][]int {
+	if !m.config.BatchEnabled || m.config.BatchSize <= 0 || m.config.BatchSize >= len(ports) {
+		return [][]int{ports}
+	}
+
+	chunks := make([][]int, 0, (len(ports)+m.config.BatchSize-1)/m.config.BatchSize)
+	for start := 0; start < len(ports); start += m.config.BatchSize {
+		end := min(start+m.config.BatchSize, len(ports))
+		chunks = append(chunks, ports[start:end])
+	}
+	return chunks
+}
+
+// dialChunk probes one group of ports concurrently, bounded by sem.
+func (m *TCPPortDiscoveryModule) dialChunk(
 	ctx context.Context,
 	ip string,
 	ports []int,
@@ -781,6 +879,15 @@ func (m *TCPPortDiscoveryModule) dialWithRetries(ctx context.Context, address st
 			return conn, nil
 		}
 		lastErr = err
+
+		// A refusal is a definitive answer, and EHOSTUNREACH is the target's
+		// own back-off signal - retrying either only adds churn against a
+		// host that already gave us the answer (cyprob-ee#97, field-measured:
+		// a refused-like error retried at the forced top_1000 retries=3
+		// quadrupled connection attempts against healthy hosts).
+		if isRefusedLikeError(err) || isHostUnreachableError(err) {
+			break
+		}
 	}
 
 	return nil, lastErr
@@ -802,6 +909,19 @@ func isRefusedLikeError(err error) bool {
 		return false
 	}
 	return errors.Is(err, syscall.ECONNREFUSED)
+}
+
+// isHostUnreachableError reports EHOSTUNREACH, which a device emits when its
+// own defenses are engaging under load - field-measured on this estate
+// (cyprob-ee#97): 30 rapid sequential connects to one management controller
+// produced EHOSTUNREACH on 443/8443. It is the target telling the scanner to
+// back off, not a transient hiccup, so unlike a plain timeout it must not be
+// retried or re-probed at a longer timeout.
+func isHostUnreachableError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return errors.Is(err, syscall.EHOSTUNREACH)
 }
 
 func recordNegativeOutcome(
@@ -827,10 +947,14 @@ func recordNegativeOutcome(
 }
 
 type tcpPortScanOutcomes struct {
-	mu          sync.Mutex
-	open        map[int]struct{}
-	timedOut    map[int]struct{}
-	refused     map[int]struct{}
+	mu       sync.Mutex
+	open     map[int]struct{}
+	timedOut map[int]struct{}
+	refused  map[int]struct{}
+	// backoff holds EHOSTUNREACH ports: reported alongside otherErrors (no
+	// external schema change) but, unlike otherErrors, never handed to
+	// reverifyPorts - see isHostUnreachableError.
+	backoff     map[int]struct{}
 	otherErrors map[int]struct{}
 }
 
@@ -839,6 +963,7 @@ func newTCPPortScanOutcomes() *tcpPortScanOutcomes {
 		open:        make(map[int]struct{}),
 		timedOut:    make(map[int]struct{}),
 		refused:     make(map[int]struct{}),
+		backoff:     make(map[int]struct{}),
 		otherErrors: make(map[int]struct{}),
 	}
 }
@@ -850,6 +975,7 @@ func (o *tcpPortScanOutcomes) recordOpen(port int) {
 	o.open[port] = struct{}{}
 	delete(o.timedOut, port)
 	delete(o.refused, port)
+	delete(o.backoff, port)
 	delete(o.otherErrors, port)
 }
 
@@ -863,6 +989,7 @@ func (o *tcpPortScanOutcomes) recordNegative(port int, err error) {
 
 	delete(o.timedOut, port)
 	delete(o.refused, port)
+	delete(o.backoff, port)
 	delete(o.otherErrors, port)
 
 	switch {
@@ -870,6 +997,8 @@ func (o *tcpPortScanOutcomes) recordNegative(port int, err error) {
 		o.timedOut[port] = struct{}{}
 	case isRefusedLikeError(err):
 		o.refused[port] = struct{}{}
+	case isHostUnreachableError(err):
+		o.backoff[port] = struct{}{}
 	default:
 		o.otherErrors[port] = struct{}{}
 	}
@@ -877,7 +1006,8 @@ func (o *tcpPortScanOutcomes) recordNegative(port int, err error) {
 
 // reverifyPorts returns the ports worth a second, full-timeout probe: those
 // that timed out or hit a transient error on the first (possibly short) pass.
-// Open ports need no recheck; refused ports are definitively closed.
+// Open ports need no recheck; refused ports are definitively closed; backoff
+// (EHOSTUNREACH) ports are the target telling us to stop, not to try harder.
 func (o *tcpPortScanOutcomes) reverifyPorts() []int {
 	o.mu.Lock()
 	defer o.mu.Unlock()
@@ -905,8 +1035,22 @@ func (o *tcpPortScanOutcomes) refusedPorts() []int {
 	return sortedPortsFromSet(o.refused)
 }
 
+// otherErrorPorts reports backoff (EHOSTUNREACH) ports together with the
+// genuinely-unclassified ones: from the result schema's point of view both
+// are still "some other error", the only change is that backoff ports are
+// excluded from reverifyPorts.
 func (o *tcpPortScanOutcomes) otherErrorPorts() []int {
-	return sortedPortsFromSet(o.otherErrors)
+	if len(o.backoff) == 0 {
+		return sortedPortsFromSet(o.otherErrors)
+	}
+	merged := make(map[int]struct{}, len(o.otherErrors)+len(o.backoff))
+	for port := range o.otherErrors {
+		merged[port] = struct{}{}
+	}
+	for port := range o.backoff {
+		merged[port] = struct{}{}
+	}
+	return sortedPortsFromSet(merged)
 }
 
 func sortedPortsFromSet(set map[int]struct{}) []int {
