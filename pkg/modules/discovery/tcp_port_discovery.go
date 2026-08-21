@@ -736,11 +736,19 @@ func (m *TCPPortDiscoveryModule) scanTargetPortsAll(
 	return openPorts
 }
 
-// scanPortBatch probes ports, optionally paced in groups of m.config.BatchSize
-// with m.config.BatchDelay between groups (cyprob-ee#97): without pacing,
-// Concurrency alone bounds how many connections a single host receives at
-// once, and a single-target scan can open up to Concurrency of them
-// simultaneously against that one IP.
+// scanPortBatch probes ports, optionally paced to at most m.config.BatchSize
+// of them in flight for this target at once, with m.config.BatchDelay between
+// a worker finishing one port and starting its next (cyprob-ee#97/#198):
+// without pacing, Concurrency alone bounds how many connections a single host
+// receives at once, and a single-target scan can open up to Concurrency of
+// them simultaneously against that one IP.
+//
+// Pacing is a fixed-size worker pool (batch_size workers), not a sequence of
+// hard-barrier groups: an earlier design waited for every port in a group to
+// finish - including its slowest straggler - before starting the next group,
+// which let one filtered port (a full timeout) inflate the wall-clock cost
+// of an entire group. Here, a slow port only holds up its own worker; the
+// other batch_size-1 workers keep pulling from the shared queue.
 func (m *TCPPortDiscoveryModule) scanPortBatch(
 	ctx context.Context,
 	ip string,
@@ -749,47 +757,62 @@ func (m *TCPPortDiscoveryModule) scanPortBatch(
 	outcomes *tcpPortScanOutcomes,
 	timeout time.Duration,
 ) {
-	chunks := m.chunkPortsForPacing(ports)
-
-	for i, chunk := range chunks {
-		if ctx.Err() != nil {
-			return
-		}
-
-		m.dialChunk(ctx, ip, chunk, sem, outcomes, timeout)
-
-		if i == len(chunks)-1 || m.config.BatchDelay <= 0 {
-			continue
-		}
-
-		timer := time.NewTimer(m.config.BatchDelay)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			return
-		case <-timer.C:
-		}
+	if !m.pacingEnabled(len(ports)) {
+		m.dialAllConcurrently(ctx, ip, ports, sem, outcomes, timeout)
+		return
 	}
+
+	portCh := make(chan int)
+	go func() {
+		defer close(portCh)
+		for _, port := range ports {
+			select {
+			case portCh <- port:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
+	var workerWg sync.WaitGroup
+	for w := 0; w < m.config.BatchSize; w++ {
+		workerWg.Add(1)
+		go func() {
+			defer workerWg.Done()
+			for port := range portCh {
+				if ctx.Err() != nil {
+					return
+				}
+
+				m.dialOnePort(ctx, ip, port, sem, outcomes, timeout)
+
+				if m.config.BatchDelay <= 0 {
+					continue
+				}
+				timer := time.NewTimer(m.config.BatchDelay)
+				select {
+				case <-ctx.Done():
+					timer.Stop()
+					return
+				case <-timer.C:
+				}
+			}
+		}()
+	}
+
+	workerWg.Wait()
 }
 
-// chunkPortsForPacing splits ports into BatchSize-sized groups when pacing is
-// enabled; otherwise every port stays in a single group, which is the
+// pacingEnabled reports whether ports should go through the paced worker pool
+// rather than firing all at once. Pacing a batch that already fits in one
+// batch_size-sized group has nothing to pace.
+func (m *TCPPortDiscoveryModule) pacingEnabled(portCount int) bool {
+	return m.config.BatchEnabled && m.config.BatchSize > 0 && m.config.BatchSize < portCount
+}
+
+// dialAllConcurrently probes every port at once, bounded only by sem - the
 // original, unpaced behavior.
-func (m *TCPPortDiscoveryModule) chunkPortsForPacing(ports []int) [][]int {
-	if !m.config.BatchEnabled || m.config.BatchSize <= 0 || m.config.BatchSize >= len(ports) {
-		return [][]int{ports}
-	}
-
-	chunks := make([][]int, 0, (len(ports)+m.config.BatchSize-1)/m.config.BatchSize)
-	for start := 0; start < len(ports); start += m.config.BatchSize {
-		end := min(start+m.config.BatchSize, len(ports))
-		chunks = append(chunks, ports[start:end])
-	}
-	return chunks
-}
-
-// dialChunk probes one group of ports concurrently, bounded by sem.
-func (m *TCPPortDiscoveryModule) dialChunk(
+func (m *TCPPortDiscoveryModule) dialAllConcurrently(
 	ctx context.Context,
 	ip string,
 	ports []int,
@@ -809,33 +832,45 @@ func (m *TCPPortDiscoveryModule) dialChunk(
 		portWg.Add(1)
 		go func(p int) {
 			defer portWg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
-
-			select {
-			case <-ctx.Done():
-				return
-			default:
-			}
-
-			address := net.JoinHostPort(ip, strconv.Itoa(p))
-			conn, err := m.dialWithRetries(ctx, address, p, timeout)
-			if err != nil {
-				outcomes.recordNegative(p, err)
-				return
-			}
-			_ = conn.Close()
-
-			outcomes.recordOpen(p)
-
-			if out, ok := ctx.Value(output.OutputKey).(output.Output); ok {
-				out.Diag(output.LevelNormal, fmt.Sprintf("Open port: %s:%d/tcp", ip, p), nil)
-			}
-			engine.PublishEvent(ctx, engine.NewPortOpenEvent(ip, p, "tcp"))
+			m.dialOnePort(ctx, ip, p, sem, outcomes, timeout)
 		}(port)
 	}
 
 	portWg.Wait()
+}
+
+// dialOnePort probes a single port, bounded by sem, and records the outcome.
+func (m *TCPPortDiscoveryModule) dialOnePort(
+	ctx context.Context,
+	ip string,
+	port int,
+	sem chan struct{},
+	outcomes *tcpPortScanOutcomes,
+	timeout time.Duration,
+) {
+	sem <- struct{}{}
+	defer func() { <-sem }()
+
+	select {
+	case <-ctx.Done():
+		return
+	default:
+	}
+
+	address := net.JoinHostPort(ip, strconv.Itoa(port))
+	conn, err := m.dialWithRetries(ctx, address, port, timeout)
+	if err != nil {
+		outcomes.recordNegative(port, err)
+		return
+	}
+	_ = conn.Close()
+
+	outcomes.recordOpen(port)
+
+	if out, ok := ctx.Value(output.OutputKey).(output.Output); ok {
+		out.Diag(output.LevelNormal, fmt.Sprintf("Open port: %s:%d/tcp", ip, port), nil)
+	}
+	engine.PublishEvent(ctx, engine.NewPortOpenEvent(ip, port, "tcp"))
 }
 
 func (m *TCPPortDiscoveryModule) dialWithRetries(ctx context.Context, address string, port int, timeout time.Duration) (net.Conn, error) {
@@ -1023,15 +1058,26 @@ func (o *tcpPortScanOutcomes) reverifyPorts() []int {
 	return ports
 }
 
+// openPorts, and the other accessors below, lock: callers historically only
+// read after wg.Wait() (a happens-before barrier made the lock redundant),
+// but the paced worker pool makes it realistic to want a mid-flight read too
+// (as this package's own tests now do), and an unlocked read racing a
+// concurrent map write is undefined behavior, not just untidy.
 func (o *tcpPortScanOutcomes) openPorts() []int {
+	o.mu.Lock()
+	defer o.mu.Unlock()
 	return sortedPortsFromSet(o.open)
 }
 
 func (o *tcpPortScanOutcomes) timedOutPorts() []int {
+	o.mu.Lock()
+	defer o.mu.Unlock()
 	return sortedPortsFromSet(o.timedOut)
 }
 
 func (o *tcpPortScanOutcomes) refusedPorts() []int {
+	o.mu.Lock()
+	defer o.mu.Unlock()
 	return sortedPortsFromSet(o.refused)
 }
 
@@ -1040,6 +1086,9 @@ func (o *tcpPortScanOutcomes) refusedPorts() []int {
 // are still "some other error", the only change is that backoff ports are
 // excluded from reverifyPorts.
 func (o *tcpPortScanOutcomes) otherErrorPorts() []int {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
 	if len(o.backoff) == 0 {
 		return sortedPortsFromSet(o.otherErrors)
 	}
