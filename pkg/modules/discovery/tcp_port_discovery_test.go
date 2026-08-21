@@ -1233,3 +1233,52 @@ func TestTCPPortDiscoveryModule_ScanPortBatch_UnpacedWhenBatchDisabled(t *testin
 	require.Less(t, elapsed, 500*time.Millisecond,
 		"batch_enabled=false must behave exactly like before: one unpaced group")
 }
+
+// cyprob-ee#198: an earlier version of pacing waited for an entire group of
+// batch_size ports to finish - including its slowest straggler - before
+// starting the next group, so one filtered port inflated the wall-clock cost
+// of every port sharing its group (and, transitively, every group after it,
+// since groups ran strictly sequentially). This proved out live: an isolated
+// single-host scan went from 16.5s to 32.5s once pacing was enabled, far
+// beyond what batch_size x batch_delay predicts. The worker-pool design fixes
+// this structurally: whichever worker draws the slow port only blocks its own
+// queue, and the other batch_size-1 workers keep making independent progress.
+func TestTCPPortDiscoveryModule_ScanPortBatch_SlowPortDoesNotBlockOtherWorkers(t *testing.T) {
+	module := newTCPPortDiscoveryModule()
+	module.config.Timeout = time.Second
+	module.config.BatchEnabled = true
+	module.config.BatchSize = 2
+	module.config.BatchDelay = 10 * time.Millisecond
+
+	originalDial := dialTimeout
+	t.Cleanup(func() { dialTimeout = originalDial })
+	dialTimeout = func(network, address string, timeout time.Duration) (net.Conn, error) {
+		_, portStr, _ := net.SplitHostPort(address)
+		if portStr == "1" {
+			time.Sleep(500 * time.Millisecond)
+		}
+		c1, c2 := net.Pipe()
+		_ = c2.Close()
+		return c1, nil
+	}
+
+	outcomes := newTCPPortScanOutcomes()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		module.scanPortBatch(context.Background(), "127.0.0.1", []int{1, 2, 3, 4, 5, 6}, make(chan struct{}, 8), outcomes, module.config.Timeout)
+	}()
+
+	// Port 1 is still 350ms from finishing its dial. Under the old
+	// chunk-barrier design, nothing else could have progressed either - the
+	// whole group (and every group after it) waits for the barrier. Under
+	// the worker pool, the other worker has no reason to be affected: it
+	// should have independently finished the rest of the queue by now.
+	time.Sleep(200 * time.Millisecond)
+	require.NotContains(t, outcomes.openPorts(), 1, "port 1 should still be mid-dial at this checkpoint")
+	require.GreaterOrEqual(t, len(outcomes.openPorts()), 3,
+		"the other worker must have kept processing its own queue while port 1's worker was blocked")
+
+	<-done
+	require.ElementsMatch(t, []int{1, 2, 3, 4, 5, 6}, outcomes.openPorts())
+}
