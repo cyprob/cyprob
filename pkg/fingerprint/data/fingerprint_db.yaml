@@ -800,6 +800,33 @@ rules:
     pattern_strength: 0.95
     port_bonuses: [902]
 
+  # 9080 on the same ESXi hosts vmware.esxi-auth-daemon (902) already
+  # confirms: empty Server header + text/xml + zero-length body, keyed to
+  # the three co-occurring together since none alone is specific (cyprob#280).
+  # Live-verified against 8 real hosts: every one presents a TLS cert whose
+  # CN matches the host's own name (ls13/ls14/ls15/ls18/ls19/ls56/
+  # vcenteresx01/ls01.layersistem.com), issued by lsvc7 (this estate's
+  # vCenter, per its own OU=VMware Engineering) - a VMCA-signed per-host
+  # machine cert is consistent with vSphere's rhttpproxy, but that internal
+  # component name is not confirmed against vendor documentation, only the
+  # observed shape and the cert chain. Attributed to VMware/ESXi (same as
+  # the 902 rule) rather than guessing a specific product name.
+  - id: 'vmware.esxi-internal-proxy'
+    protocol: 'http'
+    description: 'VMware ESXi internal HTTP endpoint (empty Server, text/xml, zero-length body) - shape and TLS cert chain confirmed, exact internal component (e.g. rhttpproxy) not verified against vendor docs'
+    product: 'ESXi'
+    vendor: 'VMware'
+    cpe: 'cpe:2.3:o:vmware:esxi:*:*:*:*:*:*:*:*'
+    match: '(?s)x-frame-options:\s*sameorigin.*?content-type:\s*text/xml.*?content-length:\s*0\b'
+
+    soft_exclude_patterns:
+      - "error"
+      - "denied"
+      - "unavailable"
+
+    pattern_strength: 0.85
+    port_bonuses: [9080]
+
   - id: 'http.lenovo_imm2'
     protocol: 'http'
     description: 'Lenovo IMM2 (Integrated Management Module II) BMC web server banner'
