@@ -676,6 +676,14 @@ true_positives:
     expected_version: '1.10'
     description: 'ESXi authd on 902, whose MKSDisplayProtocol:VNC capability line used to win vnc.realvnc (cyprob#265)'
 
+  - protocol: http
+    port: 9080
+    banner: "HTTP/1.1 200 OK\r\nServer: \r\nX-Frame-Options: SAMEORIGIN\r\nContent-Type: text/xml\r\nContent-Length: 0\r\nConnection: close"
+    expected_product: 'ESXi'
+    expected_vendor: 'VMware'
+    expected_version: ''
+    description: 'ESXi internal HTTP endpoint on 9080, captured live from vcenteresx01.layersistem.com (cyprob#280)'
+
   - protocol: telnet
     port: 23
     banner: "Ubuntu 20.04.5 LTS\r\nlogin:"
@@ -942,6 +950,20 @@ true_positives:
 # ============================================================================
 
 true_negatives:
+  # vmware.esxi-internal-proxy adversarial case (cyprob#285, Talos's finding):
+  # same three co-occurring markers (X-Frame-Options: SAMEORIGIN, Content-Type:
+  # text/xml, Content-Length: 0) but with a real, populated Server header - the
+  # rule's own description claims "empty Server header" as part of the match,
+  # so a banner that fails only that condition must not match. Port 8443 on
+  # purpose: this is exactly where http.tomcat's own bonus was masking the
+  # false positive in Talos's first test - it has to fail here even where a
+  # stronger competing rule isn't around to hide it.
+  - protocol: http
+    port: 9080
+    banner: "HTTP/1.1 200 OK\r\nServer: SomeOtherApp/2.1\r\nX-Frame-Options: SAMEORIGIN\r\nContent-Type: text/xml\r\nContent-Length: 0\r\nConnection: close"
+    expected_match: false
+    description: 'Same three markers vmware.esxi-internal-proxy keys on, but a real (unrelated) Server header - must not match ESXi or anything else'
+
   # Anti-Pattern: HTTP on MySQL port (10 cases)
   - protocol: mysql
     port: 3306
