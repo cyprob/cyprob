@@ -811,13 +811,24 @@ rules:
   # component name is not confirmed against vendor documentation, only the
   # observed shape and the cert chain. Attributed to VMware/ESXi (same as
   # the 902 rule) rather than guessing a specific product name.
+  # Talos, reviewing this rule (cyprob#285, 02f174a): port_bonuses is a
+  # +0.05 confidence nudge, not a gate - the regex never sees the port at
+  # all, so pinning it to 9080 does nothing to stop a match elsewhere.
+  # Reproduced against a synthetic Server: Apache-Coyote/1.1 banner with the
+  # same three markers on an unrelated port before fixing: this rule really
+  # did match at pattern_strength alone (0.85, well past the 0.50 floor),
+  # just outranked by http.tomcat's own port bonus in that one test case -
+  # on any port Tomcat doesn't also claim, this would have won and mislabeled
+  # an unrelated service as VMware/ESXi. The description already claimed an
+  # empty Server header; the regex just never checked for one. Fixed by
+  # actually requiring it.
   - id: 'vmware.esxi-internal-proxy'
     protocol: 'http'
     description: 'VMware ESXi internal HTTP endpoint (empty Server, text/xml, zero-length body) - shape and TLS cert chain confirmed, exact internal component (e.g. rhttpproxy) not verified against vendor docs'
     product: 'ESXi'
     vendor: 'VMware'
     cpe: 'cpe:2.3:o:vmware:esxi:*:*:*:*:*:*:*:*'
-    match: '(?s)x-frame-options:\s*sameorigin.*?content-type:\s*text/xml.*?content-length:\s*0\b'
+    match: '(?s)server:[ \t]*\r?\n.*?x-frame-options:\s*sameorigin.*?content-type:\s*text/xml.*?content-length:\s*0\b'
 
     soft_exclude_patterns:
       - "error"
