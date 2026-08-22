@@ -43,8 +43,9 @@ type TCPPortDiscoveryConfig struct {
 	Retries                 int                   `json:"retries"`
 	StopOnFirstOpen         bool                  `json:"stop_on_first_open"`
 	VerificationPassEnabled bool                  `json:"verification_pass_enabled"`
-	// BatchEnabled paces a target's port probes in groups of BatchSize,
-	// waiting BatchDelay between groups, instead of letting Concurrency alone
+	// BatchEnabled caps how many of a target's port probes are in flight at
+	// once at BatchSize, with BatchDelay between a worker finishing one port
+	// and starting its next, instead of letting Concurrency alone
 	// decide how many connections a single host receives at once. EE has
 	// plumbed batch_enabled/batch_size/batch_delay through since before this
 	// module read them (cyprob-ee#97) - a single scan of one host could open
@@ -202,19 +203,19 @@ func newTCPPortDiscoveryModule() *TCPPortDiscoveryModule {
 					Default:     defaultConfig.VerificationPassEnabled,
 				},
 				"batch_enabled": {
-					Description: "Pace a target's port probes in groups of batch_size, waiting batch_delay between groups, instead of sending all of them at once (bounded only by concurrency).",
+					Description: "Pace a target's port probes: at most batch_size of this target's ports are probed at the same time, instead of sending all of them at once (bounded only by concurrency).",
 					Type:        "bool",
 					Required:    false,
 					Default:     defaultConfig.BatchEnabled,
 				},
 				"batch_size": {
-					Description: "Number of ports probed per group when batch_enabled is true.",
+					Description: "Maximum number of this target's ports probed at the same time when batch_enabled is true. A concurrency ceiling for one target, not a chunk size: as each port finishes, the next one starts.",
 					Type:        "int",
 					Required:    false,
 					Default:     0,
 				},
 				"batch_delay": {
-					Description: "Pause between port groups when batch_enabled is true (e.g., '500ms').",
+					Description: "Delay a worker waits between finishing one port and starting its next, when batch_enabled is true (e.g., '500ms'). Not a pause between groups. Zero is a valid paced configuration - pacing is switched on by batch_size, not by this delay.",
 					Type:        "duration",
 					Required:    false,
 					Default:     "0s",
