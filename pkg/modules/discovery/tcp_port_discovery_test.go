@@ -1179,9 +1179,10 @@ func TestTCPPortDiscoveryModule_Init_BatchPacingDefaultsToDisabled(t *testing.T)
 	require.Zero(t, module.config.BatchDelay)
 }
 
-// cyprob-ee#97: with pacing enabled, a target's ports are probed in
-// BatchSize-sized groups with a BatchDelay pause between groups, instead of
-// all of them landing on the semaphore at once.
+// cyprob-ee#97: with pacing enabled, at most BatchSize of a target's ports are
+// in flight at once, each worker waiting BatchDelay between finishing one port
+// and starting its next, instead of all of them landing on the semaphore at
+// once.
 func TestTCPPortDiscoveryModule_ScanPortBatch_PacesWhenBatchEnabled(t *testing.T) {
 	module := newTCPPortDiscoveryModule()
 	module.config.Timeout = time.Second
@@ -1204,7 +1205,7 @@ func TestTCPPortDiscoveryModule_ScanPortBatch_PacesWhenBatchEnabled(t *testing.T
 
 	require.ElementsMatch(t, []int{1, 2, 3, 4}, outcomes.openPorts())
 	require.GreaterOrEqual(t, elapsed, module.config.BatchDelay,
-		"4 ports at batch_size=2 makes two groups, so one BatchDelay pause must elapse between them")
+		"4 ports through batch_size=2 workers means each worker takes a second port, and waits BatchDelay before starting it")
 }
 
 func TestTCPPortDiscoveryModule_ScanPortBatch_UnpacedWhenBatchDisabled(t *testing.T) {
