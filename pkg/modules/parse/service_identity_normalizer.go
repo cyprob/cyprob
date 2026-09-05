@@ -507,6 +507,20 @@ func (m *serviceIdentityNormalizerModule) ingestTelnetDetails(inputs map[string]
 		}
 
 		entry := getEntry(telnetInfo.Target, telnetInfo.Port)
+
+		// Only a probe that concluded telnet may name the service. The probe
+		// fills ProductHint/VendorHint/VersionHint from the banner whether or
+		// not it succeeded, so hint presence is not evidence either; the
+		// conclusion is. Without this gate the identity claims are written on
+		// every port where the probe read any banner at all -- which is how an
+		// FTP service on port 21 came to be stored as telnet. The banner itself
+		// is still ingested below: it was really read, and it is the one thing
+		// here that does not assert a protocol.
+		if !telnetInfo.TelnetProbe && !telnetInfo.IACDetected {
+			m.ingestTelnetBannerOnly(entry, telnetInfo)
+			continue
+		}
+
 		setIdentityField(entry, "service_name", "telnet", sourceTelnetNative, 0.62)
 		if strings.TrimSpace(entry.Product) == "" && strings.TrimSpace(telnetInfo.ProductHint) != "" {
 			setIdentityField(entry, "product", strings.TrimSpace(telnetInfo.ProductHint), sourceTelnetNative, 0.70)
@@ -521,6 +535,17 @@ func (m *serviceIdentityNormalizerModule) ingestTelnetDetails(inputs map[string]
 			setIdentityField(entry, "banner", strings.TrimSpace(telnetInfo.Banner), sourceTelnetNative, 0.56)
 		}
 		entry.TechTags = NormalizeTechTags(append(entry.TechTags, TagTelnet))
+	}
+}
+
+// ingestTelnetBannerOnly records what a telnet probe read on a port whose
+// protocol it could not establish. The banner is a fact -- those bytes arrived
+// -- while "telnet" would be a claim, so nothing else from that probe is kept:
+// no service name, no product or vendor inferred from a vendor word in someone
+// else's greeting, and no telnet tech tag.
+func (m *serviceIdentityNormalizerModule) ingestTelnetBannerOnly(entry *ServiceIdentityInfo, telnetInfo scanpkg.TelnetServiceInfo) {
+	if strings.TrimSpace(entry.Banner) == "" && strings.TrimSpace(telnetInfo.Banner) != "" {
+		setIdentityField(entry, "banner", strings.TrimSpace(telnetInfo.Banner), sourceTelnetNative, 0.56)
 	}
 }
 

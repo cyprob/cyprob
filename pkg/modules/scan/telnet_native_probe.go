@@ -393,7 +393,7 @@ func probeTelnetAttempt(ctx context.Context, target string, port int, opts Telne
 	case outcome.iacDetected:
 		attempt.Success = true
 		return attempt, &outcome, ""
-	case bannerLooksLikeTelnet(outcome.banner):
+	case bannerShowsTelnetDialog(outcome.banner):
 		attempt.Success = true
 		return attempt, &outcome, ""
 	default:
@@ -515,6 +515,31 @@ func normalizeTelnetBanner(raw string) string {
 	return clean
 }
 
+// bannerShowsTelnetDialog reports whether a banner carries evidence that the
+// peer is actually speaking telnet, as opposed to merely naming a vendor whose
+// devices often run telnet somewhere.
+//
+// It exists because bannerLooksLikeTelnet answers a different question. That
+// one is a candidate filter -- it may cast wide, because a wrong candidate only
+// costs a connection. This one decides the verdict, and a wrong verdict is
+// stored as the service identity: an FTP server on 192.168.0.41:21 greeting
+// with "220 Habib FTP server (MikroTik 6.49.10) ready" was recorded as telnet
+// and had a Telnet Service Exposed finding filed against it, because the word
+// "mikrotik" appeared in an FTP greeting. The probe never saw a telnet byte.
+//
+// A vendor name is not protocol proof. Only IAC negotiation, handled by the
+// caller, and a login/password prompt are.
+func bannerShowsTelnetDialog(banner string) bool {
+	clean := strings.ToLower(strings.TrimSpace(banner))
+	if clean == "" {
+		return false
+	}
+	return telnetPromptPattern.MatchString(clean)
+}
+
+// bannerLooksLikeTelnet selects probe candidates. Its vendor words deliberately
+// cast wider than the protocol evidence; see bannerShowsTelnetDialog for why
+// the two must not be the same test.
 func bannerLooksLikeTelnet(banner string) bool {
 	clean := strings.ToLower(strings.TrimSpace(banner))
 	if clean == "" {

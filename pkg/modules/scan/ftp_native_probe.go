@@ -125,6 +125,7 @@ var (
 	ftpProFTPDPattern   = regexp.MustCompile(`(?i)\bproftpd(?:\s+([0-9][0-9a-z._-]*))?`)
 	ftpVSFTPDPattern    = regexp.MustCompile(`(?i)\bvsftpd(?:\s+([0-9][0-9a-z._-]*))?|\(vsftpd\s+([0-9][0-9a-z._-]*)\)`)
 	ftpFileZillaPattern = regexp.MustCompile(`(?i)\bfilezilla server(?: version)?\s*([0-9][0-9a-z._-]*)?`)
+	ftpMikroTikPattern  = regexp.MustCompile(`(?i)\bmikrotik\b(?:\s+(?:routeros\s+)?v?([0-9][0-9a-z._-]*))?`)
 )
 
 func newFTPNativeProbeModuleWithSpec(moduleID string, moduleName string, description string, outputKey string, tags []string) *ftpNativeProbeModule {
@@ -984,6 +985,14 @@ func inferFTPSoftwareHints(raw string) (string, string, string) {
 	}
 	if strings.Contains(strings.ToLower(raw), "microsoft ftp service") {
 		return "Microsoft FTP Service", "Microsoft", ""
+	}
+	// MikroTik's FTP greeting is the only place a RouterOS version string is
+	// published on these devices without authenticating: MNDP is not answered
+	// on the measured estates and the telnet product hint carries no version.
+	// The product is the OS, matching the RouterOS naming the fingerprint
+	// database already uses for the WebFig page.
+	if product, version := extractFTPProductVersion(ftpMikroTikPattern, raw, "RouterOS"); product != "" {
+		return product, "MikroTik", version
 	}
 	return "", "", ""
 }
