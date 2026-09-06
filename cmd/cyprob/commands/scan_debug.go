@@ -53,6 +53,7 @@ type scanDebugPayload struct {
 	SSHDetails      []scanpkg.SSHServiceInfo           `json:"ssh_details"`
 	DNSDetails      []scanpkg.DNSServiceInfo           `json:"dns_details,omitempty"`
 	SNMPDetails     []scanpkg.SNMPServiceInfo          `json:"snmp_details,omitempty"`
+	IPMIDetails     []scanpkg.IPMIServiceInfo          `json:"ipmi_details,omitempty"`
 	RPCEpmapper     []scanpkg.RPCEpmapperInfo          `json:"rpc_epmapper"`
 	RPCDetails      []scanpkg.RPCServiceInfo           `json:"rpc_details"`
 	RDPDetails      []scanpkg.RDPServiceInfo           `json:"rdp_details"`
@@ -125,7 +126,7 @@ func runScanDebugTarget(cmd *cobra.Command, target string, opts scanDebugTargetO
 		"dns-native-probe",
 	)
 	if strings.TrimSpace(opts.UDPPorts) != "" {
-		stepNames = append(stepNames, "snmp-native-probe")
+		stepNames = append(stepNames, "snmp-native-probe", "ipmi-native-probe")
 	}
 	stepNames = append(stepNames,
 		"rpc-epmapper-probe",
@@ -167,12 +168,17 @@ func runScanDebugTarget(cmd *cobra.Command, target string, opts scanDebugTargetO
 	}
 	var openUDPPorts []discovery.UDPPortDiscoveryResult
 	var snmpDetails []scanpkg.SNMPServiceInfo
+	var ipmiDetails []scanpkg.IPMIServiceInfo
 	if strings.TrimSpace(opts.UDPPorts) != "" {
 		openUDPPorts, err = runDebugUDPPortDiscoveryStage(ctx, target, opts, steps)
 		if err != nil {
 			return err
 		}
 		snmpDetails, err = runDebugSNMPNativeProbeStageWithModule(ctx, opts, steps, openUDPPorts, "scan_debug_snmp_native_probe", "snmp-native-probe", "snmp-native-probe")
+		if err != nil {
+			return err
+		}
+		ipmiDetails, err = runDebugIPMINativeProbeStageWithModule(ctx, opts, steps, openUDPPorts, "scan_debug_ipmi_native_probe", "ipmi-native-probe", "ipmi-native-probe")
 		if err != nil {
 			return err
 		}
@@ -256,6 +262,7 @@ func runScanDebugTarget(cmd *cobra.Command, target string, opts scanDebugTargetO
 		"service.ssh.details":         toAnySlice(sshDetails),
 		"service.dns.details":         toAnySlice(dnsDetails),
 		"service.snmp.details":        toAnySlice(snmpDetails),
+		"service.ipmi.details":        toAnySlice(ipmiDetails),
 		"service.rpc.epmapper":        toAnySlice(rpcEpmapper),
 		"service.rpc.details":         toAnySlice(rpcDetails),
 		"service.rdp.details":         toAnySlice(rdpDetails),
@@ -290,6 +297,7 @@ func runScanDebugTarget(cmd *cobra.Command, target string, opts scanDebugTargetO
 		SSHDetails:      sshDetails,
 		DNSDetails:      dnsDetails,
 		SNMPDetails:     snmpDetails,
+		IPMIDetails:     ipmiDetails,
 		RPCEpmapper:     rpcEpmapper,
 		RPCDetails:      rpcDetails,
 		RDPDetails:      rdpDetails,
@@ -710,6 +718,44 @@ func runDebugSNMPNativeProbeStageWithModule(
 			steps.addWarning(stepName, reason)
 		} else {
 			steps.addWarning(stepName, "no snmp metadata generated")
+		}
+	}
+	return results, nil
+}
+
+func runDebugIPMINativeProbeStageWithModule(
+	ctx context.Context,
+	opts scanDebugTargetOptions,
+	steps *scanDebugStepCollection,
+	openPorts []discovery.UDPPortDiscoveryResult,
+	instanceID string,
+	moduleType string,
+	stepName string,
+) ([]scanpkg.IPMIServiceInfo, error) {
+	ipmiConfig := map[string]any{}
+	if opts.Timeout != "" {
+		ipmiConfig["timeout"] = opts.Timeout
+		ipmiConfig["per_attempt_timeout"] = opts.Timeout
+	}
+
+	ipmiModule, err := engine.GetModuleInstance(instanceID, moduleType, ipmiConfig)
+	if err != nil {
+		return nil, fmt.Errorf("create %s module: %w", moduleType, err)
+	}
+
+	ipmiOutputs, ipmiExecErr := executeDebugModule(ctx, ipmiModule, map[string]any{
+		"discovery.open_udp_ports": toAnySlice(openPorts),
+	})
+	if ipmiExecErr != nil {
+		steps.addError(stepName, ipmiExecErr.Error())
+	}
+	steps.addErrors(stepName, collectOutputErrors(ipmiOutputs))
+	results := collectIPMIDetailsResults(ipmiOutputs)
+	if len(results) == 0 {
+		if reason := debugIPMICandidateWarning(openPorts); reason != "" {
+			steps.addWarning(stepName, reason)
+		} else {
+			steps.addWarning(stepName, "no ipmi metadata generated")
 		}
 	}
 	return results, nil
@@ -1305,6 +1351,25 @@ func debugHasSNMPCandidate(openPorts []discovery.UDPPortDiscoveryResult) bool {
 	return false
 }
 
+func debugIPMICandidateWarning(openPorts []discovery.UDPPortDiscoveryResult) string {
+	if debugHasIPMICandidate(openPorts) {
+		return ""
+	}
+	if len(openPorts) > 0 {
+		return "non_family_port_without_banner_hint"
+	}
+	return "no_candidate"
+}
+
+func debugHasIPMICandidate(openPorts []discovery.UDPPortDiscoveryResult) bool {
+	for _, result := range openPorts {
+		if slices.Contains(result.OpenPorts, 623) {
+			return true
+		}
+	}
+	return false
+}
+
 func debugHasDNSCandidate(openTCPPorts []discovery.TCPPortDiscoveryResult, openUDPPorts []discovery.UDPPortDiscoveryResult) bool {
 	for _, result := range openTCPPorts {
 		if slices.Contains(result.OpenPorts, 53) {
@@ -1717,6 +1782,25 @@ func collectSNMPDetailsResults(outputs []engine.ModuleOutput) []scanpkg.SNMPServ
 	return results
 }
 
+func collectIPMIDetailsResults(outputs []engine.ModuleOutput) []scanpkg.IPMIServiceInfo {
+	results := make([]scanpkg.IPMIServiceInfo, 0)
+	for _, output := range outputs {
+		switch data := output.Data.(type) {
+		case scanpkg.IPMIServiceInfo:
+			results = append(results, data)
+		case []scanpkg.IPMIServiceInfo:
+			results = append(results, data...)
+		}
+	}
+	sort.Slice(results, func(i, j int) bool {
+		if results[i].Target == results[j].Target {
+			return results[i].Port < results[j].Port
+		}
+		return results[i].Target < results[j].Target
+	})
+	return results
+}
+
 func collectDNSDetailsResults(outputs []engine.ModuleOutput) []scanpkg.DNSServiceInfo {
 	results := make([]scanpkg.DNSServiceInfo, 0)
 	for _, output := range outputs {
@@ -1967,6 +2051,7 @@ func writeScanDebugPretty(w io.Writer, payload scanDebugPayload) error {
 	fmt.Fprintf(w, "SMTP Details: %d\n", len(payload.SMTPDetails))
 	fmt.Fprintf(w, "SSH Details: %d\n", len(payload.SSHDetails))
 	fmt.Fprintf(w, "SNMP Details: %d\n", len(payload.SNMPDetails))
+	fmt.Fprintf(w, "IPMI Details: %d\n", len(payload.IPMIDetails))
 	fmt.Fprintf(w, "RPC Epmapper: %d\n", len(payload.RPCEpmapper))
 	fmt.Fprintf(w, "RPC Details: %d\n", len(payload.RPCDetails))
 	fmt.Fprintf(w, "RDP Details: %d\n", len(payload.RDPDetails))
