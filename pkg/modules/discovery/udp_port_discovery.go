@@ -45,8 +45,8 @@ type UDPPortDiscoveryModule struct {
 const (
 	udpPortDiscoveryModuleTypeName = "udp-port-discovery"
 	defaultUDPPortDiscoveryTimeout = 2 * time.Second
-	defaultUDPConcurrency          = 50                             // Lower than TCP (UDP slower)
-	defaultUDPPorts                = "53,123,137,161,514,1900,5353" // DNS, NTP, NetBIOS-NS, SNMP, Syslog, UPnP, mDNS
+	defaultUDPConcurrency          = 50                                 // Lower than TCP (UDP slower)
+	defaultUDPPorts                = "53,123,137,161,514,623,1900,5353" // DNS, NTP, NetBIOS-NS, SNMP, Syslog, IPMI/RMCP, UPnP, mDNS
 	defaultUDPMaxRetries           = 2
 )
 
@@ -220,6 +220,32 @@ func getDefaultUDPPayloads() map[int][]byte {
 			0x00,       // Root
 			0x00, 0x0c, // Type: PTR
 			0x00, 0x01, // Class: IN
+		},
+
+		// IPMI over RMCP (623): Get Channel Authentication Capabilities.
+		//
+		// A BMC answers nothing to an empty datagram, so without this payload
+		// the port reads as closed on a host that is running one. Measured:
+		// 192.168.0.43 replies to exactly these bytes with netFn 0x07 (App
+		// response), cmd 0x38, completion 0x00 -- a real BMC, and the host a
+		// second scanner reports an IPMI hash disclosure on.
+		//
+		// The reply is also worth more than liveness: it carries the channel's
+		// supported authentication types, which is what a later probe reads.
+		623: {
+			// RMCP header: version 0x06, reserved, seq 0xff (no ACK), class 0x07 (IPMI).
+			0x06, 0x00, 0xff, 0x07,
+			0x00,                   // session auth type: none
+			0x00, 0x00, 0x00, 0x00, // session sequence number
+			0x00, 0x00, 0x00, 0x00, // session id
+			0x09,       // IPMI message length
+			0x20, 0x18, // rsAddr 0x20 (BMC), netFn 0x06 (App) << 2 | rsLUN 0
+			0xc8,       // checksum 1: two's complement of the two bytes above
+			0x81, 0x04, // rqAddr 0x81 (remote console), rqSeq 0x01 << 2 | rqLUN 0
+			0x38, // cmd 0x38: Get Channel Authentication Capabilities
+			0x0e, // channel 0x0e: "the channel this request arrived on"
+			0x04, // requested privilege level: administrator
+			0x31, // checksum 2: two's complement of rqAddr..data
 		},
 	}
 }
