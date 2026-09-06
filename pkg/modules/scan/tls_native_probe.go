@@ -57,8 +57,8 @@ type TLSServiceInfo struct {
 	CertSubjectCN    string    `json:"cert_subject_cn,omitempty"`
 	CertIssuer       string    `json:"cert_issuer,omitempty"`
 	CertDNSNames     []string  `json:"cert_dns_names,omitempty"`
-	CertNotBefore    time.Time `json:"cert_not_before,omitempty"`
-	CertNotAfter     time.Time `json:"cert_not_after,omitempty"`
+	CertNotBefore    time.Time `json:"cert_not_before,omitzero"`
+	CertNotAfter     time.Time `json:"cert_not_after,omitzero"`
 	CertIsExpired    bool      `json:"cert_is_expired"`
 	CertIsSelfSigned bool      `json:"cert_is_self_signed"`
 	CertSHA256       string    `json:"cert_sha256,omitempty"`
