@@ -1759,6 +1759,26 @@ func applyTLSDetails(portProfile *engine.PortProfile, details scan.TLSServiceInf
 	if strings.TrimSpace(details.CertSerial) != "" {
 		portProfile.Service.ParsedAttributes["tls_cert_serial"] = strings.TrimSpace(details.CertSerial)
 	}
+	if details.Enumeration != nil {
+		// Named "offered" rather than "cipher_suites" on purpose: tls_cipher_suite
+		// is the one that was negotiated, and two keys a letter apart would be
+		// read as each other.
+		if len(details.Enumeration.CipherSuites) > 0 {
+			portProfile.Service.ParsedAttributes["tls_offered_cipher_suites"] =
+				append([]string(nil), details.Enumeration.CipherSuites...)
+		}
+		if len(details.Enumeration.TLSVersions) > 0 {
+			portProfile.Service.ParsedAttributes["tls_offered_versions"] =
+				append([]string(nil), details.Enumeration.TLSVersions...)
+		}
+		// Written even when false: a consumer has to be able to tell a complete
+		// answer from a partial one without inferring it from the list length.
+		portProfile.Service.ParsedAttributes["tls_enumeration_truncated"] = details.Enumeration.Truncated
+		if details.Enumeration.TruncatedReason != "" {
+			portProfile.Service.ParsedAttributes["tls_enumeration_truncated_reason"] =
+				details.Enumeration.TruncatedReason
+		}
+	}
 
 	portProfile.Service.ParsedAttributes["tls_cert_is_expired"] = details.CertIsExpired
 	portProfile.Service.ParsedAttributes["tls_cert_is_self_signed"] = details.CertIsSelfSigned

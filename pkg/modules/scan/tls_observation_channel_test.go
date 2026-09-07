@@ -187,9 +187,17 @@ func TestProbeTLSDetails_HealthyServiceIsNotDialledByTheChannel(t *testing.T) {
 			t.Fatalf("the channel dialed a service that was already read: %+v", result.Attempts)
 		}
 	}
-	if got := handshakes.Load(); got != int32(len(result.Attempts)) {
-		t.Fatalf("server saw %d handshakes for %d recorded attempts — an unrecorded dial happened",
-			got, len(result.Attempts))
+	// Every handshake the server saw must be one this probe accounts for: the
+	// recorded attempts plus the enumeration dials it declares. The point of the
+	// assertion is that nothing dials without saying so, which now covers
+	// enumeration as well as the channel.
+	accounted := len(result.Attempts)
+	if result.Enumeration != nil {
+		accounted += result.Enumeration.Dials
+	}
+	if got := handshakes.Load(); got != int32(accounted) {
+		t.Fatalf("server saw %d handshakes, probe accounts for %d (%d attempts + %d enumeration dials) — an unaccounted dial happened",
+			got, accounted, len(result.Attempts), enumerationDials(result))
 	}
 }
 
@@ -296,4 +304,11 @@ func startPinnedTLSServer(t *testing.T, version uint16, suites []uint16) (string
 		_ = ln.Close()
 		<-done
 	}
+}
+
+func enumerationDials(result TLSServiceInfo) int {
+	if result.Enumeration == nil {
+		return 0
+	}
+	return result.Enumeration.Dials
 }

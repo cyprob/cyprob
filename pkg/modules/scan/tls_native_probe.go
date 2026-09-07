@@ -68,6 +68,10 @@ type TLSServiceInfo struct {
 	// observations are the same certificate, the serial is what the issuing CA
 	// indexes by, so it is the key for a revocation list or a PKI inventory.
 	CertSerial string `json:"cert_serial,omitempty"`
+	// Enumeration is what else the server would have accepted, which the
+	// negotiated suite and version above cannot say. Nil when the service was
+	// never reached. See tls_suite_enumeration.go.
+	Enumeration *TLSEnumeration `json:"enumeration,omitempty"`
 	// VendorHint/ProductHint are device identity derived from the certificate
 	// subject/issuer. Appliances sign their own management certificates and name
 	// themselves in them, so this identifies hosts that expose nothing else.
@@ -523,6 +527,13 @@ func probeTLSDetails(ctx context.Context, target, hostname string, port int, opt
 		result.HostnameMismatch = bestOutcome.hostnameMismatch
 		result.CertExpiringSoon = bestOutcome.certExpiringSoon
 		result.ProbeError = ""
+		// Enumeration asks a different question from everything above, so it
+		// runs on every service that answered at all -- including one only the
+		// observation channel could reach, which is the service most worth
+		// asking. It carries its own budget rather than the probe's, because
+		// its cost is a function of what the server supports and not of how
+		// long a single handshake takes.
+		result.Enumeration = enumerateTLS(ctx, target, hostname, port, opts)
 		return result
 	}
 

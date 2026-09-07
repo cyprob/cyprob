@@ -405,6 +405,12 @@ func TestAssetProfileBuilder_MapsTLSDetailsToParsedAttributes(t *testing.T) {
 				CertIsSelfSigned: true,
 				CertSHA256:       "deadbeef",
 				CertSerial:       "4F:9F:00:01:DE:AD:BE:EF",
+				Enumeration: &scan.TLSEnumeration{
+					CipherSuites:    []string{"TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256", "TLS_RSA_WITH_RC4_128_SHA"},
+					TLSVersions:     []string{"TLS1.2", "TLS1.0"},
+					Truncated:       true,
+					TruncatedReason: "dial_budget",
+				},
 				WeakProtocol:     false,
 				WeakCipher:       false,
 				HostnameMismatch: false,
@@ -459,6 +465,23 @@ func TestAssetProfileBuilder_MapsTLSDetailsToParsedAttributes(t *testing.T) {
 	// cyprob#299: the serial travels with the rest of the certificate evidence.
 	if attrs["tls_cert_serial"] != "4F:9F:00:01:DE:AD:BE:EF" {
 		t.Fatalf("expected tls_cert_serial mapped, got %v", attrs["tls_cert_serial"])
+	}
+	// cyprob#294: what else the server accepts, kept apart from the singular
+	// tls_cipher_suite that was negotiated.
+	offeredSuites, ok := attrs["tls_offered_cipher_suites"].([]string)
+	if !ok || len(offeredSuites) != 2 {
+		t.Fatalf("expected tls_offered_cipher_suites as []string, got %#v", attrs["tls_offered_cipher_suites"])
+	}
+	offeredVersions, ok := attrs["tls_offered_versions"].([]string)
+	if !ok || len(offeredVersions) != 2 {
+		t.Fatalf("expected tls_offered_versions as []string, got %#v", attrs["tls_offered_versions"])
+	}
+	// A partial answer has to say it is partial, whichever way the flag falls.
+	if truncated, ok := attrs["tls_enumeration_truncated"].(bool); !ok || !truncated {
+		t.Fatalf("expected tls_enumeration_truncated=true, got %#v", attrs["tls_enumeration_truncated"])
+	}
+	if attrs["tls_enumeration_truncated_reason"] != "dial_budget" {
+		t.Fatalf("expected the truncation reason to travel, got %v", attrs["tls_enumeration_truncated_reason"])
 	}
 	dnsNames, ok := attrs["tls_cert_dns_names"].([]string)
 	if !ok || len(dnsNames) != 2 {
