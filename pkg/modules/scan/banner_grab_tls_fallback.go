@@ -45,7 +45,7 @@ func (m *BannerGrabModule) runTLSFallbackPass(
 	if catalog == nil || ctx.Err() != nil {
 		return
 	}
-	if selectPrimaryBannerObservation(*observations).Banner != "" {
+	if selectPrimaryBannerObservation(port, *observations).Banner != "" {
 		return
 	}
 
@@ -68,7 +68,7 @@ func (m *BannerGrabModule) runTLSFallbackPass(
 		classifyHTTPProbeObservation(&obs)
 		m.collectObservation(observations, obs, lastError)
 
-		if selectPrimaryBannerObservation(*observations).Banner != "" {
+		if selectPrimaryBannerObservation(port, *observations).Banner != "" {
 			m.logger.Debug().
 				Str("probe_id", spec.ID).
 				Int("port", port).

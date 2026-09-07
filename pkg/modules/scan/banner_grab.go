@@ -363,7 +363,7 @@ func (m *BannerGrabModule) runActiveProbes(
 	// Phase 1.5: Probe Fallback for non-standard ports
 	// If no port-specific probes matched AND we still do not have a usable primary banner,
 	// try fallback probes for non-standard ports.
-	if len(candidateProbes) == 0 && selectPrimaryBannerObservation(*observations).Banner == "" {
+	if len(candidateProbes) == 0 && selectPrimaryBannerObservation(port, *observations).Banner == "" {
 		candidateProbes = catalog.FallbackProbesFor(port, hintAcc.slice())
 		if len(candidateProbes) > 0 {
 			m.logger.Debug().
@@ -449,7 +449,7 @@ func (m *BannerGrabModule) runActiveProbes(
 
 		// Phase 1.9: Early exit optimization
 		// If we got a usable banner with no error, stop probing
-		if selection := selectPrimaryBannerObservation(*observations); selection.Banner != "" && *lastError == "" && !shouldKeepTLSFallbackProbing(port, selection) {
+		if selection := selectPrimaryBannerObservation(port, *observations); selection.Banner != "" && *lastError == "" && !shouldKeepTLSFallbackProbing(port, selection) {
 			m.logger.Debug().
 				Str("probe_id", obs.ProbeID).
 				Int("port", port).
@@ -494,7 +494,7 @@ func (m *BannerGrabModule) runProbes(ctx context.Context, target string, probeHo
 			m.collectObservation(&observations, redirectObs, &lastError)
 		}
 	}
-	selection := selectPrimaryBannerObservation(observations)
+	selection := selectPrimaryBannerObservation(port, observations)
 	selection = suppressTLSUpgradeProxySelection(port, observations, selection)
 
 	result := BannerGrabResult{
@@ -567,11 +567,16 @@ func (m *BannerGrabModule) runOriginRetry(ctx context.Context, dialHost string, 
 
 func (m *BannerGrabModule) runConnectTunnelOriginRetry(ctx context.Context, dialHost string, originHost string, port int) engine.ProbeObservation {
 	obs := engine.ProbeObservation{
-		ProbeID:     "https-connect-origin",
-		Description: "HTTP CONNECT tunnel origin retry",
-		Protocol:    "https",
-		IsTLS:       true,
+		ProbeID:      "https-connect-origin",
+		Description:  "HTTP CONNECT tunnel origin retry",
+		Protocol:     "https",
+		ObservedPort: port,
 	}
+	// IsTLS is set after the tunnel is wrapped, not here. The dial below is
+	// plain TCP to the proxy, and every early return between here and the
+	// handshake can still carry a response -- a proxy refusing CONNECT answers
+	// in plaintext, and that response is selectable. Claiming TLS at the top
+	// meant a plaintext proxy refusal arrived as a TLS banner.
 
 	address := net.JoinHostPort(dialHost, strconv.Itoa(port))
 	dialer := &net.Dialer{Timeout: m.effectiveTimeout(ctx, m.config.ConnectTimeout)}
@@ -640,6 +645,7 @@ func (m *BannerGrabModule) runConnectTunnelOriginRetry(ctx context.Context, dial
 		return obs
 	}
 	obs.TLS = extractTLSObservation(tlsConn.ConnectionState())
+	obs.IsTLS = true
 
 	if _, err := tlsConn.Write([]byte(buildCanonicalGETRequest(originHost))); err != nil {
 		obs.Duration = time.Since(start)
@@ -741,7 +747,15 @@ type redirectRequest struct {
 	SkipError   string
 }
 
-func selectPrimaryBannerObservation(observations []engine.ProbeObservation) bannerSelection {
+// observationDescribesPort reports whether this observation's connection is
+// evidence about the port being scanned. A redirect followed from port 80 to
+// port 443 produces a genuine TLS handshake -- about port 443. Letting it speak
+// for port 80 is how twenty plaintext services came to be recorded as TLS.
+func observationDescribesPort(obs engine.ProbeObservation, port int) bool {
+	return obs.ObservedPort == 0 || obs.ObservedPort == port
+}
+
+func selectPrimaryBannerObservation(port int, observations []engine.ProbeObservation) bannerSelection {
 	selection := bannerSelection{}
 	bestScore := -1
 	sawProxy := false
@@ -764,7 +778,7 @@ func selectPrimaryBannerObservation(observations []engine.ProbeObservation) bann
 			continue
 		}
 
-		score := bannerObservationScore(obs)
+		score := bannerObservationScore(obs, port)
 		if score < bestScore {
 			continue
 		}
@@ -772,7 +786,11 @@ func selectPrimaryBannerObservation(observations []engine.ProbeObservation) bann
 		bestScore = score
 		selection.ProbeID = obs.ProbeID
 		selection.Banner = response
-		selection.IsTLS = obs.IsTLS
+		// The banner still travels -- following a redirect is how the service
+		// behind it gets identified, and that is the point of following it. The
+		// TLS claim does not, unless the connection that made it was to this
+		// port.
+		selection.IsTLS = obs.IsTLS && observationDescribesPort(obs, port)
 		selection.ResponseClass = obs.ResponseClass
 		selection.ProxyResponse = false
 	}
@@ -813,7 +831,7 @@ func selectRedirectFollowCandidate(port int, observations []engine.ProbeObservat
 		if !analysis.IsHTTP || !isRedirectStatus(analysis.StatusCode) || strings.TrimSpace(analysis.Headers["location"]) == "" {
 			continue
 		}
-		score := bannerObservationScore(obs)
+		score := bannerObservationScore(obs, port)
 		if score < bestScore {
 			continue
 		}
@@ -861,20 +879,28 @@ func suppressTLSUpgradeProxySelection(port int, observations []engine.ProbeObser
 	return selection
 }
 
-func bannerObservationScore(obs engine.ProbeObservation) int {
+// bannerObservationScore ranks observations for selection.
+//
+// The https bucket is earned by a completed handshake on this port, not by a
+// probe id that starts with "https". A probe named https- that never got a
+// handshake is an http observation with an optimistic name, and letting the
+// name buy the top bucket is what let one such observation outrank the plain
+// probe that actually described the service.
+func bannerObservationScore(obs engine.ProbeObservation, port int) int {
 	score := 0
 	if obs.ResponseClass == "origin" {
 		score += 100
 	}
+	describesPort := observationDescribesPort(obs, port)
 	switch {
-	case strings.HasPrefix(obs.ProbeID, "https"):
+	case strings.HasPrefix(obs.ProbeID, "https") && obs.IsTLS && describesPort:
 		score += 40
 	case strings.HasPrefix(obs.ProbeID, "http"):
 		score += 30
 	case obs.ProbeID != "tcp-passive":
 		score += 10
 	}
-	if obs.IsTLS {
+	if obs.IsTLS && describesPort {
 		score += 5
 	}
 	return score
@@ -1409,11 +1435,16 @@ func (m *BannerGrabModule) executeProbeSpec(ctx context.Context, dialHost string
 
 func (m *BannerGrabModule) runCommandProbe(ctx context.Context, dialHost string, probeHost string, port int, spec commandProbeSpec) engine.ProbeObservation {
 	obs := engine.ProbeObservation{
-		ProbeID:     spec.ProbeID,
-		Description: spec.Description,
-		Protocol:    spec.Protocol,
-		IsTLS:       spec.UseTLS,
+		ProbeID:      spec.ProbeID,
+		Description:  spec.Description,
+		Protocol:     spec.Protocol,
+		ObservedPort: port,
 	}
+	// IsTLS is deliberately not set from spec.UseTLS here. That is what the
+	// probe intended to attempt, and the two agree only by accident: a failed
+	// TLS dial returns below with no response and is never selected, so the
+	// wrong value has never been visible. It is set from the handshake instead,
+	// after the dial, so it cannot start disagreeing later.
 
 	// Last line rather than the only one: callers are expected to have filtered
 	// the port already, but every writer in this file funnels through here, so a
@@ -1462,6 +1493,7 @@ func (m *BannerGrabModule) runCommandProbe(ctx context.Context, dialHost string,
 
 	if tlsInfo != nil {
 		obs.TLS = tlsInfo
+		obs.IsTLS = true
 	}
 
 	responses := make([]string, 0, len(spec.Commands)+1)

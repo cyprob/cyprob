@@ -9,10 +9,18 @@ import (
 // This struct is used in banner grabbing to record individual probe attempts
 // and their responses, including TLS metadata when applicable.
 type ProbeObservation struct {
-	ProbeID              string          `json:"probe_id" yaml:"probe_id"`
-	Description          string          `json:"description,omitempty" yaml:"description,omitempty"`
-	Protocol             string          `json:"protocol,omitempty" yaml:"protocol,omitempty"`
-	IsTLS                bool            `json:"is_tls,omitempty" yaml:"is_tls,omitempty"`
+	ProbeID     string `json:"probe_id" yaml:"probe_id"`
+	Description string `json:"description,omitempty" yaml:"description,omitempty"`
+	Protocol    string `json:"protocol,omitempty" yaml:"protocol,omitempty"`
+	// IsTLS is whether this observation's own connection completed a TLS
+	// handshake -- not whether the probe intended one, and not whether some
+	// other connection made during the same scan did. A redirect hop that
+	// followed port 80 to port 443 says nothing about port 80.
+	IsTLS bool `json:"is_tls,omitempty" yaml:"is_tls,omitempty"`
+	// ObservedPort is the port this observation actually connected to. It
+	// differs from the port being scanned when a redirect was followed across
+	// ports, which is the case that made this field necessary.
+	ObservedPort         int             `json:"observed_port,omitempty" yaml:"observed_port,omitempty"`
 	Duration             time.Duration   `json:"duration_ns,omitempty" yaml:"duration_ns,omitempty"`
 	Response             string          `json:"response,omitempty" yaml:"response,omitempty"`
 	Error                string          `json:"error,omitempty" yaml:"error,omitempty"`

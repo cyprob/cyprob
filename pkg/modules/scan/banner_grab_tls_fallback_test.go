@@ -57,7 +57,7 @@ func TestRunTLSFallbackPass_RecoversASilentTLSPort(t *testing.T) {
 	m.runTLSFallbackPass(context.Background(), host, host, port, catalog,
 		&observations, &lastError, &hints, map[string]struct{}{})
 
-	banner := selectPrimaryBannerObservation(observations).Banner
+	banner := selectPrimaryBannerObservation(port, observations).Banner
 	if banner == "" {
 		t.Fatal("expected the TLS fallback to produce a banner where the plain pass had none")
 	}

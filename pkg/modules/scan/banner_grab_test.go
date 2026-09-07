@@ -707,7 +707,7 @@ func TestClassifyHTTPProbeObservation_ProxySignals(t *testing.T) {
 func TestSelectPrimaryBannerObservation_PrefersOriginOverProxy(t *testing.T) {
 	t.Parallel()
 
-	selection := selectPrimaryBannerObservation([]engine.ProbeObservation{
+	selection := selectPrimaryBannerObservation(443, []engine.ProbeObservation{
 		{
 			ProbeID:              "https-get",
 			Response:             "HTTP/1.1 502 Bad Gateway\r\nVia: HTTP/1.1 forward.http.proxy:3128\r\n\r\n",
