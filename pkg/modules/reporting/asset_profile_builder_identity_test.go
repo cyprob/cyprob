@@ -404,6 +404,7 @@ func TestAssetProfileBuilder_MapsTLSDetailsToParsedAttributes(t *testing.T) {
 				CertIsExpired:    false,
 				CertIsSelfSigned: true,
 				CertSHA256:       "deadbeef",
+				CertSerial:       "4F:9F:00:01:DE:AD:BE:EF",
 				WeakProtocol:     false,
 				WeakCipher:       false,
 				HostnameMismatch: false,
@@ -454,6 +455,10 @@ func TestAssetProfileBuilder_MapsTLSDetailsToParsedAttributes(t *testing.T) {
 	}
 	if attrs["tls_cert_issuer"] != "CN=example-ca" {
 		t.Fatalf("expected tls_cert_issuer mapped, got %v", attrs["tls_cert_issuer"])
+	}
+	// cyprob#299: the serial travels with the rest of the certificate evidence.
+	if attrs["tls_cert_serial"] != "4F:9F:00:01:DE:AD:BE:EF" {
+		t.Fatalf("expected tls_cert_serial mapped, got %v", attrs["tls_cert_serial"])
 	}
 	dnsNames, ok := attrs["tls_cert_dns_names"].([]string)
 	if !ok || len(dnsNames) != 2 {

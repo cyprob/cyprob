@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math/big"
 	"net"
 	"sort"
 	"strconv"
@@ -62,6 +63,11 @@ type TLSServiceInfo struct {
 	CertIsExpired    bool      `json:"cert_is_expired"`
 	CertIsSelfSigned bool      `json:"cert_is_self_signed"`
 	CertSHA256       string    `json:"cert_sha256,omitempty"`
+	// CertSerial is the leaf certificate serial, uppercase colon-separated hex.
+	// It answers a different question from CertSHA256: the hash says whether two
+	// observations are the same certificate, the serial is what the issuing CA
+	// indexes by, so it is the key for a revocation list or a PKI inventory.
+	CertSerial string `json:"cert_serial,omitempty"`
 	// VendorHint/ProductHint are device identity derived from the certificate
 	// subject/issuer. Appliances sign their own management certificates and name
 	// themselves in them, so this identifies hosts that expose nothing else.
@@ -106,6 +112,7 @@ type tlsProbeOutcome struct {
 	certIsExpired    bool
 	certIsSelfSigned bool
 	certSHA256       string
+	certSerial       string
 	weakProtocol     bool
 	weakCipher       bool
 	hostnameMismatch bool
@@ -482,6 +489,7 @@ func probeTLSDetails(ctx context.Context, target, hostname string, port int, opt
 		result.CertIsExpired = bestOutcome.certIsExpired
 		result.CertIsSelfSigned = bestOutcome.certIsSelfSigned
 		result.CertSHA256 = bestOutcome.certSHA256
+		result.CertSerial = bestOutcome.certSerial
 		result.VendorHint, result.ProductHint = deriveTLSCertIdentity(result.CertSubjectCN, result.CertIssuer)
 		result.WeakProtocol = bestOutcome.weakProtocol
 		result.WeakCipher = bestOutcome.weakCipher
@@ -581,6 +589,7 @@ func probeSingleTLSStrategy(
 	if len(state.PeerCertificates) > 0 {
 		sum := sha256.Sum256(state.PeerCertificates[0].Raw)
 		outcome.certSHA256 = hex.EncodeToString(sum[:])
+		outcome.certSerial = formatTLSCertSerial(state.PeerCertificates[0].SerialNumber)
 		if tlsConfig.ServerName != "" {
 			outcome.hostnameMismatch = state.PeerCertificates[0].VerifyHostname(tlsConfig.ServerName) != nil
 		}
@@ -632,6 +641,30 @@ func isWeakCipher(cipherSuite string) bool {
 		}
 	}
 	return false
+}
+
+// formatTLSCertSerial renders a certificate serial as uppercase colon-separated
+// hex, the form OpenSSL prints. cyprob-ee already stores serials in exactly this
+// shape for the ones its own SSL plugin extracts, and both producers write the
+// same column, so matching it keeps one serial string meaning one certificate.
+//
+// big.Int.Bytes() drops the sign, which only matters for certificates that
+// violate RFC 5280 by carrying a negative serial; those are rendered by
+// magnitude here, as they already are on the cyprob-ee side.
+func formatTLSCertSerial(serial *big.Int) string {
+	if serial == nil {
+		return ""
+	}
+	raw := serial.Bytes()
+	if len(raw) == 0 {
+		return ""
+	}
+	encoded := strings.ToUpper(hex.EncodeToString(raw))
+	parts := make([]string, 0, len(encoded)/2)
+	for i := 0; i < len(encoded); i += 2 {
+		parts = append(parts, encoded[i:i+2])
+	}
+	return strings.Join(parts, ":")
 }
 
 func isCertExpiringSoon(notAfter time.Time, now time.Time) bool {

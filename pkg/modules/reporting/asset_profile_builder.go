@@ -1756,6 +1756,9 @@ func applyTLSDetails(portProfile *engine.PortProfile, details scan.TLSServiceInf
 	if strings.TrimSpace(details.CertSHA256) != "" {
 		portProfile.Service.ParsedAttributes["tls_cert_sha256"] = strings.TrimSpace(details.CertSHA256)
 	}
+	if strings.TrimSpace(details.CertSerial) != "" {
+		portProfile.Service.ParsedAttributes["tls_cert_serial"] = strings.TrimSpace(details.CertSerial)
+	}
 
 	portProfile.Service.ParsedAttributes["tls_cert_is_expired"] = details.CertIsExpired
 	portProfile.Service.ParsedAttributes["tls_cert_is_self_signed"] = details.CertIsSelfSigned
