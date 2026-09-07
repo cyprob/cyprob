@@ -94,9 +94,16 @@ type tlsProbeCandidate struct {
 }
 
 type tlsProbeStrategy struct {
-	name       string
-	useSNI     bool
+	name   string
+	useSNI bool
+	// forceTLS12 lowers the ceiling to TLS 1.2. It does not lower the floor:
+	// crypto/tls refuses TLS 1.0 and 1.1 by default and this does not change
+	// that. The strategy is named for the ceiling for that reason.
 	forceTLS12 bool
+	// observation marks the strategy as belonging to the observation channel,
+	// which dials on wider terms than anything that carries traffic. See
+	// tls_observation_channel.go.
+	observation bool
 }
 
 type tlsProbeOutcome struct {
@@ -369,7 +376,7 @@ func buildTLSProbeStrategies(hostname string) []tlsProbeStrategy {
 	}
 	strategies = append(strategies,
 		tlsProbeStrategy{name: "tls-no-sni"},
-		tlsProbeStrategy{name: "tls12-fallback", forceTLS12: true},
+		tlsProbeStrategy{name: "tls12-ceiling", forceTLS12: true},
 	)
 	return strategies
 }
@@ -418,61 +425,81 @@ func probeTLSDetails(ctx context.Context, target, hostname string, port int, opt
 		Strs("strategies", tlsStrategyNames(strategies)).
 		Msg("Prepared TLS probe strategies")
 
+	runStrategy := func(strategy tlsProbeStrategy, retry int) {
+		log.Debug().
+			Str("module", tlsNativeProbeModuleName).
+			Str("target", target).
+			Int("port", port).
+			Str("hostname", hostname).
+			Str("strategy", strategy.name).
+			Int("retry", retry).
+			Msg("Running TLS probe strategy")
+		outcome, err := probeSingleTLSStrategy(probeCtx, target, hostname, port, strategy, opts)
+		if err != nil {
+			code := classifyTLSProbeError(err)
+			errorCodes = append(errorCodes, code)
+			log.Debug().
+				Str("module", tlsNativeProbeModuleName).
+				Str("target", target).
+				Int("port", port).
+				Str("strategy", strategy.name).
+				Str("error", code).
+				Msg("TLS probe strategy failed")
+			result.Attempts = append(result.Attempts, TLSProbeAttempt{
+				Strategy:   strategy.name,
+				Transport:  strconv.Itoa(port),
+				Success:    false,
+				DurationMS: outcome.duration.Milliseconds(),
+				Error:      code,
+			})
+			return
+		}
+
+		result.Attempts = append(result.Attempts, TLSProbeAttempt{
+			Strategy:      strategy.name,
+			Transport:     strconv.Itoa(port),
+			Success:       true,
+			DurationMS:    outcome.duration.Milliseconds(),
+			TLSVersion:    outcome.tlsVersion,
+			CipherSuite:   outcome.cipherSuite,
+			SNIServerName: outcome.sniServerName,
+		})
+		log.Debug().
+			Str("module", tlsNativeProbeModuleName).
+			Str("target", target).
+			Int("port", port).
+			Str("strategy", strategy.name).
+			Str("tls_version", outcome.tlsVersion).
+			Str("sni_server_name", outcome.sniServerName).
+			Msg("TLS probe strategy succeeded")
+
+		score := scoreTLSOutcome(outcome)
+		if score > bestScore {
+			bestScore = score
+			bestOutcome = outcome
+		}
+	}
+
 	for _, strategy := range strategies {
 		for retry := 0; retry <= opts.Retries; retry++ {
-			log.Debug().
-				Str("module", tlsNativeProbeModuleName).
-				Str("target", target).
-				Int("port", port).
-				Str("hostname", hostname).
-				Str("strategy", strategy.name).
-				Int("retry", retry).
-				Msg("Running TLS probe strategy")
-			outcome, err := probeSingleTLSStrategy(probeCtx, target, hostname, port, strategy, opts)
-			if err != nil {
-				code := classifyTLSProbeError(err)
-				errorCodes = append(errorCodes, code)
-				log.Debug().
-					Str("module", tlsNativeProbeModuleName).
-					Str("target", target).
-					Int("port", port).
-					Str("strategy", strategy.name).
-					Str("error", code).
-					Msg("TLS probe strategy failed")
-				result.Attempts = append(result.Attempts, TLSProbeAttempt{
-					Strategy:   strategy.name,
-					Transport:  strconv.Itoa(port),
-					Success:    false,
-					DurationMS: outcome.duration.Milliseconds(),
-					Error:      code,
-				})
-				continue
-			}
-
-			result.Attempts = append(result.Attempts, TLSProbeAttempt{
-				Strategy:      strategy.name,
-				Transport:     strconv.Itoa(port),
-				Success:       true,
-				DurationMS:    outcome.duration.Milliseconds(),
-				TLSVersion:    outcome.tlsVersion,
-				CipherSuite:   outcome.cipherSuite,
-				SNIServerName: outcome.sniServerName,
-			})
-			log.Debug().
-				Str("module", tlsNativeProbeModuleName).
-				Str("target", target).
-				Int("port", port).
-				Str("strategy", strategy.name).
-				Str("tls_version", outcome.tlsVersion).
-				Str("sni_server_name", outcome.sniServerName).
-				Msg("TLS probe strategy succeeded")
-
-			score := scoreTLSOutcome(outcome)
-			if score > bestScore {
-				bestScore = score
-				bestOutcome = outcome
-			}
+			runStrategy(strategy, retry)
 		}
+	}
+
+	// The observation channel runs only where it can add something: a service
+	// every ordinary strategy already read has been observed, and dialing it
+	// again on wider terms would return the same negotiation at the cost of an
+	// extra handshake. crypto/tls picks the highest version both sides accept,
+	// so a wide dial against a healthy server reports exactly what the strict
+	// one did. Reaching here means the service was not read at all, which is
+	// the case the channel exists for.
+	if bestScore < 0 {
+		log.Debug().
+			Str("module", tlsNativeProbeModuleName).
+			Str("target", target).
+			Int("port", port).
+			Msg("No strategy completed a handshake, falling back to the observation channel")
+		runStrategy(buildTLSObservationStrategy(hostname), 0)
 	}
 
 	if bestScore >= 0 {
@@ -532,6 +559,9 @@ func probeSingleTLSStrategy(
 	}
 	if strategy.forceTLS12 {
 		tlsConfig.MaxVersion = tls.VersionTLS12
+	}
+	if strategy.observation {
+		applyTLSObservationConfig(tlsConfig)
 	}
 
 	tlsDialer := &tls.Dialer{
