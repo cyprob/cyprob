@@ -14,11 +14,11 @@ func TestResolverProtocolHint(t *testing.T) {
 	const httpResponse = "HTTP/1.1 200 OK\r\nServer: nginx/1.24.0\r\nContent-Type: text/html\r\n\r\n"
 
 	for _, tc := range []struct {
-		name                       string
-		serviceName, transport     string
-		port                       int
-		banner                     string
-		want                       string
+		name                   string
+		serviceName, transport string
+		port                   int
+		banner                 string
+		want                   string
 	}{
 		{
 			name:        "https becomes http when the response is HTTP",
@@ -85,5 +85,32 @@ func TestResolverProtocolHint_AgreesWithThePipelineChain(t *testing.T) {
 
 		require.Equal(t, pipeline, ResolverProtocolHint(serviceName, "tcp", 443, banner),
 			"service %q", serviceName)
+	}
+}
+
+// "unknown" is the absence of a name, not a name, and must fall through to the
+// port hint the way an empty string does (cyprob#298).
+//
+// The pairing is the point: before this, an unidentified service resolved worse
+// than one with no name field at all.
+func TestProtocolHintFor_UnknownFallsThroughLikeEmpty(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		serviceName string
+		port        int
+		want        string
+	}{
+		{"empty falls through to the port hint", "", 389, "ldap"},
+		{"unknown falls through to the port hint", "unknown", 389, "ldap"},
+		{"UNKNOWN is the same regardless of case", "UNKNOWN", 389, "ldap"},
+		{"a real service name no rule keys on is kept", "rabbitmq", 5672, "rabbitmq"},
+		{"a name the rules do key on is kept", "https", 443, "https"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := protocolHintFor(tc.serviceName, "tcp", tc.port, ""); got != tc.want {
+				t.Fatalf("protocolHintFor(%q, tcp, %d) = %q, want %q",
+					tc.serviceName, tc.port, got, tc.want)
+			}
+		})
 	}
 }

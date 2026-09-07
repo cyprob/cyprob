@@ -588,8 +588,8 @@ func detectProtocolFromPort(port int) string {
 	// says the opposite while excluding all of them.
 	case 139, 445:
 		return "smb"
-	// Infrastructure Services
-	// 111 is rpcbind, which no rule identifies either. See 135 above.
+		// Infrastructure Services
+		// 111 is rpcbind, which no rule identifies either. See 135 above.
 	}
 	return ""
 }
@@ -621,8 +621,23 @@ func protocolHintFor(serviceName, transport string, port int, banner string) str
 
 // isGenericTransportHint reports whether a hint names the transport rather than
 // the protocol, which is to say it names nothing the rules key on.
+//
+// "unknown" belongs here for a reason worth stating, because the obvious next
+// step is wrong. It is not a service name that happens to match no rule -- it is
+// the absence of a name, the literal the scanner writes when nothing identified
+// the service. Passing it through leaves the resolver hinted at a protocol that
+// cannot exist, so an empty name resolved better than "unknown" did: "" on port
+// 389 falls through to the port hint and reaches ldap, while "unknown" on the
+// same port reached nothing (cyprob#298).
+//
+// The line stops here on purpose. A real service name that no rule keys on --
+// rabbitmq, say -- is still passed through unchanged, and
+// resolver_protocol_hint_test.go pins that. Widening this to "any hint no rule
+// declares" also drops https, which has its own normalisation branch, and breaks
+// three further tests. The distinction is not "does a rule key on it" but "is it
+// a name at all".
 func isGenericTransportHint(hint string) bool {
-	return hint == "" || hint == "tcp" || hint == "udp"
+	return hint == "" || hint == "tcp" || hint == "udp" || hint == "unknown"
 }
 
 // ResolverProtocolHint returns the protocol hint the fingerprint resolver is
