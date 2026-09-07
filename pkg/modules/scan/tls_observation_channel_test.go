@@ -172,7 +172,7 @@ func assertObservedOnlyByTheChannel(t *testing.T, result TLSServiceInfo) {
 // A service the strict strategies already read must not be dialed again. The
 // assertion is on the server's own handshake count, so an extra dial cannot
 // hide behind the recorded attempts.
-func TestProbeTLSDetails_HealthyServiceIsNotDialledByTheChannel(t *testing.T) {
+func TestProbeTLSDetails_HealthyServiceIsNotDialedByTheChannel(t *testing.T) {
 	t.Parallel()
 
 	host, port, handshakes, stop := startPinnedTLSServer(t, 0, nil)
