@@ -17,6 +17,7 @@ import (
 	"github.com/cyprob/cyprob/pkg/engine"
 	"github.com/cyprob/cyprob/pkg/modules/discovery"
 	"github.com/rs/zerolog/log"
+	"github.com/spf13/cast"
 )
 
 const (
@@ -32,6 +33,13 @@ type TLSProbeOptions struct {
 	IOTimeout      time.Duration `json:"io_timeout"`
 	Retries        int           `json:"retries"`
 	ExtraPorts     []int         `json:"extra_ports"`
+	// EnumerateCipherSuites turns on the suite and version walk. It is off by
+	// default, and that default is the point: enumeration asks a service the
+	// same question repeatedly, so its cost is a function of what the server
+	// supports rather than of one handshake, and it is paid on every port that
+	// completes one. Until a real estate has been measured, that belongs behind
+	// a switch rather than in everyone's ordinary scan.
+	EnumerateCipherSuites bool `json:"enumerate_cipher_suites"`
 }
 
 // TLSProbeAttempt represents one probe strategy attempt.
@@ -153,6 +161,12 @@ func newTLSNativeProbeModuleWithSpec(moduleID string, moduleName string, descrip
 					Type:        "[]int",
 					Required:    false,
 				},
+				"enumerate_cipher_suites": {
+					Description: "Walk the cipher suites and versions each TLS service accepts. Off by default: it costs one dial per supported suite per service.",
+					Type:        "bool",
+					Required:    false,
+					Default:     false,
+				},
 			},
 		}),
 		options: defaultTLSProbeOptions(),
@@ -177,6 +191,9 @@ func (m *tlsNativeProbeModule) Init(instanceID string, configMap map[string]any)
 	opts := defaultTLSProbeOptions()
 	initCommonTCPProbeOptions(&m.meta, instanceID, configMap, &opts.TotalTimeout, &opts.ConnectTimeout, &opts.IOTimeout, &opts.Retries)
 	opts.ExtraPorts = parseOptionalPortList(configMap, "extra_ports")
+	if value, ok := configMap["enumerate_cipher_suites"]; ok {
+		opts.EnumerateCipherSuites = cast.ToBool(value)
+	}
 	m.options = opts
 	return nil
 }
@@ -533,7 +550,9 @@ func probeTLSDetails(ctx context.Context, target, hostname string, port int, opt
 		// asking. It carries its own budget rather than the probe's, because
 		// its cost is a function of what the server supports and not of how
 		// long a single handshake takes.
-		result.Enumeration = enumerateTLS(ctx, target, hostname, port, opts)
+		if opts.EnumerateCipherSuites {
+			result.Enumeration = enumerateTLS(ctx, target, hostname, port, opts)
+		}
 		return result
 	}
 
