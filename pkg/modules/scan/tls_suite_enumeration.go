@@ -2,11 +2,8 @@ package scan
 
 import (
 	"context"
-	"crypto/tls"
-	"errors"
-	"net"
-	"strconv"
-	"strings"
+	"fmt"
+	"sort"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -14,50 +11,63 @@ import (
 
 // Cipher-suite and version enumeration on the observation channel
 //
-// The negotiated suite says what this client and this server agreed on once.
-// It does not say what else the server would have agreed to, and that is the
-// question a cipher-suite finding actually asks. Answering it needs the server
-// to be asked repeatedly, which is why enumeration is a separate pass with a
-// budget of its own rather than something the ordinary probe does for free.
+// The negotiated suite says what this client and this server agreed on once. It
+// does not say what else the server would have accepted, and that is the
+// question a cipher-suite finding actually asks. Answering it means asking the
+// server repeatedly, which is why enumeration is a separate pass with a budget
+// of its own rather than something the ordinary probe does for free.
 //
 // The method is elimination, not one handshake per candidate. Offer everything,
 // see what the server picks, drop that one, offer the rest, repeat until the
 // server refuses. That costs k+1 dials where k is what the *server* supports --
-// typically 5 to 12 -- instead of one per suite the client implements. Each
-// dial is also cut short at the server's first flight, so no key exchange is
-// performed and the cost is about one round trip.
+// typically 5 to 20 -- instead of one per candidate. Each dial is cut short
+// after the server's first flight, so no key exchange is performed.
 //
-// What this can and cannot establish, stated here because getting it wrong is
-// how a cipher check ends up measuring the scanner instead of the estate: the
-// result is the intersection of what the server supports with what crypto/tls
-// can offer at all. A suite Go does not implement cannot be asked about and
-// will never appear, however loudly a server advertises it. OfferedSuites
-// records the size of that askable set so the answer can be read with its own
-// limit attached.
+// The offer comes from IANA's registry and not from crypto/tls, and that is the
+// whole point of the raw ClientHello. crypto/tls implements 25 of the 356
+// assigned suites; the two checks this work exists for name 89 and 196 suites,
+// of which a Go client can reach 3 in either case. An enumerator built on a Go
+// client would reproduce the zero that had those checks withdrawn, because the
+// limit is the instrument and not the matcher.
+//
+// What it still cannot establish is written down rather than left to be
+// discovered: it measures the responder rather than the host, so a load
+// balancer across unlike backends yields a union no machine actually offers; it
+// measures a TLS terminator rather than an origin; it cannot report preference
+// order, because the walk's discovery order is an artifact of the offers the
+// walk itself generated and one deletion can flip a server's whole ranking; and
+// selection is not usability, since nothing past the ServerHello is verified.
 const (
-	// defaultTLSEnumerationDialBudget bounds a single service. Elimination on a
-	// real server ends well inside this; the budget exists for the server that
-	// answers differently every time, or renegotiates, and would otherwise walk
-	// the loop forever.
-	defaultTLSEnumerationDialBudget = 40
-	defaultTLSEnumerationTimeBudget = 5 * time.Second
+	// defaultTLSEnumerationDialBudget bounds a single service. A version walk
+	// is four dials, each suite walk is k+1, and each walk pays one dial for
+	// its end-of-walk control -- comfortably inside this for any real server.
+	// The budget is here for the server that answers differently every time.
+	defaultTLSEnumerationDialBudget = 64
+	defaultTLSEnumerationTimeBudget = 15 * time.Second
 	tlsEnumerationDialTimeout       = 2 * time.Second
-)
 
-// errTLSEnumerationServerHello aborts a handshake once the server has said what
-// it chose. Returning it from VerifyConnection is how crypto/tls is asked to
-// stop after the server's flight: the negotiated version and suite are already
-// known there, and nothing past that point is needed.
-var errTLSEnumerationServerHello = errors.New("tls_enumeration_server_hello")
+	tlsEnumerationMethodRawHello = "raw_client_hello"
+)
 
 // TLSEnumeration is what the server accepts, with the accounting that says how
 // completely the question was answered. Truncated is never silent: a partial
 // answer that does not say it is partial reads as a complete one.
 type TLSEnumeration struct {
-	CipherSuites    []string `json:"cipher_suites,omitempty"`
-	TLSVersions     []string `json:"tls_versions,omitempty"`
-	OfferedSuites   int      `json:"offered_suites"`
-	Dials           int      `json:"dials"`
+	CipherSuites []string `json:"cipher_suites,omitempty"`
+	TLSVersions  []string `json:"tls_versions,omitempty"`
+	// Method names the instrument. It exists because OfferedSuites means
+	// something different depending on it -- "what our TLS stack implements"
+	// against "what this ClientHello listed" -- and a number whose meaning
+	// depends on an undeclared fact is a number that will be misread.
+	Method string `json:"method,omitempty"`
+	// OfferedSuites is how many candidates were asked about, so a result can be
+	// read with its own ceiling attached.
+	OfferedSuites int `json:"offered_suites"`
+	Dials         int `json:"dials"`
+	// Anomalies record a server doing something the protocol forbids -- naming
+	// a suite it was not offered, selecting a signaling value, answering in
+	// the wrong version namespace. These are findings, not parse noise.
+	Anomalies       []string `json:"anomalies,omitempty"`
 	Truncated       bool     `json:"truncated"`
 	TruncatedReason string   `json:"truncated_reason,omitempty"`
 }
@@ -87,19 +97,71 @@ func (b *tlsEnumerationBudget) take() bool {
 	return true
 }
 
+// stop records the first reason a walk ended abnormally and keeps it.
+func (b *tlsEnumerationBudget) stop(reason string) {
+	if b.stopped == "" {
+		b.stopped = reason
+	}
+}
+
+type tlsEnumerator struct {
+	target    string
+	hostname  string
+	port      int
+	opts      TLSProbeOptions
+	budget    *tlsEnumerationBudget
+	anomalies []string
+}
+
+func (e *tlsEnumerator) notef(format string, args ...any) {
+	entry := fmt.Sprintf(format, args...)
+	for _, existing := range e.anomalies {
+		if existing == entry {
+			return
+		}
+	}
+	e.anomalies = append(e.anomalies, entry)
+}
+
 func enumerateTLS(ctx context.Context, target string, hostname string, port int, opts TLSProbeOptions) *TLSEnumeration {
-	offer := tlsObservationCipherSuiteIDs()
-	budget := &tlsEnumerationBudget{
-		maxDials: defaultTLSEnumerationDialBudget,
-		deadline: time.Now().Add(defaultTLSEnumerationTimeBudget),
+	enumerator := &tlsEnumerator{
+		target:   target,
+		hostname: hostname,
+		port:     port,
+		opts:     opts,
+		budget: &tlsEnumerationBudget{
+			maxDials: defaultTLSEnumerationDialBudget,
+			deadline: time.Now().Add(defaultTLSEnumerationTimeBudget),
+		},
 	}
 
-	enumeration := &TLSEnumeration{OfferedSuites: len(offer)}
-	enumeration.CipherSuites = enumerateTLSCipherSuites(ctx, target, hostname, port, offer, budget, opts)
-	enumeration.TLSVersions = enumerateTLSVersions(ctx, target, hostname, port, offer, budget, opts)
-	enumeration.Dials = budget.dials
-	enumeration.Truncated = budget.stopped != ""
-	enumeration.TruncatedReason = budget.stopped
+	versions := enumerator.enumerateVersions(ctx)
+
+	suites := make([]string, 0, 32)
+	offered := 0
+	if legacy := highestLegacyVersion(versions); legacy != 0 {
+		offered += len(tlsRegistryLegacySuiteIDs)
+		suites = append(suites, enumerator.enumerateSuites(ctx, tlsRegistryLegacySuiteIDs, legacy)...)
+	}
+	if versionSupported(versions, 0x0304) {
+		offered += len(tlsRegistryTLS13SuiteIDs)
+		suites = append(suites, enumerator.enumerateSuites(ctx, tlsRegistryTLS13SuiteIDs, 0x0304)...)
+	}
+
+	// Sorted, because the order a walk happens to discover suites in is an
+	// artifact of the offers it generated and must not be read as preference.
+	sort.Strings(suites)
+
+	enumeration := &TLSEnumeration{
+		CipherSuites:    suites,
+		TLSVersions:     versionNames(versions),
+		Method:          tlsEnumerationMethodRawHello,
+		OfferedSuites:   offered,
+		Dials:           enumerator.budget.dials,
+		Anomalies:       enumerator.anomalies,
+		Truncated:       enumerator.budget.stopped != "",
+		TruncatedReason: enumerator.budget.stopped,
+	}
 
 	log.Debug().
 		Str("module", tlsNativeProbeModuleName).
@@ -108,141 +170,153 @@ func enumerateTLS(ctx context.Context, target string, hostname string, port int,
 		Int("suites", len(enumeration.CipherSuites)).
 		Int("versions", len(enumeration.TLSVersions)).
 		Int("dials", enumeration.Dials).
+		Int("anomalies", len(enumeration.Anomalies)).
 		Bool("truncated", enumeration.Truncated).
 		Msg("TLS enumeration finished")
 
-	if len(enumeration.CipherSuites) == 0 && len(enumeration.TLSVersions) == 0 && !enumeration.Truncated {
-		return nil
-	}
+	// Always a block once the walk has run. Enumeration is only attempted for a
+	// service the probe already reached, so "nothing was learned" is itself an
+	// observation -- the service answered a handshake and then refused to be
+	// asked anything. A nil here would erase that, and a branch that only fires
+	// when the caller's own precondition is violated is a branch no test can
+	// reach honestly. Enumeration stays nil exactly when it was not attempted.
 	return enumeration
 }
 
-// enumerateTLSCipherSuites walks the elimination.
-//
-// The ceiling is held at TLS 1.2 throughout, and that is not a preference. In
-// crypto/tls, Config.CipherSuites governs TLS 1.0-1.2 only; a connection that
-// lands on TLS 1.3 ignores the offer entirely and reports a TLS 1.3 suite that
-// was never in it. Removing that suite from the offer would remove nothing, and
-// the loop would ask the same question forever. TLS 1.3's three suites are
-// fixed by RFC 8446 and always offered, so there is nothing to enumerate there
-// in any case.
-func enumerateTLSCipherSuites(
-	ctx context.Context,
-	target string,
-	hostname string,
-	port int,
-	offer []uint16,
-	budget *tlsEnumerationBudget,
-	opts TLSProbeOptions,
-) []string {
+// enumerateVersions asks about each version separately rather than walking a
+// ceiling down. There are only four, so one pinned dial each answers exactly
+// and needs no inference: a server that speaks 1.2 and 1.0 but not 1.1 is read
+// correctly without the ceiling arithmetic having to be right about it.
+func (e *tlsEnumerator) enumerateVersions(ctx context.Context) []uint16 {
+	supported := make([]uint16, 0, 4)
+	for _, version := range []uint16{0x0304, 0x0303, 0x0302, 0x0301} {
+		if !e.budget.take() {
+			return supported
+		}
+		offer := tlsRegistryLegacySuiteIDs
+		if version == 0x0304 {
+			offer = tlsRegistryTLS13SuiteIDs
+		}
+		outcome := dialRawTLSForServerHello(ctx, e.target, e.hostname, e.port, offer, version, e.opts)
+		switch {
+		case outcome.Err != nil && outcome.Transport == "not_tls":
+			e.budget.stop("not_tls")
+			return supported
+		case outcome.Err != nil:
+			// A transport failure says nothing about the version. It must never
+			// be written down as "unsupported", and it makes the answer partial.
+			e.budget.stop("transport_failure")
+			return supported
+		case outcome.Flight.Kind == rawFlightServerHello:
+			if outcome.Flight.Version != version {
+				// The server answered in a version we did not pin. That is its
+				// fault, not an observation about the version we asked about.
+				e.notef("version_mismatch:asked_0x%04X_got_0x%04X", version, outcome.Flight.Version)
+				continue
+			}
+			supported = append(supported, version)
+			if outcome.Flight.DowngradeCanary != "" {
+				e.notef("downgrade_canary:%s", outcome.Flight.DowngradeCanary)
+			}
+		case outcome.Flight.Kind == rawFlightRefused, outcome.Flight.Kind == rawFlightVersionRefus:
+			// A genuine "no": either no shared suite in that version, or the
+			// version itself refused.
+		default:
+			// probe_rejected: our hello was wrong for this server. Recording it
+			// as "version unsupported" would delete a supported version.
+			e.notef("probe_rejected:version_0x%04X_alert_%d", version, outcome.Flight.AlertDescription)
+		}
+	}
+	return supported
+}
+
+// enumerateSuites walks one namespace with the version pinned, so the server
+// cannot move between the disjoint TLS 1.3 and pre-1.3 suite spaces mid-walk.
+func (e *tlsEnumerator) enumerateSuites(ctx context.Context, offer []uint16, version uint16) []string {
 	remaining := append([]uint16(nil), offer...)
-	accepted := make([]string, 0, len(remaining))
+	accepted := make([]string, 0, 16)
+	var acceptedIDs []uint16
 
 	for len(remaining) > 0 {
-		if !budget.take() {
+		if !e.budget.take() {
 			return accepted
 		}
-		suite, _, err := dialTLSForServerHello(ctx, target, hostname, port, remaining, tls.VersionTLS12, opts)
-		if err != nil {
+		outcome := dialRawTLSForServerHello(ctx, e.target, e.hostname, e.port, remaining, version, e.opts)
+		if outcome.Err != nil {
+			e.budget.stop("transport_failure")
+			return accepted
+		}
+		if outcome.Flight.Kind != rawFlightServerHello {
+			if outcome.Flight.Kind == rawFlightRefused {
+				// The candidate end of the walk -- but only the control can say
+				// whether the server ran out of suites or ran out of patience.
+				return e.confirmWalkEnd(ctx, accepted, acceptedIDs, version)
+			}
+			e.budget.stop("probe_rejected")
+			e.notef("probe_rejected:suites_0x%04X_alert_%d", version, outcome.Flight.AlertDescription)
 			return accepted
 		}
 
+		suite := outcome.Flight.CipherSuite
+		if !tlsSuiteIsOfferable(suite) {
+			e.notef("pseudo_suite_selected:0x%04X", suite)
+			e.budget.stop("pseudo_suite_selected")
+			return accepted
+		}
+		if inTLS13Namespace(suite) != (version == 0x0304) {
+			e.notef("namespace_mismatch:0x%04X_under_0x%04X", suite, version)
+			e.budget.stop("namespace_mismatch")
+			return accepted
+		}
+		// There is deliberately no separate "already selected this one" guard.
+		// An accepted suite is removed from the offer, so a repeat selection is
+		// necessarily a selection of something not offered, and the check below
+		// catches it. A second guard here would be unreachable code with a
+		// plausible comment -- which is exactly the defect a reviewer found in
+		// the previous version of this walk, where a guard could be deleted
+		// without a single test noticing.
 		shorter := removeTLSCipherSuite(remaining, suite)
 		if len(shorter) == len(remaining) {
-			// The server chose something it was not offered. Nothing can be
-			// eliminated, so the walk cannot make progress; stop and say so
-			// rather than spending the whole budget discovering it.
-			budget.stopped = "unexpected_suite"
+			// The server named something it was never offered. Nothing can be
+			// eliminated, so the walk cannot progress -- and the answer so far
+			// is not trustworthy either.
+			e.notef("unexpected_suite:0x%04X", suite)
+			e.budget.stop("unexpected_suite")
 			return accepted
 		}
 		remaining = shorter
-		accepted = append(accepted, tls.CipherSuiteName(suite))
+		acceptedIDs = append(acceptedIDs, suite)
+		accepted = append(accepted, tlsSuiteName(suite))
+		if outcome.Flight.ViaHelloRetry {
+			e.notef("via_hello_retry:0x%04X", suite)
+		}
 	}
+	// The offer was consumed without a refusal. That is a complete answer, and
+	// the one exit that must not set Truncated.
 	return accepted
 }
 
-// enumerateTLSVersions is the same elimination applied to the version.
-//
-// Each dial reports the highest version at or below the ceiling that the server
-// will accept, so stepping the ceiling to just under each answer walks down the
-// versions it supports and skips the ones it does not -- a server that speaks
-// 1.2 and 1.0 but not 1.1 is read correctly, because the dial capped at 1.1
-// comes back with 1.0.
-func enumerateTLSVersions(
-	ctx context.Context,
-	target string,
-	hostname string,
-	port int,
-	offer []uint16,
-	budget *tlsEnumerationBudget,
-	opts TLSProbeOptions,
-) []string {
-	versions := make([]string, 0, 4)
-	ceiling := uint16(tls.VersionTLS13)
-
-	for {
-		if !budget.take() {
-			return versions
-		}
-		_, negotiated, err := dialTLSForServerHello(ctx, target, hostname, port, offer, ceiling, opts)
-		if err != nil {
-			return versions
-		}
-		versions = append(versions, tlsVersionString(negotiated))
-		if negotiated <= tls.VersionTLS10 {
-			return versions
-		}
-		ceiling = negotiated - 1
+// confirmWalkEnd spends one dial re-offering a suite the server already
+// accepted. A rate limiter's cutoff and an honest exhaustion send the same
+// alert 40 on the same connection number, and this is the only thing that tells
+// them apart: if the server will still accept a suite it accepted a moment ago,
+// the refusal that ended the walk was about the suites.
+func (e *tlsEnumerator) confirmWalkEnd(ctx context.Context, accepted []string, acceptedIDs []uint16, version uint16) []string {
+	if len(acceptedIDs) == 0 {
+		// Nothing was ever accepted, so there is nothing to re-offer. The
+		// refusal is all we have and the walk learned nothing either way.
+		return accepted
 	}
-}
-
-// dialTLSForServerHello offers exactly `offer` under `maxVersion` and returns
-// what the server chose, without completing the handshake.
-func dialTLSForServerHello(
-	ctx context.Context,
-	target string,
-	hostname string,
-	port int,
-	offer []uint16,
-	maxVersion uint16,
-	opts TLSProbeOptions,
-) (uint16, uint16, error) {
-	connectTimeout := opts.ConnectTimeout
-	if connectTimeout <= 0 {
-		connectTimeout = tlsEnumerationDialTimeout
+	if !e.budget.take() {
+		return accepted
 	}
-
-	var suite, version uint16
-	config := &tls.Config{
-		InsecureSkipVerify: true, //nolint:gosec // Observation only; no trust decision is made here.
-		MinVersion:         tls.VersionTLS10,
-		MaxVersion:         maxVersion,
-		CipherSuites:       offer,
-		VerifyConnection: func(state tls.ConnectionState) error {
-			suite, version = state.CipherSuite, state.Version
-			return errTLSEnumerationServerHello
-		},
+	control := []uint16{acceptedIDs[0]}
+	outcome := dialRawTLSForServerHello(ctx, e.target, e.hostname, e.port, control, version, e.opts)
+	if outcome.Err != nil || outcome.Flight.Kind != rawFlightServerHello || outcome.Flight.CipherSuite != control[0] {
+		e.notef("control_failed:0x%04X", control[0])
+		e.budget.stop("control_failed")
 	}
-	hostname = strings.TrimSpace(hostname)
-	if hostname != "" && net.ParseIP(hostname) == nil {
-		config.ServerName = hostname
-	}
-
-	dialer := &tls.Dialer{
-		NetDialer: &net.Dialer{Timeout: connectTimeout},
-		Config:    config,
-	}
-	conn, err := dialer.DialContext(ctx, "tcp", net.JoinHostPort(target, strconv.Itoa(port)))
-	if err != nil {
-		if errors.Is(err, errTLSEnumerationServerHello) {
-			return suite, version, nil
-		}
-		return 0, 0, err
-	}
-	// Not expected: VerifyConnection always stops the handshake. Close rather
-	// than leak the connection if crypto/tls ever changes underneath this.
-	_ = conn.Close()
-	return suite, version, nil
+	return accepted
 }
 
 func removeTLSCipherSuite(ids []uint16, remove uint16) []uint16 {
@@ -253,4 +327,51 @@ func removeTLSCipherSuite(ids []uint16, remove uint16) []uint16 {
 		}
 	}
 	return out
+}
+
+func inTLS13Namespace(id uint16) bool { return id>>8 == 0x13 }
+
+// tlsSuiteName resolves an arbitrary two-byte ID. The hex fallback matches
+// crypto/tls's own format exactly, so an unknown suite renders identically
+// whichever side produced it -- and the numeric form is always available, since
+// a bare hex string in a field a plugin pattern matches against is a check that
+// reports zero and reads as clean.
+func tlsSuiteName(id uint16) string {
+	if name, ok := tlsRegistrySuiteNames[id]; ok {
+		return name
+	}
+	if tlsSuiteIsGREASE(id) {
+		return fmt.Sprintf("GREASE (0x%04X)", id)
+	}
+	return fmt.Sprintf("0x%04X", id)
+}
+
+func versionSupported(versions []uint16, want uint16) bool {
+	for _, v := range versions {
+		if v == want {
+			return true
+		}
+	}
+	return false
+}
+
+// highestLegacyVersion picks the version to pin the pre-1.3 suite walk to. The
+// highest is used because a server may offer more suites at a higher version,
+// and a walk pinned low would report a subset as the whole answer.
+func highestLegacyVersion(versions []uint16) uint16 {
+	best := uint16(0)
+	for _, v := range versions {
+		if v != 0x0304 && v > best {
+			best = v
+		}
+	}
+	return best
+}
+
+func versionNames(versions []uint16) []string {
+	names := make([]string, 0, len(versions))
+	for _, v := range versions {
+		names = append(names, tlsVersionString(v))
+	}
+	return names
 }

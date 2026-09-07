@@ -1778,6 +1778,20 @@ func applyTLSDetails(portProfile *engine.PortProfile, details scan.TLSServiceInf
 			portProfile.Service.ParsedAttributes["tls_enumeration_truncated_reason"] =
 				details.Enumeration.TruncatedReason
 		}
+		// The instrument travels with the answer: tls_enumeration_offered means
+		// something different depending on it, and a number whose meaning rests
+		// on an undeclared fact will be misread.
+		if strings.TrimSpace(details.Enumeration.Method) != "" {
+			portProfile.Service.ParsedAttributes["tls_enumeration_method"] =
+				strings.TrimSpace(details.Enumeration.Method)
+		}
+		portProfile.Service.ParsedAttributes["tls_enumeration_offered"] = details.Enumeration.OfferedSuites
+		if len(details.Enumeration.Anomalies) > 0 {
+			// A server naming a suite it was never offered, or selecting a
+			// signaling value, is a finding rather than parser noise.
+			portProfile.Service.ParsedAttributes["tls_enumeration_anomalies"] =
+				append([]string(nil), details.Enumeration.Anomalies...)
+		}
 	}
 
 	portProfile.Service.ParsedAttributes["tls_cert_is_expired"] = details.CertIsExpired

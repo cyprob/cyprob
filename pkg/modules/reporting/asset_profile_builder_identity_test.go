@@ -408,6 +408,9 @@ func TestAssetProfileBuilder_MapsTLSDetailsToParsedAttributes(t *testing.T) {
 				Enumeration: &scan.TLSEnumeration{
 					CipherSuites:    []string{"TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256", "TLS_RSA_WITH_RC4_128_SHA"},
 					TLSVersions:     []string{"TLS1.2", "TLS1.0"},
+					Method:          "raw_client_hello",
+					OfferedSuites:   346,
+					Anomalies:       []string{"unexpected_suite:0xFFFF"},
 					Truncated:       true,
 					TruncatedReason: "dial_budget",
 				},
@@ -482,6 +485,18 @@ func TestAssetProfileBuilder_MapsTLSDetailsToParsedAttributes(t *testing.T) {
 	}
 	if attrs["tls_enumeration_truncated_reason"] != "dial_budget" {
 		t.Fatalf("expected the truncation reason to travel, got %v", attrs["tls_enumeration_truncated_reason"])
+	}
+	// The instrument and its ceiling travel with the answer, because
+	// tls_enumeration_offered means a different thing for each instrument.
+	if attrs["tls_enumeration_method"] != "raw_client_hello" {
+		t.Fatalf("expected tls_enumeration_method mapped, got %v", attrs["tls_enumeration_method"])
+	}
+	if attrs["tls_enumeration_offered"] != 346 {
+		t.Fatalf("expected tls_enumeration_offered mapped, got %v", attrs["tls_enumeration_offered"])
+	}
+	anomalies, ok := attrs["tls_enumeration_anomalies"].([]string)
+	if !ok || len(anomalies) != 1 {
+		t.Fatalf("expected tls_enumeration_anomalies as []string, got %#v", attrs["tls_enumeration_anomalies"])
 	}
 	dnsNames, ok := attrs["tls_cert_dns_names"].([]string)
 	if !ok || len(dnsNames) != 2 {
