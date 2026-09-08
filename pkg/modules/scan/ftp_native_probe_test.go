@@ -248,6 +248,146 @@ func TestProbeFTPDetails_ImplicitFTPS_SYSTFailureSetsPartialError(t *testing.T) 
 	require.Equal(t, "banner_read_failed", result.Attempts[2].Error)
 }
 
+// The straddle cyprob#360 named: one code covered a server that answered and
+// refused and a command whose read never completed. These are the two sides,
+// and the point of the test is that they no longer resolve to the same code.
+func TestClassifyFTPCommandErrors_AReadFailureIsNotARefusal(t *testing.T) {
+	tests := []struct {
+		name string
+		got  ProbeCode
+		want ProbeCode
+	}{
+		{"feat: the server answered and refused", classifyFTPFeatError(nil, ftpResponse{Code: 500}), ProbeCodeFeatFailed},
+		{"syst: the server answered and refused", classifyFTPSystError(nil, ftpResponse{Code: 502}), ProbeCodeSystFailed},
+		{"feat: the read never completed", classifyFTPFeatError(io.EOF, ftpResponse{}), ProbeCodeBannerReadFailed},
+		{"syst: the read never completed", classifyFTPSystError(io.EOF, ftpResponse{}), ProbeCodeBannerReadFailed},
+		{"feat: the read timed out", classifyFTPFeatError(os.ErrDeadlineExceeded, ftpResponse{}), ProbeCodeTimeout},
+		{"syst: the read timed out", classifyFTPSystError(os.ErrDeadlineExceeded, ftpResponse{}), ProbeCodeTimeout},
+		// An error wins over the reply, because a reply that did not arrive
+		// carries no code and ftpResponse{}.Code is 0, not 211.
+		{"feat: an error beside an empty reply is still the error", classifyFTPFeatError(ioError("protocol_mismatch"), ftpResponse{}), ProbeCodeProtocolMismatch},
+		{"feat: the expected reply is not a failure", classifyFTPFeatError(nil, ftpResponse{Code: 211}), ""},
+		{"syst: the expected reply is not a failure", classifyFTPSystError(nil, ftpResponse{Code: 215}), ""},
+	}
+
+	for _, tc := range tests {
+		require.Equal(t, string(tc.want), string(tc.got), tc.name)
+	}
+
+	// The control. If both classifiers returned the error-side code for
+	// everything, every case above except the last two would still pass and the
+	// refusal side would have been lost. 211 and 215 are also not
+	// interchangeable: each classifier tests its own command's code.
+	require.Equal(t, string(ProbeCodeFeatFailed), string(classifyFTPFeatError(nil, ftpResponse{Code: 215})),
+		"215 answers SYST, not FEAT; treating it as success would make the two classifiers the same function")
+	require.Equal(t, string(ProbeCodeSystFailed), string(classifyFTPSystError(nil, ftpResponse{Code: 211})),
+		"211 answers FEAT, not SYST")
+}
+
+// What the split changes for a real target, driven end to end over the plain
+// path -- the one that had the straddle. Before cyprob#360 a FEAT whose read
+// died produced feat_failed, pickTopFTPPartialError filtered it out, and the
+// service reported no probe error at all. It now produces banner_read_failed,
+// which that filter does keep.
+//
+// So the change is not a relabel: it is a step that reported nothing starting
+// to report something. TestProbeFTPDetails_PartialSuccess is the control on the
+// other side -- a server that refuses FEAT with 500 still reports nothing.
+func TestProbeFTPDetails_Plain_AFEATReadFailureReachesTheServiceError(t *testing.T) {
+	host, port, cleanup := startFTPPlainFEATHangupServer(t)
+	defer cleanup()
+
+	result := probeFTPDetails(context.Background(), host, "", port, "ftp", FTPProbeOptions{
+		TotalTimeout:   2 * time.Second,
+		ConnectTimeout: 800 * time.Millisecond,
+		IOTimeout:      800 * time.Millisecond,
+	})
+
+	require.True(t, result.FTPProbe)
+	require.Equal(t, 220, result.GreetingCode, "the greeting has to succeed or this is testing the connect path instead")
+	require.Equal(t, "banner_read_failed", result.ProbeError,
+		"a FEAT read that died used to produce feat_failed, which pickTopFTPPartialError drops; the service then reported nothing")
+
+	var featAttempt *FTPProbeAttempt
+	for i := range result.Attempts {
+		if result.Attempts[i].Strategy == "ftp-feat" {
+			featAttempt = &result.Attempts[i]
+		}
+	}
+	require.NotNil(t, featAttempt, "no ftp-feat attempt was recorded, so the assertion above proves nothing")
+	require.False(t, featAttempt.Success)
+	require.Equal(t, "banner_read_failed", featAttempt.Error)
+	require.NotEqual(t, "feat_failed", featAttempt.Error,
+		"the straddle is back: a read failure is wearing the code that means the server refused")
+}
+
+// feat_failed and syst_failed rank in ftpProbeErrorPriority, which reads as
+// though they can win the service-level answer. They cannot: they only ever
+// enter attemptErrors, and pickTopFTPPartialError keeps six codes and neither
+// of these is one of them.
+//
+// That is worth pinning rather than leaving to be rediscovered. It means the
+// two codes live in Attempts[].Error alone -- they never reach ProbeError,
+// ftp_probe_error in a report, or the reason column of cyprob-ee's probe
+// coverage ledger, all three of which read ProbeError.
+func TestPickTopFTPPartialError_FeatAndSystCannotWinTheServiceAnswer(t *testing.T) {
+	require.Empty(t, pickTopFTPPartialError([]string{"feat_failed"}))
+	require.Empty(t, pickTopFTPPartialError([]string{"syst_failed"}))
+	require.Empty(t, pickTopFTPPartialError([]string{"feat_failed", "syst_failed"}))
+
+	// The control: the filter is not simply returning "" for everything, and
+	// a code it does keep beats the two it does not -- which is exactly what
+	// happens now that a failed read is classified.
+	require.Equal(t, "banner_read_failed",
+		pickTopFTPPartialError([]string{"feat_failed", "banner_read_failed", "syst_failed"}))
+	require.Equal(t, "timeout", pickTopFTPPartialError([]string{"banner_read_failed", "timeout"}))
+}
+
+func startFTPPlainFEATHangupServer(t *testing.T) (string, int, func()) {
+	t.Helper()
+
+	ln := mustListenTCP(t, "127.0.0.1:0")
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+
+			go func(conn net.Conn) {
+				defer conn.Close()
+				reader := bufio.NewReader(conn)
+				_ = conn.SetDeadline(time.Now().Add(2 * time.Second))
+				_, _ = io.WriteString(conn, "220 Welcome to test ftp\r\n")
+				for {
+					line, err := reader.ReadString('\n')
+					if err != nil {
+						return
+					}
+					// The command is accepted and then the connection goes
+					// away mid-reply: a read that never completes, which is
+					// the side of feat_failed that was never a peer verdict.
+					if strings.HasPrefix(strings.ToUpper(line), "FEAT") {
+						return
+					}
+					_, _ = io.WriteString(conn, "500 Unknown command\r\n")
+				}
+			}(conn)
+		}
+	}()
+
+	addr := ln.Addr().String()
+	host, port, err := splitHostPort(addr)
+	require.NoError(t, err)
+	return host, port, func() {
+		_ = ln.Close()
+		<-done
+	}
+}
+
 func TestClassifyFTPErrors(t *testing.T) {
 	require.Equal(t, "timeout", string(classifyFTPConnectError(os.ErrDeadlineExceeded)))
 	require.Equal(t, "banner_read_failed", string(classifyFTPBannerError(io.EOF)))

@@ -597,19 +597,15 @@ func probeFTPPlainAndExplicitTLS(ctx context.Context, target string, hostname st
 
 		featStart := time.Now()
 		feat, featErr := runFTPCommand(ctx, client, opts, "FEAT\r\n")
-		if featErr != nil || feat.Code != 211 {
-			code := string(ProbeCodeFeatFailed)
-			if featErr != nil && isFTPTimeoutError(featErr) {
-				code = string(ProbeCodeTimeout)
-			}
+		if code := classifyFTPFeatError(featErr, feat); code != "" {
 			result.Attempts = append(result.Attempts, FTPProbeAttempt{
 				Strategy:   "ftp-feat",
 				Transport:  "tcp",
 				Success:    false,
 				DurationMS: time.Since(featStart).Milliseconds(),
-				Error:      code,
+				Error:      string(code),
 			})
-			attemptErrors = append(attemptErrors, code)
+			attemptErrors = append(attemptErrors, string(code))
 		} else {
 			result.Attempts = append(result.Attempts, FTPProbeAttempt{
 				Strategy:   "ftp-feat",
@@ -622,19 +618,15 @@ func probeFTPPlainAndExplicitTLS(ctx context.Context, target string, hostname st
 
 		systStart := time.Now()
 		syst, systErr := runFTPCommand(ctx, client, opts, "SYST\r\n")
-		if systErr != nil || syst.Code != 215 {
-			code := string(ProbeCodeSystFailed)
-			if systErr != nil && isFTPTimeoutError(systErr) {
-				code = string(ProbeCodeTimeout)
-			}
+		if code := classifyFTPSystError(systErr, syst); code != "" {
 			result.Attempts = append(result.Attempts, FTPProbeAttempt{
 				Strategy:   "ftp-syst",
 				Transport:  "tcp",
 				Success:    false,
 				DurationMS: time.Since(systStart).Milliseconds(),
-				Error:      code,
+				Error:      string(code),
 			})
-			attemptErrors = append(attemptErrors, code)
+			attemptErrors = append(attemptErrors, string(code))
 		} else {
 			result.Attempts = append(result.Attempts, FTPProbeAttempt{
 				Strategy:   "ftp-syst",
@@ -767,7 +759,16 @@ func probeFTPSImplicitTLS(ctx context.Context, target string, hostname string, p
 
 		featStart := time.Now()
 		feat, featErr := runFTPCommand(ctx, client, opts, "FEAT\r\n")
-		if featErr == nil && feat.Code == 211 {
+		if code := classifyFTPFeatError(featErr, feat); code != "" {
+			result.Attempts = append(result.Attempts, FTPProbeAttempt{
+				Strategy:   "ftp-feat",
+				Transport:  "tls",
+				Success:    false,
+				DurationMS: time.Since(featStart).Milliseconds(),
+				Error:      string(code),
+			})
+			attemptErrors = append(attemptErrors, string(code))
+		} else {
 			result.Attempts = append(result.Attempts, FTPProbeAttempt{
 				Strategy:   "ftp-feat",
 				Transport:  "tls",
@@ -775,24 +776,20 @@ func probeFTPSImplicitTLS(ctx context.Context, target string, hostname string, p
 				DurationMS: time.Since(featStart).Milliseconds(),
 			})
 			applyFTPOutcome(&result, buildFTPOutcome(result.FTPProtocol, ftpResponse{}, feat, ftpResponse{}, nil))
-		} else {
-			code := string(ProbeCodeFeatFailed)
-			if featErr != nil {
-				code = string(classifyFTPBannerError(featErr))
-			}
-			result.Attempts = append(result.Attempts, FTPProbeAttempt{
-				Strategy:   "ftp-feat",
-				Transport:  "tls",
-				Success:    false,
-				DurationMS: time.Since(featStart).Milliseconds(),
-				Error:      code,
-			})
-			attemptErrors = append(attemptErrors, code)
 		}
 
 		systStart := time.Now()
 		syst, systErr := runFTPCommand(ctx, client, opts, "SYST\r\n")
-		if systErr == nil && syst.Code == 215 {
+		if code := classifyFTPSystError(systErr, syst); code != "" {
+			result.Attempts = append(result.Attempts, FTPProbeAttempt{
+				Strategy:   "ftp-syst",
+				Transport:  "tls",
+				Success:    false,
+				DurationMS: time.Since(systStart).Milliseconds(),
+				Error:      string(code),
+			})
+			attemptErrors = append(attemptErrors, string(code))
+		} else {
 			result.Attempts = append(result.Attempts, FTPProbeAttempt{
 				Strategy:   "ftp-syst",
 				Transport:  "tls",
@@ -800,19 +797,6 @@ func probeFTPSImplicitTLS(ctx context.Context, target string, hostname string, p
 				DurationMS: time.Since(systStart).Milliseconds(),
 			})
 			applyFTPOutcome(&result, buildFTPOutcome(result.FTPProtocol, ftpResponse{}, ftpResponse{}, syst, nil))
-		} else {
-			code := string(ProbeCodeSystFailed)
-			if systErr != nil {
-				code = string(classifyFTPBannerError(systErr))
-			}
-			result.Attempts = append(result.Attempts, FTPProbeAttempt{
-				Strategy:   "ftp-syst",
-				Transport:  "tls",
-				Success:    false,
-				DurationMS: time.Since(systStart).Milliseconds(),
-				Error:      code,
-			})
-			attemptErrors = append(attemptErrors, code)
 		}
 
 		_ = client.close()
@@ -1233,6 +1217,52 @@ func classifyFTPConnectError(err error) ProbeCode {
 		return ProbeCodeTimeout
 	}
 	return ProbeCodeConnectFailed
+}
+
+// A FEAT or SYST step fails in two ways that are not the same answer, and one
+// code for both is what cyprob#360 calls a straddle.
+//
+// An error from runFTPCommand is a write or a read that did not complete. It
+// says nothing about whether the server would have answered, so the code has to
+// come from the error -- classifyFTPBannerError already reads one, and the FTPS
+// path has called it all along while the plain path only special-cased timeout.
+// Every other read failure there landed on feat_failed, which was the whole of
+// the straddle.
+//
+// A reply that parsed and carried the wrong code is the other way: the server
+// read the command and refused it. That is a peer verdict, and it is the only
+// thing feat_failed and syst_failed mean now that these two are their only
+// producers.
+//
+// An empty ProbeCode means the step succeeded, so callers branch on the return
+// rather than re-testing err and the reply code at each of the four call sites.
+// The expected reply code sits here rather than at those sites for the same
+// reason: 211 and 215 are part of what the code means, not of how it is used.
+//
+// Two near-identical functions rather than one taking the refusal as a
+// parameter: TestProbeCodes_EveryClassifierUsesTheRegistry resolves the
+// identifier a classifier returns against probeCodeRegistry, and a parameter
+// resolves to nothing. Naming the constant is what makes each of these
+// enumerable.
+func classifyFTPFeatError(err error, resp ftpResponse) ProbeCode {
+	if err != nil {
+		return classifyFTPBannerError(err)
+	}
+	if resp.Code != 211 {
+		return ProbeCodeFeatFailed
+	}
+	return ""
+}
+
+// The SYST twin of classifyFTPFeatError; see it for why these are two functions.
+func classifyFTPSystError(err error, resp ftpResponse) ProbeCode {
+	if err != nil {
+		return classifyFTPBannerError(err)
+	}
+	if resp.Code != 215 {
+		return ProbeCodeSystFailed
+	}
+	return ""
 }
 
 func classifyFTPBannerError(err error) ProbeCode {
