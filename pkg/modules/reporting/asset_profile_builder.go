@@ -1816,6 +1816,12 @@ func applyTLSDetails(portProfile *engine.PortProfile, details scan.TLSServiceInf
 	if strings.TrimSpace(details.ProbeError) != "" {
 		portProfile.Service.ParsedAttributes["tls_probe_error"] = strings.TrimSpace(details.ProbeError)
 	}
+	// The reason, beside the code. tls_probe_error says a certificate was
+	// refused; this says which rule it broke, and it is the half an operator
+	// can act on (cyprob#319).
+	if strings.TrimSpace(details.CertParseError) != "" {
+		portProfile.Service.ParsedAttributes["tls_cert_parse_error"] = strings.TrimSpace(details.CertParseError)
+	}
 }
 
 //nolint:gocyclo // WinRM attribute emission is intentionally explicit to preserve JSON contract names.

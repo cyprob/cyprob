@@ -562,6 +562,58 @@ func TestAssetProfileBuilder_MapsTLSProbeError(t *testing.T) {
 	if attrs["tls_probe_error"] != "handshake_failed" {
 		t.Fatalf("expected tls_probe_error=handshake_failed, got %v", attrs["tls_probe_error"])
 	}
+	// A refusal the server sent carries no certificate reason, so the key must
+	// be absent rather than empty.
+	if _, present := attrs["tls_cert_parse_error"]; present {
+		t.Fatalf("tls_cert_parse_error must be absent for a server-side refusal, got %v", attrs["tls_cert_parse_error"])
+	}
+}
+
+// cyprob#319: Attempts never reach this layer, so the reason has to travel on
+// the result or the operator learns that a certificate was refused and never
+// which rule it broke.
+func TestAssetProfileBuilder_MapsTLSCertParseError(t *testing.T) {
+	module := newAssetProfileBuilderModule()
+	if err := module.Init("tls-builder-cert-parse", map[string]any{}); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+
+	target := "192.0.2.64"
+	port := 8443
+
+	inputs := map[string]any{
+		"config.targets": []string{target},
+		"discovery.open_tcp_ports": []any{
+			discovery.TCPPortDiscoveryResult{Target: target, OpenPorts: []int{port}},
+		},
+		"service.tls.details": []any{
+			scan.TLSServiceInfo{
+				Target:         target,
+				Port:           port,
+				TLSProbe:       false,
+				ProbeError:     "cert_parse_failed",
+				CertParseError: "x509: malformed UTCTime",
+			},
+		},
+	}
+
+	out := make(chan engine.ModuleOutput, 1)
+	if err := module.Execute(context.Background(), inputs, out); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+
+	result := <-out
+	profiles, ok := result.Data.([]engine.AssetProfile)
+	if !ok {
+		t.Fatalf("expected []engine.AssetProfile, got %T", result.Data)
+	}
+	attrs := profiles[0].OpenPorts[target][0].Service.ParsedAttributes
+	if attrs["tls_probe_error"] != "cert_parse_failed" {
+		t.Fatalf("expected tls_probe_error=cert_parse_failed, got %v", attrs["tls_probe_error"])
+	}
+	if attrs["tls_cert_parse_error"] != "x509: malformed UTCTime" {
+		t.Fatalf("expected the x509 reason, got %v", attrs["tls_cert_parse_error"])
+	}
 }
 
 func TestAssetProfileBuilder_MapsRPCDetailsToParsedAttributes(t *testing.T) {

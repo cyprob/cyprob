@@ -43,14 +43,20 @@ type TLSProbeOptions struct {
 
 // TLSProbeAttempt represents one probe strategy attempt.
 type TLSProbeAttempt struct {
-	Strategy      string `json:"strategy"`
-	Transport     string `json:"transport"`
-	Success       bool   `json:"success"`
-	DurationMS    int64  `json:"duration_ms"`
-	Error         string `json:"error,omitempty"`
-	TLSVersion    string `json:"tls_version,omitempty"`
-	CipherSuite   string `json:"cipher_suite,omitempty"`
-	SNIServerName string `json:"sni_server_name,omitempty"`
+	Strategy   string `json:"strategy"`
+	Transport  string `json:"transport"`
+	Success    bool   `json:"success"`
+	DurationMS int64  `json:"duration_ms"`
+	Error      string `json:"error,omitempty"`
+	// CertParseError is the x509 rule the server's certificate broke, verbatim,
+	// on the attempt that met it. Error carries the code and this carries the
+	// reason, for the same reason the raw ServerHello reader keeps the verdict
+	// and the alert in separate fields (cyprob#294): a code and a reason in one
+	// string is the defect this issue is about, one level down.
+	CertParseError string `json:"cert_parse_error,omitempty"`
+	TLSVersion     string `json:"tls_version,omitempty"`
+	CipherSuite    string `json:"cipher_suite,omitempty"`
+	SNIServerName  string `json:"sni_server_name,omitempty"`
 }
 
 // TLSServiceInfo is the canonical TLS native probe output.
@@ -82,14 +88,20 @@ type TLSServiceInfo struct {
 	// VendorHint/ProductHint are device identity derived from the certificate
 	// subject/issuer. Appliances sign their own management certificates and name
 	// themselves in them, so this identifies hosts that expose nothing else.
-	VendorHint       string            `json:"vendor_hint,omitempty"`
-	ProductHint      string            `json:"product_hint,omitempty"`
-	WeakProtocol     bool              `json:"weak_protocol"`
-	WeakCipher       bool              `json:"weak_cipher"`
-	HostnameMismatch bool              `json:"hostname_mismatch"`
-	CertExpiringSoon bool              `json:"cert_expiring_soon"`
-	ProbeError       string            `json:"probe_error,omitempty"`
-	Attempts         []TLSProbeAttempt `json:"attempts,omitempty"`
+	VendorHint       string `json:"vendor_hint,omitempty"`
+	ProductHint      string `json:"product_hint,omitempty"`
+	WeakProtocol     bool   `json:"weak_protocol"`
+	WeakCipher       bool   `json:"weak_cipher"`
+	HostnameMismatch bool   `json:"hostname_mismatch"`
+	CertExpiringSoon bool   `json:"cert_expiring_soon"`
+	ProbeError       string `json:"probe_error,omitempty"`
+	// CertParseError is the reason behind a "cert_parse_failed" ProbeError. It
+	// is repeated from the attempt because Attempts never reaches the reporting
+	// layer -- asset_profile_builder writes ProbeError and nothing else -- so
+	// without it the operator learns that a certificate was refused and never
+	// which rule it broke, which is the actionable half.
+	CertParseError string            `json:"cert_parse_error,omitempty"`
+	Attempts       []TLSProbeAttempt `json:"attempts,omitempty"`
 }
 
 type tlsNativeProbeModule struct {
@@ -464,14 +476,26 @@ func probeTLSDetails(ctx context.Context, target, hostname string, port int, opt
 				Int("port", port).
 				Str("strategy", strategy.name).
 				Str("error", code).
+				// The raw text, because after classification the specific x509
+				// rule survives in CertParseError and nowhere else. If that
+				// field is ever dropped this line is the only way back.
+				Str("detail", err.Error()).
 				Msg("TLS probe strategy failed")
-			result.Attempts = append(result.Attempts, TLSProbeAttempt{
+			attempt := TLSProbeAttempt{
 				Strategy:   strategy.name,
 				Transport:  strconv.Itoa(port),
 				Success:    false,
 				DurationMS: outcome.duration.Milliseconds(),
 				Error:      code,
-			})
+			}
+			// On the attempt that met it, not on every attempt: a probe that
+			// times out on one strategy and meets an unreadable certificate on
+			// the next must not report a certificate reason against the
+			// timeout.
+			if code == tlsProbeErrorCertParseFailed {
+				attempt.CertParseError = certParseReason(err)
+			}
+			result.Attempts = append(result.Attempts, attempt)
 			return
 		}
 
@@ -559,6 +583,9 @@ func probeTLSDetails(ctx context.Context, target, hostname string, port int, opt
 	result.ProbeError = pickTopTLSProbeError(errorCodes)
 	if result.ProbeError == "" {
 		result.ProbeError = "probe_failed"
+	}
+	if result.ProbeError == tlsProbeErrorCertParseFailed {
+		result.CertParseError = firstCertParseReason(result.Attempts)
 	}
 	return result
 }
@@ -709,6 +736,42 @@ func isCertExpiringSoon(notAfter time.Time, now time.Time) bool {
 	return !notAfter.After(now.Add(30 * 24 * time.Hour))
 }
 
+// tlsProbeErrorCertParseFailed is the code for a certificate our own parser
+// refused. It is named as a constant because three places have to agree on it:
+// the classifier that produces it, the priority table that ranks it, and the
+// two call sites that attach a reason to it.
+const tlsProbeErrorCertParseFailed = "cert_parse_failed"
+
+// certParseReason pulls the x509 rule out of crypto/tls's wrapper, which reads
+// "tls: failed to parse certificate from server: x509: <rule>". The wrapper
+// adds nothing a reader wants and the rule is the whole value, so the prefix is
+// dropped -- but only when it is actually there, so an unexpected shape is
+// carried whole rather than truncated into something misleading.
+func certParseReason(err error) string {
+	if err == nil {
+		return ""
+	}
+	const marker = "failed to parse certificate from server: "
+	text := err.Error()
+	if index := strings.Index(text, marker); index >= 0 {
+		return strings.TrimSpace(text[index+len(marker):])
+	}
+	return strings.TrimSpace(text)
+}
+
+// firstCertParseReason returns the reason from the first attempt that met an
+// unreadable certificate. First rather than last because the strategies run in
+// a deliberate order and the earliest is the closest to what an ordinary client
+// would have done.
+func firstCertParseReason(attempts []TLSProbeAttempt) string {
+	for _, attempt := range attempts {
+		if attempt.Error == tlsProbeErrorCertParseFailed && attempt.CertParseError != "" {
+			return attempt.CertParseError
+		}
+	}
+	return ""
+}
+
 func classifyTLSProbeError(err error) string {
 	if err == nil {
 		return ""
@@ -721,6 +784,18 @@ func classifyTLSProbeError(err error) string {
 		return "refused"
 	case strings.Contains(msg, "short_tls_response"):
 		return "short_response"
+	// Above the "tls:" arm on purpose: that arm matches this message too, and
+	// below it this case is unreachable. Matched on the full server-side
+	// sentence rather than on "x509:" or "failed to parse certificate":
+	// crypto/tls emits this exact wrapper from one place, handshake_client.go's
+	// verifyServerCertificate, on both the 1.2 and 1.3 paths. The other two
+	// "failed to parse certificate" sites in crypto/tls are about OUR OWN
+	// certificate, which this probe never presents; and "x509:" alone would
+	// also catch verification failures, which cannot arise while the probe
+	// dials with InsecureSkipVerify but would be misfiled the day a verifying
+	// strategy is added.
+	case strings.Contains(msg, "failed to parse certificate from server"):
+		return tlsProbeErrorCertParseFailed
 	case strings.Contains(msg, "tls:"), strings.Contains(msg, "handshake"):
 		return "handshake_failed"
 	default:
@@ -733,11 +808,18 @@ func pickTopTLSProbeError(codes []string) string {
 		return ""
 	}
 	priority := map[string]int{
-		"timeout":          5,
-		"refused":          4,
-		"handshake_failed": 3,
-		"short_response":   2,
-		"probe_failed":     1,
+		// Above timeout, and that is load-bearing rather than cosmetic. One
+		// probeCtx budget is shared across every strategy and retry, so a
+		// single slow attempt anywhere contributes "timeout" -- which would
+		// otherwise outrank and hide the one code in this set that is backed by
+		// bytes we received and identified. Every other code here is also what
+		// a dead port looks like.
+		tlsProbeErrorCertParseFailed: 6,
+		"timeout":                    5,
+		"refused":                    4,
+		"handshake_failed":           3,
+		"short_response":             2,
+		"probe_failed":               1,
 	}
 
 	best := ""
