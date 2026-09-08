@@ -131,3 +131,37 @@ var probeCodeRegistry = []ProbeCode{
 	ProbeCodeUnknownSMBSignature,
 	ProbeCodeWriteFailed,
 }
+
+// probeCodeByValue is the registry keyed for lookup. It is built once because
+// ParseProbeCode is called per probe result, and a linear scan over 51 entries
+// at that rate is a cost with nothing to show for it.
+var probeCodeByValue = func() map[string]ProbeCode {
+	byValue := make(map[string]ProbeCode, len(probeCodeRegistry))
+	for _, code := range probeCodeRegistry {
+		byValue[string(code)] = code
+	}
+	return byValue
+}()
+
+// ParseProbeCode turns an untrusted string into a registered code, and reports
+// false when this package does not produce that value.
+//
+// It takes a string rather than a ProbeCode on purpose. The values that need
+// checking arrive as strings -- from a JSON payload, a database row, a map that
+// crossed a process boundary -- and a function taking ProbeCode would force the
+// caller to convert first, which is exactly the unchecked conversion this
+// exists to remove. ProbeCode(untrusted) always compiles and always succeeds;
+// ParseProbeCode is the only way to get one that means something.
+//
+// The empty string is not a code and returns false: it is the absence of an
+// error, not an error nobody registered. Callers that treat "no error" and
+// "unknown error" the same way have a bug, and this makes them say so.
+//
+// cyprob/cyprob-ee#461 uses it at the boundary where CE's scan output is read
+// back out of a map: an unknown value is kept verbatim as the reason, gets no
+// outcome, and is counted. That counter is the reason this returns a bool
+// rather than falling back to a code of its own.
+func ParseProbeCode(value string) (ProbeCode, bool) {
+	code, ok := probeCodeByValue[value]
+	return code, ok
+}
