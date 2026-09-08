@@ -35,6 +35,19 @@ var probePriorityTables = map[string][]string{
 	"pickTopRedisError":       {"classifyRedisError"},
 	"pickTopPostgresError":    {"classifyPostgresError"},
 	"pickTopSNMPProbeError":   {"classifySNMPProbeError"},
+
+	// FTP names three of its five classifiers on purpose. classifyFTPFeatError
+	// and classifyFTPSystError produce feat_failed and syst_failed, and those
+	// two codes cannot reach this table: they enter attemptErrors alone, and
+	// pickTopFTPPartialError filters that list to six codes which do not include
+	// them (cyprob#362). Listing them here would demand the table rank codes it
+	// can never be handed.
+	//
+	// So this pairing is the check that keeps the deletion honest in both
+	// directions: re-rank one of them and "ranks codes its classifiers can no
+	// longer produce" fires; route one into the picker without ranking it and
+	// the other half fires once its classifier is added here.
+	"ftpProbeErrorPriority": {"classifyFTPConnectError", "classifyFTPBannerError", "classifyFTPTLSError"},
 }
 
 // probePriorityTablesRankingUnregisteredValues are tables that rank a value CE
