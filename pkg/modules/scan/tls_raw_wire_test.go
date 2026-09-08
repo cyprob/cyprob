@@ -284,25 +284,85 @@ func TestReadRawServerFlight_TruncatedAtEveryBoundary(t *testing.T) {
 
 // The bug that fabricates a finding rather than crashing: a vector bounds-checked
 // against the buffer instead of the message reads forward into the next message.
+// cyprob#312. This test used to corrupt the session-id length to 0xFF, which
+// overruns not only its own message but the whole buffer, so vector8() failed
+// for want of bytes whether the cursor was scoped or not — proven by mutation
+// in review: the cursor was changed to buf[4:] and the test still passed.
+//
+// Isolating the bound needs an overrun that is small enough to pass the
+// separate len(sessionID) > 32 check, which means the bytes worth stealing have
+// to be within 32 of the cursor. Two well-formed ServerHellos can never do
+// that: the second one's suite sits at least 42 bytes away, behind its own
+// header, version and 32-byte random. So the message that follows is not a
+// ServerHello — nothing parses it, and it only has to be there.
 func TestReadRawServerFlight_VectorsAreScopedToTheMessage(t *testing.T) {
 	t.Parallel()
 
-	first := testServerHelloBody(t, testServerHello{legacyVersion: 0x0303, suite: 0x0035})
-	// Lie about the session id length so a buffer-scoped parser walks forward.
-	first[2+32] = 0xFF
-	second := testServerHelloBody(t, testServerHello{legacyVersion: 0x0303, suite: 0xC030})
+	t.Run("a length reaching into what follows, small enough to pass the 32-byte check", func(t *testing.T) {
+		t.Parallel()
 
-	payload := append(testHandshakeHeader(first), first...)
-	payload = append(payload, testHandshakeHeader(second)...)
-	payload = append(payload, second...)
+		// 38 bytes exactly: 2 version + 32 random + 1 session-id length + 0
+		// session id + 2 suite + 1 compression, and no extensions block.
+		first := testServerHelloBody(t, testServerHello{
+			legacyVersion:  0x0303,
+			suite:          0x0035,
+			sessionID:      []byte{},
+			omitExtensions: true,
+		})
+		if len(first) != tlsMinServerHelloBody {
+			t.Fatalf("the fixture must be the minimum body for the arithmetic below, got %d bytes", len(first))
+		}
 
-	flight, err := readRawServerFlight(bytes.NewReader(testRecord(tlsRecordTypeHandshake, payload)))
-	if err == nil {
-		t.Fatal("a session id length overrunning its message must be refused")
-	}
-	if flight.CipherSuite == 0xC030 {
-		t.Fatal("the parser read into the following message and returned its suite")
-	}
+		// What an unscoped cursor would find 7 bytes past the session-id
+		// length: a suite value that was never negotiated, followed by a zero
+		// compression byte, and then nothing — so the parse would succeed and
+		// return 0xC030 rather than fail.
+		stolen := []byte{0xC0, 0x30, 0x00}
+		following := append([]byte{tlsHandshakeTypeServer, 0x00, 0x00, byte(len(stolen))}, stolen...)
+
+		// 3 bytes left in this message, then the 4-byte header of what follows.
+		const overrun = 3 + 4
+		if overrun > 32 {
+			t.Fatal("the overrun must stay under the session-id cap, or the > 32 check is what refuses it")
+		}
+		first[2+32] = byte(overrun)
+
+		payload := append(testHandshakeHeader(first), first...)
+		payload = append(payload, following...)
+
+		flight, err := readRawServerFlight(bytes.NewReader(testRecord(tlsRecordTypeHandshake, payload)))
+		if flight.CipherSuite == 0xC030 {
+			t.Fatal("the parser read past its own message and returned a suite from what followed")
+		}
+		if err == nil {
+			t.Fatal("a session id length overrunning its message must be refused")
+		}
+		if !errors.Is(err, errRawMalformed) {
+			t.Fatalf("want malformed, got %v", err)
+		}
+	})
+
+	// The original case, kept because it is still worth refusing — but named
+	// for what it actually proves, which is not the scoping.
+	t.Run("a length overrunning the whole buffer is refused for want of bytes", func(t *testing.T) {
+		t.Parallel()
+
+		first := testServerHelloBody(t, testServerHello{legacyVersion: 0x0303, suite: 0x0035})
+		first[2+32] = 0xFF
+		second := testServerHelloBody(t, testServerHello{legacyVersion: 0x0303, suite: 0xC030})
+
+		payload := append(testHandshakeHeader(first), first...)
+		payload = append(payload, testHandshakeHeader(second)...)
+		payload = append(payload, second...)
+
+		flight, err := readRawServerFlight(bytes.NewReader(testRecord(tlsRecordTypeHandshake, payload)))
+		if err == nil {
+			t.Fatal("a session id length overrunning its message must be refused")
+		}
+		if flight.CipherSuite == 0xC030 {
+			t.Fatal("the parser read into the following message and returned its suite")
+		}
+	})
 }
 
 func TestReadRawServerFlight_RejectsDeclaredLengths(t *testing.T) {
