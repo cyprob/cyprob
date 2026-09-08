@@ -249,6 +249,8 @@ func TestProbeOutcomes_EveryCodeIsPinnedThroughItsClassifier(t *testing.T) {
 		{"mysql tls catch-all", classifyMySQLTLSError(errors.New("write: broken pipe")), ProbeCodeTLSHandshakeFailed, ""},
 		{"winrm bad response", classifyWINRMProbeError(errors.New("malformed HTTP response \"\\x15\\x03\\x03\"")), ProbeCodeHTTPResponseInvalid, OutcomeUnreadable},
 		{"winrm residual", classifyWINRMProbeError(errors.New("EOF")), ProbeCodeHTTPRequestFailed, ""},
+		{"winrm body is not xml", classifyWINRMIdentifyError(errors.New("XML syntax error on line 1"), false), ProbeCodeIdentifyFailed, OutcomeUnreadable},
+		{"winrm xml without an identify response", classifyWINRMIdentifyError(nil, false), ProbeCodeIdentifyFailed, OutcomeUnreadable},
 		{"smb ntlm", classifySMBProbeError(errors.New("ntlm_challenge_not_found status=0x00000000")), ProbeCodeNTLMChallengeNotFound, OutcomeUnreadable},
 		{"smb1 enum", classifySMBProbeError(errors.New("enum_not_supported_for_smb1")), ProbeCodeEnumNotSupported, OutcomeOK},
 		{"smb negotiate verdict", classifySMBProbeError(errors.New("smb2_negotiate_status=0xc0000022")), ProbeCodeSMB2NegotiateFailed, OutcomeRejected},
@@ -479,18 +481,19 @@ func TestProbeOutcomes_TheExportedBucketListMatchesTheSet(t *testing.T) {
 // answer. They cannot be driven through a classifier here because no classifier
 // returns them.
 //
-// This is a smaller exemption than it looks, and a temporary one: cyprob#360 is
-// about routing these through classifiers, which would delete this map. Until
-// then the entries make the gap countable rather than invisible, and the test
-// above fails if one of them starts coming from a classifier after all -- an
-// exemption from a check that would pass hides the next failure.
+// It is now empty, which is what cyprob#360 was for. feat_failed and syst_failed
+// left it with the FTP half (cyprob#363: classifyFTPFeatError,
+// classifyFTPSystError), identify_failed with the WinRM half
+// (classifyWINRMIdentifyError), and every registry code is reachable through
+// some CE classifier again.
 //
-// feat_failed and syst_failed left this map with the FTP half of cyprob#360:
-// classifyFTPFeatError and classifyFTPSystError produce them now, and the cases
-// above drive both. identify_failed is the WinRM half and is still to come.
-var codesProducedOutsideAClassifier = map[ProbeCode]string{
-	ProbeCodeIdentifyFailed: "winrm_native_probe.go:342,349,353, assigned straight into ProbeError - cyprob#360",
-}
+// Kept rather than deleted, for the same reason producedOnlyByEE is kept empty:
+// the check above reads it, and a named empty map states "no code is exempt"
+// where a deleted one would leave the next person to add an exemption with no
+// place that explains what an exemption costs. Note that the loop below asserts
+// nothing while it is empty -- the claim is carried by the pin test above, which
+// now has to drive every code.
+var codesProducedOutsideAClassifier = map[ProbeCode]string{}
 
 // The exemption above must not outlive the codes it excuses.
 func TestProbeOutcomes_TheOutsideAClassifierListIsCurrent(t *testing.T) {
