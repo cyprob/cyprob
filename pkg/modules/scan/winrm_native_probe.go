@@ -389,10 +389,7 @@ func probeWINRMDetails(ctx context.Context, target string, hostname string, port
 			result.ProbeError = ""
 			return result
 		default:
-			errorCode := "protocol_mismatch"
-			if httpResult.statusCode == http.StatusUnauthorized {
-				errorCode = "http_response_invalid"
-			}
+			errorCode := string(classifyWINRMNonAnswer(httpResult))
 			errorCodes = append(errorCodes, errorCode)
 			attempt := WINRMProbeAttempt{
 				Strategy:   "winrm-identify",
@@ -619,6 +616,36 @@ func canonicalWINRMAuthScheme(value string) string {
 	default:
 		return ""
 	}
+}
+
+// classifyWINRMNonAnswer names what came back when it was not the answer the
+// probe asked for.
+//
+// It used to be two literals: http_response_invalid for a 401 and
+// protocol_mismatch for anything else. Both claim the response could not be read
+// (both bucket as unreadable), and for a 401 that is not what happened -- a
+// Lenovo IMM's 401 on 5985 is a perfectly well-formed reply from a service that
+// is simply not WinRM. cyprob#371: the probe already computes that fact in
+// isConfirmedWINRM401 and then reports it as a reading failure.
+//
+// So the answer is a third code, and it is emitted narrowly. The discriminator
+// is a Server header naming something else -- positive evidence of another
+// service -- not the mere absence of a WinRM signal. That distinction is what
+// the field says to draw: on 10.20.29.252 of 117 records 115 carry
+// Microsoft-HTTPAPI/2.0 and failed isConfirmedWINRM401 on one of its other three
+// conditions, and 2 carry "Lenovo IMM2 Web Server". Only the second pair is
+// "not WinRM"; the first 115 are a WinRM-shaped host whose 401 we could not
+// confirm, and calling those not_winrm would be a worse claim than the one being
+// fixed.
+func classifyWINRMNonAnswer(result winrmHTTPResult) ProbeCode {
+	if result.statusCode == http.StatusUnauthorized {
+		if server := strings.ToLower(strings.TrimSpace(result.serverHeader)); server != "" &&
+			!strings.Contains(server, "microsoft-httpapi") {
+			return ProbeCodeNotWINRM
+		}
+		return ProbeCodeHTTPResponseInvalid
+	}
+	return ProbeCodeProtocolMismatch
 }
 
 func isConfirmedWINRM401(result winrmHTTPResult) bool {

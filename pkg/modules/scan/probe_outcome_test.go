@@ -248,6 +248,11 @@ func TestProbeOutcomes_EveryCodeIsPinnedThroughItsClassifier(t *testing.T) {
 		{"mysql dial", classifyMySQLConnectError(errors.New("dial tcp 10.0.0.1:3306: connect: connection refused")), ProbeCodeConnectFailed, OutcomeUnreachable},
 		{"mysql tls catch-all", classifyMySQLTLSError(errors.New("write: broken pipe")), ProbeCodeTLSHandshakeFailed, ""},
 		{"winrm bad response", classifyWINRMProbeError(errors.New("malformed HTTP response \"\\x15\\x03\\x03\"")), ProbeCodeHTTPResponseInvalid, OutcomeUnreadable},
+		// The three arms of classifyWINRMNonAnswer, which names what came back
+		// when it was not the answer the probe asked for (cyprob#371).
+		{"winrm another service answered", classifyWINRMNonAnswer(winrmHTTPResult{statusCode: 401, serverHeader: "Lenovo IMM2 Web Server"}), ProbeCodeNotWINRM, OutcomeOK},
+		{"winrm an unconfirmable 401", classifyWINRMNonAnswer(winrmHTTPResult{statusCode: 401, serverHeader: "Microsoft-HTTPAPI/2.0"}), ProbeCodeHTTPResponseInvalid, OutcomeUnreadable},
+		{"winrm some other status", classifyWINRMNonAnswer(winrmHTTPResult{statusCode: 404}), ProbeCodeProtocolMismatch, OutcomeUnreadable},
 		{"winrm residual", classifyWINRMProbeError(errors.New("EOF")), ProbeCodeHTTPRequestFailed, ""},
 		{"winrm body is not xml", classifyWINRMIdentifyError(errors.New("XML syntax error on line 1"), false), ProbeCodeIdentifyFailed, OutcomeUnreadable},
 		{"winrm xml without an identify response", classifyWINRMIdentifyError(nil, false), ProbeCodeIdentifyFailed, OutcomeUnreadable},
