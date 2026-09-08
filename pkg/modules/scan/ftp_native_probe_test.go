@@ -249,11 +249,11 @@ func TestProbeFTPDetails_ImplicitFTPS_SYSTFailureSetsPartialError(t *testing.T) 
 }
 
 func TestClassifyFTPErrors(t *testing.T) {
-	require.Equal(t, "timeout", classifyFTPConnectError(os.ErrDeadlineExceeded))
-	require.Equal(t, "banner_read_failed", classifyFTPBannerError(io.EOF))
-	require.Equal(t, "protocol_mismatch", classifyFTPBannerError(ioError("protocol_mismatch")))
-	require.Equal(t, "tls_handshake_failed", classifyFTPTLSError(ioError("tls: handshake failure")))
-	require.Equal(t, "connect_failed", classifyFTPTLSError(ioError("connection refused")))
+	require.Equal(t, "timeout", string(classifyFTPConnectError(os.ErrDeadlineExceeded)))
+	require.Equal(t, "banner_read_failed", string(classifyFTPBannerError(io.EOF)))
+	require.Equal(t, "protocol_mismatch", string(classifyFTPBannerError(ioError("protocol_mismatch"))))
+	require.Equal(t, "tls_handshake_failed", string(classifyFTPTLSError(ioError("tls: handshake failure"))))
+	require.Equal(t, "connect_failed", string(classifyFTPTLSError(ioError("connection refused"))))
 }
 
 func startFTPExplicitTLSTestServer(t *testing.T, serverName string) (string, int, func()) {

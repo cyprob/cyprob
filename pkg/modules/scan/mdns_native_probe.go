@@ -367,7 +367,7 @@ func probeMDNSDetails(ctx context.Context, target string, port int, opts MDNSPro
 	// Step 1: enumerate advertised service types.
 	packet, err := mdnsQueryFunc(probeCtx, target, port, opts, mdnsServiceEnumeration, dnsmessage.TypePTR)
 	if err != nil {
-		result.ProbeError = classifyMDNSError(err)
+		result.ProbeError = string(classifyMDNSError(err))
 		return result
 	}
 	result.MDNSProbe = true

@@ -559,20 +559,20 @@ func probeSMTPSImplicitTLS(ctx context.Context, target string, hostname string, 
 		client, tlsObs, err := dialSMTPTLS(ctx, target, hostname, port, opts)
 		if err != nil {
 			code := classifySMTPProbeError(err)
-			errorCodes = append(errorCodes, code)
+			errorCodes = append(errorCodes, string(code))
 			result.Attempts = append(result.Attempts, SMTPProbeAttempt{
 				Strategy:   "smtps-implicit-tls",
 				Transport:  strconv.Itoa(port),
 				Success:    false,
 				DurationMS: time.Since(start).Milliseconds(),
-				Error:      code,
+				Error:      string(code),
 			})
 			log.Debug().
 				Str("module", smtpNativeProbeModuleName).
 				Str("target", target).
 				Int("port", port).
 				Str("strategy", "smtps-implicit-tls").
-				Str("probe_error", code).
+				Str("probe_error", string(code)).
 				Msg("smtp_tls_failed")
 			continue
 		}
@@ -581,13 +581,13 @@ func probeSMTPSImplicitTLS(ctx context.Context, target string, hostname string, 
 		_ = client.close()
 		if err != nil {
 			code := classifySMTPProbeError(err)
-			errorCodes = append(errorCodes, code)
+			errorCodes = append(errorCodes, string(code))
 			result.Attempts = append(result.Attempts, SMTPProbeAttempt{
 				Strategy:    "smtps-implicit-tls",
 				Transport:   strconv.Itoa(port),
 				Success:     false,
 				DurationMS:  time.Since(start).Milliseconds(),
-				Error:       code,
+				Error:       string(code),
 				TLSVersion:  strings.TrimSpace(outcome.tlsVersion),
 				CipherSuite: strings.TrimSpace(outcome.tlsCipherSuite),
 			})
@@ -596,7 +596,7 @@ func probeSMTPSImplicitTLS(ctx context.Context, target string, hostname string, 
 				Str("target", target).
 				Int("port", port).
 				Str("strategy", "smtps-implicit-tls").
-				Str("probe_error", code).
+				Str("probe_error", string(code)).
 				Msg("smtp_tls_failed")
 			continue
 		}
@@ -643,20 +643,20 @@ func probeSMTPPlainAndStartTLS(ctx context.Context, target string, hostname stri
 		client, err := dialSMTPPlain(ctx, target, port, opts)
 		if err != nil {
 			code := classifySMTPProbeError(err)
-			errorCodes = append(errorCodes, code)
+			errorCodes = append(errorCodes, string(code))
 			result.Attempts = append(result.Attempts, SMTPProbeAttempt{
 				Strategy:   "smtp-plain-ehlo",
 				Transport:  strconv.Itoa(port),
 				Success:    false,
 				DurationMS: time.Since(start).Milliseconds(),
-				Error:      code,
+				Error:      string(code),
 			})
 			log.Debug().
 				Str("module", smtpNativeProbeModuleName).
 				Str("target", target).
 				Int("port", port).
 				Str("strategy", "smtp-plain-ehlo").
-				Str("probe_error", code).
+				Str("probe_error", string(code)).
 				Msg("smtp_probe_failed")
 			continue
 		}
@@ -665,20 +665,20 @@ func probeSMTPPlainAndStartTLS(ctx context.Context, target string, hostname stri
 		if err != nil {
 			_ = client.close()
 			code := classifySMTPProbeError(err)
-			errorCodes = append(errorCodes, code)
+			errorCodes = append(errorCodes, string(code))
 			result.Attempts = append(result.Attempts, SMTPProbeAttempt{
 				Strategy:   "smtp-plain-ehlo",
 				Transport:  strconv.Itoa(port),
 				Success:    false,
 				DurationMS: time.Since(start).Milliseconds(),
-				Error:      code,
+				Error:      string(code),
 			})
 			log.Debug().
 				Str("module", smtpNativeProbeModuleName).
 				Str("target", target).
 				Int("port", port).
 				Str("strategy", "smtp-plain-ehlo").
-				Str("probe_error", code).
+				Str("probe_error", string(code)).
 				Msg("smtp_probe_failed")
 			continue
 		}
@@ -721,14 +721,14 @@ func probeSMTPPlainAndStartTLS(ctx context.Context, target string, hostname stri
 				Transport:  strconv.Itoa(port),
 				Success:    false,
 				DurationMS: time.Since(startTLSStart).Milliseconds(),
-				Error:      code,
+				Error:      string(code),
 			})
 			log.Debug().
 				Str("module", smtpNativeProbeModuleName).
 				Str("target", target).
 				Int("port", port).
 				Str("strategy", "smtp-starttls-ehlo").
-				Str("probe_error", code).
+				Str("probe_error", string(code)).
 				Msg("smtp_starttls_failed")
 			result.ProbeError = ""
 			return result
@@ -1234,24 +1234,24 @@ func isSMTPCodePrefix(value string) bool {
 	return true
 }
 
-func classifySMTPProbeError(err error) string {
+func classifySMTPProbeError(err error) ProbeCode {
 	if err == nil {
 		return ""
 	}
 	msg := strings.ToLower(err.Error())
 	switch {
 	case strings.Contains(msg, "timeout"), strings.Contains(msg, "deadline exceeded"), strings.Contains(msg, "i/o timeout"):
-		return "timeout"
+		return ProbeCodeTimeout
 	case strings.Contains(msg, "connection refused"):
-		return "refused"
+		return ProbeCodeRefused
 	case strings.Contains(msg, "starttls_failed"):
-		return "starttls_failed"
+		return ProbeCodeStarttlsFailed
 	case strings.Contains(msg, "tls_failed"), strings.Contains(msg, "tls:"), strings.Contains(msg, "handshake"):
-		return "tls_failed"
+		return ProbeCodeTLSFailed
 	case strings.Contains(msg, "protocol_error"):
-		return "protocol_error"
+		return ProbeCodeProtocolError
 	default:
-		return "probe_failed"
+		return ProbeCodeProbeFailed
 	}
 }
 

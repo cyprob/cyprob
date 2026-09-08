@@ -866,7 +866,7 @@ func TestClassifyRawTransportError(t *testing.T) {
 		{errors.New("boom"), "write", "write_failed"},
 	}
 	for _, tc := range cases {
-		if got := classifyRawTransportError(tc.err, tc.stage); got != tc.want {
+		if got := classifyRawTransportError(tc.err, tc.stage); string(got) != tc.want {
 			t.Fatalf("classify(%v, %s): want %q, got %q", tc.err, tc.stage, tc.want, got)
 		}
 	}

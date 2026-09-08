@@ -99,26 +99,26 @@ func toAnySliceRPC(raw any) []any {
 	}
 }
 
-func classifyRPCProbeError(err error) string {
+func classifyRPCProbeError(err error) ProbeCode {
 	if err == nil {
 		return ""
 	}
 	msg := strings.ToLower(err.Error())
 	switch {
 	case strings.Contains(msg, "budget_exceeded"):
-		return "budget_exceeded"
+		return ProbeCodeBudgetExceeded
 	case strings.Contains(msg, "timeout"), strings.Contains(msg, "deadline exceeded"), strings.Contains(msg, "i/o timeout"):
-		return "timeout"
+		return ProbeCodeTimeout
 	case strings.Contains(msg, "connection refused"):
-		return "refused"
+		return ProbeCodeRefused
 	case strings.Contains(msg, "lookup_failed"):
-		return "lookup_failed"
+		return ProbeCodeLookupFailed
 	case strings.Contains(msg, "mgmt_failed"):
-		return "mgmt_failed"
+		return ProbeCodeMgmtFailed
 	case strings.Contains(msg, "bind_failed"):
-		return "bind_failed"
+		return ProbeCodeBindFailed
 	default:
-		return "probe_failed"
+		return ProbeCodeProbeFailed
 	}
 }
 

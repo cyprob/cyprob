@@ -401,14 +401,14 @@ func probeSNMPDetails(ctx context.Context, target string, port int, opts SNMPPro
 			outcome, err := executeSNMPAttemptFunc(probeCtx, target, port, plan, opts.PerAttemptTimeout)
 			if err != nil {
 				errorClass := classifySNMPProbeError(err)
-				attemptErrors = append(attemptErrors, errorClass)
+				attemptErrors = append(attemptErrors, string(errorClass))
 				result.Attempts = append(result.Attempts, SNMPProbeAttempt{
 					Community:  plan.community,
 					User:       snmpPlanUser(plan),
 					VersionTry: snmpVersionString(plan.version),
 					Success:    false,
 					DurationMS: outcome.duration.Milliseconds(),
-					ErrorClass: errorClass,
+					ErrorClass: string(errorClass),
 				})
 				if probeCtx.Err() != nil {
 					result.ProbeError = "timeout"
@@ -735,31 +735,31 @@ func isWeakSNMPCommunity(community string) bool {
 	}
 }
 
-func classifySNMPProbeError(err error) string {
+func classifySNMPProbeError(err error) ProbeCode {
 	if err == nil {
 		return ""
 	}
 	if errors.Is(err, context.DeadlineExceeded) {
-		return "timeout"
+		return ProbeCodeTimeout
 	}
 	if errors.Is(err, errSNMPNoResponse) {
-		return "no_response"
+		return ProbeCodeNoResponse
 	}
 	if errors.Is(err, errSNMPDecode) {
-		return "decode_error"
+		return ProbeCodeDecodeError
 	}
 	var netErr net.Error
 	if errors.As(err, &netErr) && netErr.Timeout() {
-		return "no_response"
+		return ProbeCodeNoResponse
 	}
 	message := strings.ToLower(strings.TrimSpace(err.Error()))
 	switch {
 	case strings.Contains(message, "no response"), strings.Contains(message, "request timeout"), strings.Contains(message, "timeout"):
-		return "no_response"
+		return ProbeCodeNoResponse
 	case strings.Contains(message, "unmarshal"), strings.Contains(message, "malformed"), strings.Contains(message, "asn1"), strings.Contains(message, "decode"):
-		return "decode_error"
+		return ProbeCodeDecodeError
 	default:
-		return "probe_failed"
+		return ProbeCodeProbeFailed
 	}
 }
 

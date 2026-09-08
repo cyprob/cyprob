@@ -316,13 +316,13 @@ func probeWINRMDetails(ctx context.Context, target string, hostname string, port
 		httpResult, err := executeWINRMRequest(probeCtx, target, hostname, port, result.WINRMTransport, opts)
 		if err != nil {
 			code := classifyWINRMProbeError(err)
-			errorCodes = append(errorCodes, code)
+			errorCodes = append(errorCodes, string(code))
 			attempt := WINRMProbeAttempt{
 				Strategy:   "winrm-identify",
 				Transport:  result.WINRMTransport,
 				Success:    false,
 				DurationMS: httpResult.duration.Milliseconds(),
-				Error:      code,
+				Error:      string(code),
 			}
 			applyWINRMTLSObservation(&result, &attempt, httpResult.tlsObs)
 			result.Attempts = append(result.Attempts, attempt)
@@ -690,29 +690,29 @@ func applyWINRMTLSObservation(result *WINRMServiceInfo, attempt *WINRMProbeAttem
 	}
 }
 
-func classifyWINRMProbeError(err error) string {
+func classifyWINRMProbeError(err error) ProbeCode {
 	if err == nil {
 		return ""
 	}
 	if errors.Is(err, context.DeadlineExceeded) {
-		return "timeout"
+		return ProbeCodeTimeout
 	}
 	var netErr net.Error
 	if errors.As(err, &netErr) && netErr.Timeout() {
-		return "timeout"
+		return ProbeCodeTimeout
 	}
 	message := strings.ToLower(strings.TrimSpace(err.Error()))
 	switch {
 	case strings.Contains(message, "timeout"), strings.Contains(message, "deadline exceeded"), strings.Contains(message, "i/o timeout"):
-		return "timeout"
+		return ProbeCodeTimeout
 	case strings.Contains(message, "malformed http response"), strings.Contains(message, "bad status"), strings.Contains(message, "unexpected eof"):
-		return "http_response_invalid"
+		return ProbeCodeHTTPResponseInvalid
 	case strings.Contains(message, "tls"), strings.Contains(message, "x509"), strings.Contains(message, "certificate"), strings.Contains(message, "handshake"):
-		return "tls_handshake_failed"
+		return ProbeCodeTLSHandshakeFailed
 	case strings.Contains(message, "connection refused"), strings.Contains(message, "dial tcp"), strings.Contains(message, "connect:"):
-		return "connect_failed"
+		return ProbeCodeConnectFailed
 	default:
-		return "http_request_failed"
+		return ProbeCodeHTTPRequestFailed
 	}
 }
 

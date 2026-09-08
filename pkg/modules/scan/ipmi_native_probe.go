@@ -375,7 +375,7 @@ func probeIPMIDetails(ctx context.Context, target string, port int, opts IPMIPro
 
 	if !info.IPMIProbe {
 		if authErr != nil && openErr != nil {
-			info.ErrorClass = classifyIPMIError(authErr)
+			info.ErrorClass = string(classifyIPMIError(authErr))
 		} else {
 			// Bytes came back but neither phase parsed as IPMI.
 			info.ErrorClass = "decode_error"
@@ -604,12 +604,12 @@ func ipmiExchange(ctx context.Context, conn net.Conn, request []byte, timeout ti
 	return buf[:n], nil
 }
 
-func classifyIPMIError(err error) string {
+func classifyIPMIError(err error) ProbeCode {
 	var netErr net.Error
 	if errors.As(err, &netErr) && netErr.Timeout() {
-		return "timeout"
+		return ProbeCodeTimeout
 	}
-	return "no_response"
+	return ProbeCodeNoResponse
 }
 
 func init() {

@@ -213,8 +213,8 @@ func TestMDNSCandidatesFromOpenPorts(t *testing.T) {
 }
 
 func TestClassifyMDNSError(t *testing.T) {
-	require.Equal(t, "", classifyMDNSError(nil))
-	require.Equal(t, "no_response", classifyMDNSError(errMDNSNoResponse))
-	require.Equal(t, "no_response", classifyMDNSError(context.DeadlineExceeded))
-	require.Equal(t, "probe_failed", classifyMDNSError(errors.New("boom")))
+	require.Equal(t, "", string(classifyMDNSError(nil)))
+	require.Equal(t, "no_response", string(classifyMDNSError(errMDNSNoResponse)))
+	require.Equal(t, "no_response", string(classifyMDNSError(context.DeadlineExceeded)))
+	require.Equal(t, "probe_failed", string(classifyMDNSError(errors.New("boom"))))
 }

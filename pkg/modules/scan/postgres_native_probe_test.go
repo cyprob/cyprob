@@ -35,9 +35,9 @@ func TestParsePostgresParameterStatus(t *testing.T) {
 
 func TestExtractPostgresCoreVersion(t *testing.T) {
 	cases := map[string]string{
-		"9.6.24":                        "9.6.24",
+		"9.6.24":                         "9.6.24",
 		"14.2 (Debian 14.2-1.pgdg110+1)": "14.2",
-		"16.1":                          "16.1",
+		"16.1":                           "16.1",
 	}
 	for in, want := range cases {
 		if got := extractPostgresCoreVersion(in); got != want {

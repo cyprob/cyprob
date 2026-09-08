@@ -395,13 +395,13 @@ func probeRDPDetails(ctx context.Context, target string, port int, opts RDPProbe
 			outcome, err := probeSingleRDPStrategy(probeCtx, target, port, strategy, opts)
 			if err != nil {
 				code := classifyRDPProbeError(err)
-				errorCodes = append(errorCodes, code)
+				errorCodes = append(errorCodes, string(code))
 				result.Attempts = append(result.Attempts, RDPProbeAttempt{
 					Strategy:   strategy.name,
 					Transport:  strconv.Itoa(port),
 					Success:    false,
 					DurationMS: outcome.duration.Milliseconds(),
-					Error:      code,
+					Error:      string(code),
 				})
 				continue
 			}
@@ -658,22 +658,22 @@ func scoreRDPProbeOutcome(outcome rdpProbeOutcome) int {
 	return score
 }
 
-func classifyRDPProbeError(err error) string {
+func classifyRDPProbeError(err error) ProbeCode {
 	if err == nil {
 		return ""
 	}
 	msg := strings.ToLower(err.Error())
 	switch {
 	case strings.Contains(msg, "timeout"), strings.Contains(msg, "deadline exceeded"), strings.Contains(msg, "i/o timeout"):
-		return "timeout"
+		return ProbeCodeTimeout
 	case strings.Contains(msg, "connection refused"):
-		return "refused"
+		return ProbeCodeRefused
 	case strings.Contains(msg, "short_rdp_response"):
-		return "short_response"
+		return ProbeCodeShortResponse
 	case strings.Contains(msg, "unknown_rdp_response"):
-		return "unknown_response"
+		return ProbeCodeUnknownResponse
 	default:
-		return "probe_failed"
+		return ProbeCodeProbeFailed
 	}
 }
 
@@ -719,7 +719,7 @@ func enrichRDPMetadata(ctx context.Context, target string, port int, bestOutcome
 				Transport:  strconv.Itoa(port),
 				Success:    false,
 				DurationMS: outcome.duration.Milliseconds(),
-				Error:      classifyRDPMetadataError(err),
+				Error:      string(classifyRDPMetadataError(err)),
 			})
 			return
 		}
@@ -759,7 +759,7 @@ func enrichRDPMetadata(ctx context.Context, target string, port int, bestOutcome
 				Transport:  strconv.Itoa(port),
 				Success:    false,
 				DurationMS: time.Since(start).Milliseconds(),
-				Error:      classifyRDPMetadataError(err),
+				Error:      string(classifyRDPMetadataError(err)),
 			})
 			return
 		}
@@ -782,7 +782,7 @@ func enrichRDPMetadata(ctx context.Context, target string, port int, bestOutcome
 				Transport:  strconv.Itoa(port),
 				Success:    false,
 				DurationMS: time.Since(start).Milliseconds(),
-				Error:      classifyRDPMetadataError(err),
+				Error:      string(classifyRDPMetadataError(err)),
 			})
 			return
 		}
@@ -1072,22 +1072,22 @@ func applyRDPDeepMetadata(result *RDPServiceInfo, metadata rdpDeepMetadata) {
 	}
 }
 
-func classifyRDPMetadataError(err error) string {
+func classifyRDPMetadataError(err error) ProbeCode {
 	if err == nil {
 		return ""
 	}
 	msg := strings.ToLower(strings.TrimSpace(err.Error()))
 	switch {
 	case strings.Contains(msg, "timeout"), strings.Contains(msg, "deadline exceeded"), strings.Contains(msg, "i/o timeout"):
-		return "timeout"
+		return ProbeCodeTimeout
 	case strings.Contains(msg, "tls"), strings.Contains(msg, "x509"), strings.Contains(msg, "certificate"), strings.Contains(msg, "handshake"):
-		return "tls_handshake_failed"
+		return ProbeCodeTLSHandshakeFailed
 	case strings.Contains(msg, "ntlm_challenge_not_found"):
-		return "ntlm_challenge_not_found"
+		return ProbeCodeNTLMChallengeNotFound
 	case strings.Contains(msg, "protocol_mismatch"):
-		return "protocol_mismatch"
+		return ProbeCodeProtocolMismatch
 	default:
-		return "metadata_failed"
+		return ProbeCodeMetadataFailed
 	}
 }
 

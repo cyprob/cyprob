@@ -313,8 +313,8 @@ func probeRedisDetails(ctx context.Context, target string, port int, opts RedisP
 		payload, err := runRedisInfo(probeCtx, target, port, opts)
 		if err != nil {
 			code := classifyRedisError(err)
-			errorCodes = append(errorCodes, code)
-			result.Attempts = append(result.Attempts, RedisProbeAttempt{Strategy: "redis-info", Transport: "tcp", Success: false, DurationMS: time.Since(start).Milliseconds(), Error: code})
+			errorCodes = append(errorCodes, string(code))
+			result.Attempts = append(result.Attempts, RedisProbeAttempt{Strategy: "redis-info", Transport: "tcp", Success: false, DurationMS: time.Since(start).Milliseconds(), Error: string(code)})
 			continue
 		}
 		result.Attempts = append(result.Attempts, RedisProbeAttempt{Strategy: "redis-info", Transport: "tcp", Success: true, DurationMS: time.Since(start).Milliseconds()})
@@ -415,22 +415,22 @@ func applyRedisInfo(result *RedisServiceInfo, payload string) {
 	}
 }
 
-func classifyRedisError(err error) string {
+func classifyRedisError(err error) ProbeCode {
 	if err == nil {
 		return ""
 	}
 	msg := strings.ToLower(err.Error())
 	switch {
 	case strings.Contains(msg, "timeout") || strings.Contains(msg, "deadline exceeded") || strings.Contains(msg, "i/o timeout"):
-		return "timeout"
+		return ProbeCodeTimeout
 	case strings.Contains(msg, "protocol_mismatch"):
-		return "protocol_mismatch"
+		return ProbeCodeProtocolMismatch
 	case errors.Is(err, io.EOF):
-		return "probe_failed"
+		return ProbeCodeProbeFailed
 	case strings.Contains(msg, "refused"):
-		return "connect_failed"
+		return ProbeCodeConnectFailed
 	default:
-		return "probe_failed"
+		return ProbeCodeProbeFailed
 	}
 }
 

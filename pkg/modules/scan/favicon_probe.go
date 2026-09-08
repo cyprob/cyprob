@@ -186,32 +186,32 @@ func defaultFaviconProbeOptions() FaviconProbeOptions {
 // an unresponsive device and a TLS mismatch need different answers, and the
 // difference is exactly what an operator needs to know when a device that
 // should be identified is not.
-func classifyFaviconError(err error) string {
+func classifyFaviconError(err error) ProbeCode {
 	if err == nil {
 		return ""
 	}
 	var netErr net.Error
 	if errors.As(err, &netErr) && netErr.Timeout() {
-		return "timeout"
+		return ProbeCodeTimeout
 	}
 	if errors.Is(err, context.DeadlineExceeded) {
-		return "timeout"
+		return ProbeCodeTimeout
 	}
 	if errors.Is(err, context.Canceled) {
-		return "canceled"
+		return ProbeCodeCanceled
 	}
 	message := strings.ToLower(err.Error())
 	switch {
 	case strings.Contains(message, "connection refused"):
-		return "connection_refused"
+		return ProbeCodeConnectionRefused
 	case strings.Contains(message, "connection reset"):
-		return "connection_reset"
+		return ProbeCodeConnectionReset
 	case strings.Contains(message, "no route to host"):
-		return "no_route"
+		return ProbeCodeNoRoute
 	case strings.Contains(message, "tls"), strings.Contains(message, "certificate"):
-		return "tls_error"
+		return ProbeCodeTLSError
 	}
-	return "no_response"
+	return ProbeCodeNoResponse
 }
 
 func faviconCandidatesFromOpenPorts(item any) []faviconCandidate {
@@ -301,13 +301,13 @@ func probeFavicon(ctx context.Context, candidate faviconCandidate, opts FaviconP
 		defer retryCancel()
 		retryRequest, retryErr := http.NewRequestWithContext(retryCtx, http.MethodGet, url, nil)
 		if retryErr != nil {
-			result.ProbeError = classifyFaviconError(err)
+			result.ProbeError = string(classifyFaviconError(err))
 			return result
 		}
 		time.Sleep(faviconRetryDelay)
 		response, err = client.Do(retryRequest)
 		if err != nil {
-			result.ProbeError = classifyFaviconError(err)
+			result.ProbeError = string(classifyFaviconError(err))
 			return result
 		}
 	}

@@ -487,13 +487,13 @@ func probeTLSDetails(ctx context.Context, target, hostname string, port int, opt
 		outcome, err := probeSingleTLSStrategy(probeCtx, target, hostname, port, strategy, opts)
 		if err != nil {
 			code := classifyTLSProbeError(err)
-			errorCodes = append(errorCodes, code)
+			errorCodes = append(errorCodes, string(code))
 			log.Debug().
 				Str("module", tlsNativeProbeModuleName).
 				Str("target", target).
 				Int("port", port).
 				Str("strategy", strategy.name).
-				Str("error", code).
+				Str("error", string(code)).
 				// The raw text, because after classification the specific x509
 				// rule survives in CertParseError and nowhere else. If that
 				// field is ever dropped this line is the only way back.
@@ -504,7 +504,7 @@ func probeTLSDetails(ctx context.Context, target, hostname string, port int, opt
 				Transport:  strconv.Itoa(port),
 				Success:    false,
 				DurationMS: outcome.duration.Milliseconds(),
-				Error:      code,
+				Error:      string(code),
 			}
 			// On the attempt that met it, not on every attempt: a probe that
 			// times out on one strategy and meets an unreadable certificate on
@@ -822,18 +822,18 @@ func isALPNRefusal(err error) bool {
 	return strings.Contains(strings.ToLower(err.Error()), "no application protocol")
 }
 
-func classifyTLSProbeError(err error) string {
+func classifyTLSProbeError(err error) ProbeCode {
 	if err == nil {
 		return ""
 	}
 	msg := strings.ToLower(err.Error())
 	switch {
 	case strings.Contains(msg, "timeout"), strings.Contains(msg, "deadline exceeded"), strings.Contains(msg, "i/o timeout"):
-		return "timeout"
+		return ProbeCodeTimeout
 	case strings.Contains(msg, "connection refused"):
-		return "refused"
+		return ProbeCodeRefused
 	case strings.Contains(msg, "short_tls_response"):
-		return "short_response"
+		return ProbeCodeShortResponse
 	// Above the "tls:" arm on purpose: that arm matches this message too, and
 	// below it this case is unreachable. Matched on the full server-side
 	// sentence rather than on "x509:" or "failed to parse certificate":
@@ -847,9 +847,9 @@ func classifyTLSProbeError(err error) string {
 	case strings.Contains(msg, "failed to parse certificate from server"):
 		return tlsProbeErrorCertParseFailed
 	case strings.Contains(msg, "tls:"), strings.Contains(msg, "handshake"):
-		return "handshake_failed"
+		return ProbeCodeHandshakeFailed
 	default:
-		return "probe_failed"
+		return ProbeCodeProbeFailed
 	}
 }
 
