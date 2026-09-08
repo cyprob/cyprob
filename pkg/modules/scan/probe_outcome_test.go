@@ -364,6 +364,37 @@ func TestProbeOutcomes_TheSharedHalfOfTheVocabularyIsDeclaredProperly(t *testing
 		}
 	}
 
+	// The exported reader is what EE's half of the proof reads. A reader that
+	// disagrees with the map is a reader that lets EE prove the wrong list.
+	exported := ProbeCodesProducedOnlyByEE()
+	if len(exported) != len(producedOnlyByEE) {
+		t.Errorf("ProbeCodesProducedOnlyByEE returned %d codes and the map holds %d",
+			len(exported), len(producedOnlyByEE))
+	}
+	for _, code := range exported {
+		if _, listed := producedOnlyByEE[code]; !listed {
+			t.Errorf("ProbeCodesProducedOnlyByEE returned %q, which the map does not list", code)
+		}
+	}
+	// Vacuous while the map holds one entry -- a one-element slice is sorted
+	// whatever the comparison says, and reversing the sort in the reader does
+	// not fail this. It is kept because it stops being vacuous the moment a
+	// second code is added, and stated because a check that cannot fail should
+	// not be read as coverage.
+	if !sort.SliceIsSorted(exported, func(i, j int) bool { return exported[i] < exported[j] }) {
+		t.Error("ProbeCodesProducedOnlyByEE is documented as sorted and is not; a caller diffing two runs would see noise")
+	}
+	// The copy is a copy. A caller that mutates it must not reach the map.
+	if len(exported) > 0 {
+		exported[0] = "mutated"
+		if _, leaked := producedOnlyByEE["mutated"]; leaked {
+			t.Error("mutating the returned slice reached producedOnlyByEE")
+		}
+		if again := ProbeCodesProducedOnlyByEE(); len(again) > 0 && again[0] == "mutated" {
+			t.Error("the returned slice aliases something the next caller sees")
+		}
+	}
+
 	// The growth rule, enforced rather than only written down. A handful is a
 	// vocabulary with two speakers; a longer list is a second scanner that has
 	// drifted, and the answer to that is cyprob-ee#480's consolidation.
