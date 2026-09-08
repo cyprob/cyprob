@@ -3,6 +3,7 @@ package fingerprint
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"sort"
@@ -95,9 +96,32 @@ type ruleCandidate struct {
 // Exposed to the package so a test can assert on the ranking itself rather than
 // only on the winner. A test that checks the winner alone cannot tell a rule
 // that won on merit from one that won because it is listed first.
+// ErrNoRuleMatched is returned when nothing in the database recognized the
+// banner. A new rule is what would fix that.
+//
+// ErrAllCandidatesBelowThreshold is returned when something did recognize it and
+// was then removed by the confidence floor. That is a different problem with a
+// different remedy -- the rule exists and its score was pushed under 0.50 -- and
+// until cyprob#239 the two were the same error, so an operator seeing nothing
+// could not tell which had happened, and neither could anyone counting how often
+// it happens (cyprob#239).
+var (
+	ErrNoRuleMatched               = errors.New("no matching rule found")
+	ErrAllCandidatesBelowThreshold = errors.New("every matching rule fell below the confidence threshold")
+)
+
 func (r *RuleBasedResolver) rankedCandidates(in Input) []ruleCandidate {
+	candidates, _ := r.rankedCandidatesWithDropped(in)
+	return candidates
+}
+
+// rankedCandidatesWithDropped also reports how many rules matched the banner and
+// were then removed by the floor. The count is the difference between "no rule
+// covers this" and "a rule covers it and we threw the answer away".
+func (r *RuleBasedResolver) rankedCandidatesWithDropped(in Input) ([]ruleCandidate, int) {
 	normalizedBanner := strings.ToLower(in.Banner)
 	cands := make([]ruleCandidate, 0, 8)
+	droppedByThreshold := 0
 
 	// Phase 1: Determine if we should try all rules (fallback mode)
 	// Fallback activates when protocol hint is generic (tcp/udp) or unknown
@@ -143,6 +167,7 @@ func (r *RuleBasedResolver) rankedCandidates(in Input) []ruleCandidate {
 
 		// Threshold filter
 		if conf < 0.50 {
+			droppedByThreshold++
 			// Log low confidence rejection if telemetry is enabled
 			if r.telemetry != nil && r.telemetry.IsEnabled() {
 				_ = r.telemetry.WriteRejected("", in.Port, in.Protocol, "confidence_below_threshold", "static", rule.ID)
@@ -153,18 +178,21 @@ func (r *RuleBasedResolver) rankedCandidates(in Input) []ruleCandidate {
 	}
 
 	sort.SliceStable(cands, func(i, j int) bool { return cands[i].score > cands[j].score })
-	return cands
+	return cands, droppedByThreshold
 }
 
 func (r *RuleBasedResolver) Resolve(_ context.Context, in Input) (Result, error) {
-	cands := r.rankedCandidates(in)
+	cands, droppedByThreshold := r.rankedCandidatesWithDropped(in)
 
 	if len(cands) == 0 {
 		// Log no match if telemetry is enabled
 		if r.telemetry != nil && r.telemetry.IsEnabled() {
 			_ = r.telemetry.WriteNoMatch("", in.Port, in.Protocol, "static")
 		}
-		return Result{}, fmt.Errorf("no matching rule found")
+		if droppedByThreshold > 0 {
+			return Result{}, fmt.Errorf("%w: %d rule(s) matched", ErrAllCandidatesBelowThreshold, droppedByThreshold)
+		}
+		return Result{}, ErrNoRuleMatched
 	}
 	best := cands[0]
 
