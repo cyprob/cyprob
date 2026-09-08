@@ -416,3 +416,48 @@ func TestProbeOutcomes_TheSharedHalfOfTheVocabularyIsDeclaredProperly(t *testing
 			len(producedOnlyByEE), enoughToMeanSomethingElse)
 	}
 }
+
+// Outcomes is what EE renders its CHECK constraint from, so the two sets cannot
+// drift. These are the checks that keep the reader honest -- the same three the
+// exported registry reader carries, for the same reasons.
+func TestProbeOutcomes_TheExportedBucketListMatchesTheSet(t *testing.T) {
+	t.Parallel()
+
+	exported := Outcomes()
+	if len(exported) != len(outcomeBuckets) {
+		t.Errorf("Outcomes returned %d buckets and outcomeBuckets holds %d", len(exported), len(outcomeBuckets))
+	}
+	inSet := map[Outcome]bool{}
+	for _, bucket := range outcomeBuckets {
+		inSet[bucket] = true
+	}
+	for _, bucket := range exported {
+		if !inSet[bucket] {
+			t.Errorf("Outcomes returned %q, which is not a bucket", bucket)
+		}
+	}
+	if !sort.SliceIsSorted(exported, func(i, j int) bool { return exported[i] < exported[j] }) {
+		t.Error("Outcomes is documented as sorted and is not; a caller rendering SQL from it would produce a different clause per run")
+	}
+
+	// A copy, not an alias. A reader that caches and hands every caller the same
+	// slice lets one of them rewrite the set for all the others.
+	if len(exported) > 0 {
+		exported[0] = "mutated"
+		for _, bucket := range outcomeBuckets {
+			if bucket == "mutated" {
+				t.Fatal("mutating the returned slice reached outcomeBuckets")
+			}
+		}
+		if again := Outcomes(); len(again) > 0 && again[0] == "mutated" {
+			t.Error("the returned slice aliases something the next caller sees")
+		}
+	}
+
+	// Unlike ProbeCodesProducedOnlyByEE, this set has four members, so the
+	// sortedness check above is not vacuous: reversing the comparison in the
+	// reader fails it.
+	if len(Outcomes()) < 2 {
+		t.Error("fewer than two buckets, which would make the sortedness check above prove nothing")
+	}
+}
