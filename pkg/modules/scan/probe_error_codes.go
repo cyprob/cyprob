@@ -1,5 +1,7 @@
 package scan
 
+import "sort"
+
 // Probe error codes, in one place
 //
 // Every native probe classifies why it failed into a short code, and until this
@@ -175,6 +177,25 @@ var probeCodeByValue = func() map[string]ProbeCode {
 	}
 	return byValue
 }()
+
+// ProbeCodesProducedOnlyByEE lists the codes this package defines and does not
+// emit, so the edition that does emit them can prove it.
+//
+// The pair of tests that keeps producedOnlyByEE honest lives one on each side:
+// CE's asserts every code outside this list is driven through a CE classifier,
+// and EE's asserts every code inside it is really produced there. EE cannot make
+// that assertion against a list it has to retype -- a copy would agree with
+// itself, and the entry that nobody produces anywhere is exactly what the pair
+// exists to catch. So the list is readable, and the map behind it is not: the
+// caller gets a sorted copy it cannot use to add a word.
+func ProbeCodesProducedOnlyByEE() []ProbeCode {
+	codes := make([]ProbeCode, 0, len(producedOnlyByEE))
+	for code := range producedOnlyByEE {
+		codes = append(codes, code)
+	}
+	sort.Slice(codes, func(i, j int) bool { return codes[i] < codes[j] })
+	return codes
+}
 
 // ParseProbeCode turns an untrusted string into a registered code, and reports
 // false when this package does not produce that value.
