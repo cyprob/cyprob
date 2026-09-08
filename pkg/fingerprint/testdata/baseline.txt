@@ -1,6 +1,6 @@
 goos: darwin
 goarch: arm64
-pkg: github.com/vulntor/vulntor/pkg/fingerprint
+pkg: github.com/cyprob/cyprob/pkg/fingerprint
 cpu: Apple M4 Pro
 BenchmarkResolverSingleMatch-14                	 2270047	       535.5 ns/op	    2801 B/op	       3 allocs/op
 BenchmarkResolverSingleMatch-14                	 2272108	       532.7 ns/op	    2800 B/op	       3 allocs/op
@@ -93,4 +93,4 @@ BenchmarkValidationRunnerLargeDataset10k-14    	     126	   9853292 ns/op	311699
 BenchmarkValidationRunnerLargeDataset10k-14    	     100	  10519746 ns/op	31152276 B/op	   38094 allocs/op
 BenchmarkValidationRunnerLargeDataset10k-14    	     122	  10022042 ns/op	31157698 B/op	   38096 allocs/op
 PASS
-ok  	github.com/vulntor/vulntor/pkg/fingerprint	138.014s
+ok  	github.com/cyprob/cyprob/pkg/fingerprint	138.014s

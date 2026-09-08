@@ -6,7 +6,7 @@ import (
 	"github.com/cyprob/cyprob/pkg/engine"
 )
 
-const nativeProbeModuleAuthor = "Vulntor Team"
+const nativeProbeModuleAuthor = "Cyprob Team"
 
 type tcpNativeProbeMetadataSpec struct {
 	moduleID              string

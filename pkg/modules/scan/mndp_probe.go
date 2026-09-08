@@ -95,7 +95,7 @@ func newMNDPProbeModule() *mndpProbeModule {
 			Description: mndpProbeModuleDescription,
 			Version:     "0.1.0",
 			Type:        engine.ScanModuleType,
-			Author:      "Vulntor Team",
+			Author:      "Cyprob Team",
 			Tags:        []string{"scan", "mndp", "mikrotik", "udp", "native_probe", "enrichment"},
 			Consumes: []engine.DataContractEntry{
 				{

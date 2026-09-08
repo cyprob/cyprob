@@ -49,7 +49,7 @@ func newRPCFollowupProbeModuleWithSpec(moduleID string, moduleName string, descr
 			Description: description,
 			Version:     "0.1.0",
 			Type:        engine.ScanModuleType,
-			Author:      "Vulntor Team",
+			Author:      "Cyprob Team",
 			Tags:        tags,
 			Consumes: []engine.DataContractEntry{
 				{Key: consumeKey, DataTypeName: "scan.RPCEpmapperInfo", Cardinality: engine.CardinalityList, IsOptional: true},

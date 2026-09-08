@@ -140,7 +140,7 @@ func startCONNECTProxyTestServer(t *testing.T, connectStatus int) (string, int, 
 					return
 				}
 
-				_, _ = io.WriteString(conn, "HTTP/1.1 200 Connection Established\r\nProxy-Agent: vulntor-test-proxy\r\n\r\n")
+				_, _ = io.WriteString(conn, "HTTP/1.1 200 Connection Established\r\nProxy-Agent: cyprob-test-proxy\r\n\r\n")
 
 				tlsConn := tls.Server(&bufferedConn{Conn: conn, reader: reader}, tlsConfig)
 				defer func() { _ = tlsConn.Close() }()
@@ -372,7 +372,7 @@ func TestRunProbesCollectsHTTPEvidence(t *testing.T) {
 
 	server := &http.Server{
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Server", "VulntorTest/1.0")
+			w.Header().Set("Server", "CyprobTest/1.0")
 			_, _ = fmt.Fprint(w, "hello from test")
 		}),
 	}
@@ -1013,7 +1013,7 @@ func TestPrepareProbeCommands_HTTPSGetCanonicalRequest(t *testing.T) {
 
 	expected := "GET / HTTP/1.1\r\n" +
 		"Host: mail.example.com\r\n" +
-		"User-Agent: vulntor-probe/1.0\r\n" +
+		"User-Agent: cyprob-probe/1.0\r\n" +
 		"Accept: */*\r\n" +
 		"Connection: close\r\n\r\n"
 	if cmds[0] != expected {

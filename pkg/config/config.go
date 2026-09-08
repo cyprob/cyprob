@@ -60,14 +60,15 @@ func DefaultConfig() Config {
 //
 // Configuration precedence (highest to lowest):
 //  1. Command-line flags (--log.level=debug)
-//  2. Environment variables (VULNTOR_LOG_LEVEL=debug)
+//  2. Environment variables (CYPROB_LOG_LEVEL=debug)
 //  3. Config file (YAML)
 //  4. Default values
 //
-// Environment variables use VULNTOR_ prefix and underscore-to-dot mapping:
+// Environment variables use the CYPROB_ prefix and underscore-to-dot mapping
+// (the former VULNTOR_ prefix is still read as a deprecated fallback):
 //
-//	VULNTOR_LOG_LEVEL      -> log.level
-//	VULNTOR_SERVER_PORT    -> server.port
+//	CYPROB_LOG_LEVEL      -> log.level
+//	CYPROB_SERVER_PORT    -> server.port
 //
 // For custom source ordering, use LoadWithSources() instead.
 func (m *Manager) Load(flags *pflag.FlagSet, customConfigFilePath string) error {

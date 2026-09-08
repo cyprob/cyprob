@@ -106,7 +106,7 @@ func newBannerGrabModuleWithSpec(moduleID string, moduleName string, description
 			Version:     "0.1.0",
 			Description: description,
 			Type:        engine.ScanModuleType,
-			Author:      "Vulntor Team",
+			Author:      "Cyprob Team",
 			Tags:        tags,
 			Consumes: []engine.DataContractEntry{
 				{
@@ -1336,7 +1336,7 @@ func buildConnectRequest(host string, port int) string {
 	return strings.Join([]string{
 		fmt.Sprintf("CONNECT %s HTTP/1.1", target),
 		fmt.Sprintf("Host: %s", target),
-		"User-Agent: vulntor-probe/1.0",
+		"User-Agent: cyprob-probe/1.0",
 		"Proxy-Connection: keep-alive",
 		"",
 		"",
@@ -1661,7 +1661,7 @@ func buildCanonicalGETRequestForPath(host string, path string) string {
 	return strings.Join([]string{
 		fmt.Sprintf("GET %s HTTP/1.1", path),
 		fmt.Sprintf("Host: %s", host),
-		"User-Agent: vulntor-probe/1.0",
+		"User-Agent: cyprob-probe/1.0",
 		"Accept: */*",
 		"Connection: close",
 		"",

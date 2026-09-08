@@ -1,6 +1,6 @@
 # Security Policy
 
-Reported vulnerabilities can be found on [cve.mitre.org](https://cve.mitre.org/cgi-bin/cvekey.cgi?keyword=vulntor).
+Reported vulnerabilities can be found on [cve.mitre.org](https://cve.mitre.org/cgi-bin/cvekey.cgi?keyword=cyprob).
 
 ## Supported Versions
 
@@ -18,8 +18,8 @@ We use [Semantic Versioning](https://semver.org/).
 
 ## Reporting a Vulnerability
 
-We want to keep Vulntor safe for everyone.
+We want to keep Cyprob safe for everyone.
 
-If you've discovered a security vulnerability in Vulntor,
+If you've discovered a security vulnerability in Cyprob,
 we appreciate your help in disclosing it to us in a responsible manner,
-by creating a [security advisory](https://github.com/vulntor/vulntor/security/advisories).
+by creating a [security advisory](https://github.com/cyprob/cyprob/security/advisories).

@@ -355,7 +355,7 @@ func InstallPluginHandler(pluginService PluginService, config api.Config) http.H
 //	      "id": "ssh-weak-cipher",
 //	      "name": "SSH Weak Cipher Detection",
 //	      "version": "1.0.0",
-//	      "author": "vulntor-security",
+//	      "author": "cyprob-security",
 //	      "severity": "high",
 //	      "tags": ["ssh", "crypto"]
 //	    }
@@ -443,7 +443,7 @@ func ListPluginsHandler(pluginService PluginService) http.HandlerFunc {
 //	  "id": "ssh-weak-cipher",
 //	  "name": "SSH Weak Cipher Detection",
 //	  "version": "1.0.0",
-//	  "author": "vulntor-security",
+//	  "author": "cyprob-security",
 //	  "severity": "high",
 //	  "tags": ["ssh", "crypto"]
 //	}

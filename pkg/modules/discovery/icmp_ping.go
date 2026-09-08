@@ -134,7 +134,7 @@ func newICMPPingDiscoveryModule() *ICMPPingDiscoveryModule {
 			Version:     "0.1.0",                        // Incremented version for clarity
 			Description: "Detects live hosts using ICMP echo requests via the go-ping library.",
 			Type:        engine.DiscoveryModuleType,
-			Author:      "Vulntor Team",
+			Author:      "Cyprob Team",
 			Tags:        []string{"discovery", "host", "icmp", "ping"},
 			Consumes: []engine.DataContractEntry{
 				{

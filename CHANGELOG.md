@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Environment variables now use the `CYPROB_` prefix (`CYPROB_LOG_LEVEL`,
+  `CYPROB_SERVER_PORT`, `CYPROB_VALIDATION_TARGET_*`, `CYPROB_TEST_MODE`, ...).
+  The former `VULNTOR_` prefix is still read as a fallback when the `CYPROB_`
+  key is unset and logs one deprecation warning per key; it will be removed
+  after one release. Set both to the same value during the transition if a
+  deployment is shared between versions.
+- The unused plugin manifest field `vulntor_min_version` and the version
+  compatibility check behind it were removed; no plugin in the plugin
+  repositories declared it.
+- Remaining references to the former project name in README, CONTRIBUTING,
+  SECURITY and CI comments now point at `cyprob`.
+
 ### Fixed
 - A favicon hash was computed and then discarded whenever the corpus did not
   name it. The identity normalizer skipped any result carrying no vendor or

@@ -38,7 +38,7 @@ func newAssetProfileBuilderModule() *AssetProfileBuilderModule {
 			Version:      "0.1.0",
 			Description:  "Aggregates all scan data into comprehensive asset profiles.",
 			Type:         engine.ReportingModuleType, // veya OrchestrationModuleType
-			Author:       "Vulntor Team",
+			Author:       "Cyprob Team",
 			Tags:         []string{"reporting", "aggregation", "asset-profile"},
 			Consumes:     buildAssetProfileBuilderConsumes(),
 			Produces:     buildAssetProfileBuilderProduces(),
