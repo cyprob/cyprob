@@ -1249,16 +1249,42 @@ func pickTopProbeError(errors []string) string {
 	if len(errors) == 0 {
 		return ""
 	}
+	// Ordered, first match wins. Two things about this list are load-bearing.
+	//
+	// It is written in registry constants rather than literals so that adding a
+	// code and forgetting this list is a compile-time change rather than a
+	// silent one -- which is exactly what happened: cyprob#344 split
+	// netbios_session_rejected and unknown_smb_signature out of probe_failed to
+	// stop that catch-all hiding them, and this list still ranked probe_failed
+	// and not them, so the catch-all won the service-level answer back. The
+	// finer vocabulary was thrown away one function later.
+	//
+	// The order keeps the shape it had: transport-level answers first, then what
+	// the peer said, then what our parser could not read, then the catch-all.
+	// The three new entries are placed in the group they belong to rather than
+	// at the top. enum_not_supported goes first among the SMB2 answers because
+	// it is the one case here where the negotiation SUCCEEDED -- it is the
+	// mapping's only ok code, and losing it to a failure from another strategy
+	// would report a service we identified as one we could not.
+	//
+	// Not changed here: the transport-first order itself. timeout and refused
+	// outrank every code backed by bytes that actually arrived, which is the
+	// opposite of the argument pickTopTLSProbeError makes for cert_parse_failed.
+	// That is a real question and a separate one; this list is being corrected,
+	// not redesigned.
 	priority := []string{
-		"timeout",
-		"refused",
-		"unexpected_smb2_command",
-		"smb2_negotiate_failed",
-		"invalid_smb2_dialect",
-		"short_response",
-		"ntlm_challenge_not_found",
-		"session_setup_failed",
-		"probe_failed",
+		string(ProbeCodeTimeout),
+		string(ProbeCodeRefused),
+		string(ProbeCodeEnumNotSupported),
+		string(ProbeCodeUnexpectedSMB2Command),
+		string(ProbeCodeSMB2NegotiateFailed),
+		string(ProbeCodeInvalidSMB2Dialect),
+		string(ProbeCodeNetBIOSSessionRejected),
+		string(ProbeCodeShortResponse),
+		string(ProbeCodeUnknownSMBSignature),
+		string(ProbeCodeNTLMChallengeNotFound),
+		string(ProbeCodeSessionSetupFailed),
+		string(ProbeCodeProbeFailed),
 	}
 	for _, p := range priority {
 		if slices.Contains(errors, p) {
