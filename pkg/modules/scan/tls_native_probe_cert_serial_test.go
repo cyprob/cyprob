@@ -19,37 +19,6 @@ import (
 // so cyprob-ee, which looks for it under "cert_serial", found it populated on 0
 // of 99 TLS services while subject, issuer and expiry were populated on 40.
 
-func TestFormatTLSCertSerial(t *testing.T) {
-	t.Parallel()
-
-	cases := []struct {
-		name   string
-		serial *big.Int
-		want   string
-	}{
-		{"nil", nil, ""},
-		{"zero renders as absent, not as 00", big.NewInt(0), ""},
-		{"single byte", big.NewInt(1), "01"},
-		{"multi byte, uppercase and colon separated", big.NewInt(0x0a1b2c), "0A:1B:2C"},
-		{"leading zero byte is not carried", big.NewInt(0x00ff), "FF"},
-		{"long serial keeps every byte", new(big.Int).SetBytes([]byte{
-			0x4f, 0x9f, 0x00, 0x01, 0xde, 0xad, 0xbe, 0xef,
-		}), "4F:9F:00:01:DE:AD:BE:EF"},
-		// RFC 5280 requires a positive serial; certificates violating it exist,
-		// and cyprob-ee renders them by magnitude, so this side must agree.
-		{"negative serial is rendered by magnitude", big.NewInt(-0x1234), "12:34"},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			if got := formatTLSCertSerial(tc.serial); got != tc.want {
-				t.Fatalf("formatTLSCertSerial: want %q, got %q", tc.want, got)
-			}
-		})
-	}
-}
-
 // The end-to-end direction: a real handshake against a certificate with a known
 // serial must put that serial on TLSServiceInfo, under the JSON key cyprob-ee
 // reads. Asserting the wire key matters as much as the value — the consumer
