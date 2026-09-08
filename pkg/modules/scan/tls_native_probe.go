@@ -510,7 +510,7 @@ func probeTLSDetails(ctx context.Context, target, hostname string, port int, opt
 			// times out on one strategy and meets an unreadable certificate on
 			// the next must not report a certificate reason against the
 			// timeout.
-			if code == tlsProbeErrorCertParseFailed {
+			if code == ProbeCodeCertParseFailed {
 				attempt.CertParseError = certParseReason(err)
 			}
 			result.Attempts = append(result.Attempts, attempt)
@@ -612,9 +612,9 @@ func probeTLSDetails(ctx context.Context, target, hostname string, port int, opt
 	result.TLSProbe = false
 	result.ProbeError = pickTopTLSProbeError(errorCodes)
 	if result.ProbeError == "" {
-		result.ProbeError = "probe_failed"
+		result.ProbeError = string(ProbeCodeProbeFailed)
 	}
-	if result.ProbeError == tlsProbeErrorCertParseFailed {
+	if result.ProbeError == string(ProbeCodeCertParseFailed) {
 		result.CertParseError = firstCertParseReason(result.Attempts)
 	}
 	return result
@@ -769,12 +769,6 @@ func isCertExpiringSoon(notAfter time.Time, now time.Time) bool {
 	return !notAfter.After(now.Add(30 * 24 * time.Hour))
 }
 
-// tlsProbeErrorCertParseFailed is the code for a certificate our own parser
-// refused. It is named as a constant because three places have to agree on it:
-// the classifier that produces it, the priority table that ranks it, and the
-// two call sites that attach a reason to it.
-const tlsProbeErrorCertParseFailed = "cert_parse_failed"
-
 // certParseReason pulls the x509 rule out of crypto/tls's wrapper, which reads
 // "tls: failed to parse certificate from server: x509: <rule>". The wrapper
 // adds nothing a reader wants and the rule is the whole value, so the prefix is
@@ -798,7 +792,7 @@ func certParseReason(err error) string {
 // would have done.
 func firstCertParseReason(attempts []TLSProbeAttempt) string {
 	for _, attempt := range attempts {
-		if attempt.Error == tlsProbeErrorCertParseFailed && attempt.CertParseError != "" {
+		if attempt.Error == string(ProbeCodeCertParseFailed) && attempt.CertParseError != "" {
 			return attempt.CertParseError
 		}
 	}
@@ -845,7 +839,7 @@ func classifyTLSProbeError(err error) ProbeCode {
 	// dials with InsecureSkipVerify but would be misfiled the day a verifying
 	// strategy is added.
 	case strings.Contains(msg, "failed to parse certificate from server"):
-		return tlsProbeErrorCertParseFailed
+		return ProbeCodeCertParseFailed
 	case strings.Contains(msg, "tls:"), strings.Contains(msg, "handshake"):
 		return ProbeCodeHandshakeFailed
 	default:
@@ -864,12 +858,12 @@ func pickTopTLSProbeError(codes []string) string {
 		// otherwise outrank and hide the one code in this set that is backed by
 		// bytes we received and identified. Every other code here is also what
 		// a dead port looks like.
-		tlsProbeErrorCertParseFailed: 6,
-		"timeout":                    5,
-		"refused":                    4,
-		"handshake_failed":           3,
-		"short_response":             2,
-		"probe_failed":               1,
+		string(ProbeCodeCertParseFailed): 6,
+		string(ProbeCodeTimeout):         5,
+		string(ProbeCodeRefused):         4,
+		string(ProbeCodeHandshakeFailed): 3,
+		string(ProbeCodeShortResponse):   2,
+		string(ProbeCodeProbeFailed):     1,
 	}
 
 	best := ""

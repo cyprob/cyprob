@@ -88,8 +88,23 @@ func TestProbeCodes_EveryClassifierUsesTheRegistry(t *testing.T) {
 				}
 				returnsSeen++
 				for _, result := range ret.Results {
-					if ident, ok := result.(*ast.Ident); ok && registry[probeCodeConstantValue(ident.Name)] {
-						registryReturnsSeen++
+					if ident, ok := result.(*ast.Ident); ok {
+						if registry[probeCodeConstantValue(ident.Name)] {
+							registryReturnsSeen++
+							continue
+						}
+						// A constant outside the registry is the same defect
+						// as a literal and harder to see: this is exactly how
+						// cert_parse_failed lived outside the registry while
+						// being returned, and the first version of this test
+						// looked only for literals and did not notice. There is
+						// no exception for a named identifier -- every
+						// classifier here returns ProbeCode, so nothing but a
+						// registry constant can legitimately appear.
+						require(false,
+							"%s returns %s, which is not a probeCodeRegistry constant; "+
+								"a code named somewhere else is a code nothing can enumerate",
+							fn.Name.Name, ident.Name)
 						continue
 					}
 					lit, ok := result.(*ast.BasicLit)
