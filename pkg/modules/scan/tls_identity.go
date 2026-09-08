@@ -86,20 +86,24 @@ func deriveTLSCertIdentity(subjectCN, issuerDN string) (vendor, product string) 
 	// Markers are ordered most-specific first ("fortigate" before "fortinet"),
 	// so the first hit is the most informative one.
 	for _, entry := range tlsCertIdentityMarkers {
-		if containsMarkerAtWordStart(haystack, entry.marker) {
+		if ContainsMarkerAtWordStart(haystack, entry.marker) {
 			return entry.vendor, entry.product
 		}
 	}
 	return "", ""
 }
 
-// containsMarkerAtWordStart reports whether marker occurs at the start of a word.
+// ContainsMarkerAtWordStart reports whether marker occurs at the start of a word.
+//
+// Exported because the management-controller tag bridge in pkg/modules/parse
+// matches the same way over the same kind of vendor-supplied string. Copying it
+// there would give the two marker tables the same rule twice and let them drift.
 //
 // A plain substring match is unsafe for short markers: "ilo" appears inside
 // "pilot", "silo" and "kilo", which would confidently mislabel an ordinary web
 // server as an HPE iLO. Requiring a word start blocks that while still matching
 // the suffixed forms devices actually use ("ilo5", "FortiGate-100F").
-func containsMarkerAtWordStart(haystack, marker string) bool {
+func ContainsMarkerAtWordStart(haystack, marker string) bool {
 	if marker == "" {
 		return false
 	}
