@@ -280,3 +280,76 @@ func parseScanPackage(t *testing.T) []*ast.File {
 	}
 	return files
 }
+
+// ParseProbeCode is the boundary gate: EE reads CE's scan output back out of a
+// map, where every value is a bare string, and this is what decides whether a
+// given one is a code at all. Two things have to hold or it is decoration --
+// that it agrees with the registry in both directions, and that it refuses
+// everything else including the values #340 measured arriving at the reported
+// field today.
+func TestParseProbeCode_AgreesWithTheRegistryAndRefusesEverythingElse(t *testing.T) {
+	t.Parallel()
+
+	if len(probeCodeRegistry) == 0 {
+		t.Fatal("the registry is empty, so both halves below would pass for the wrong reason")
+	}
+
+	for _, code := range probeCodeRegistry {
+		parsed, ok := ParseProbeCode(string(code))
+		if !ok {
+			t.Errorf("ParseProbeCode(%q) reports unknown for a registered code", code)
+			continue
+		}
+		if parsed != code {
+			t.Errorf("ParseProbeCode(%q) returned %q", code, parsed)
+		}
+	}
+
+	// The lookup map and the registry are two representations of one list, and
+	// a map built from a stale slice would still answer every question above.
+	if len(probeCodeByValue) != len(probeCodeRegistry) {
+		t.Errorf("the lookup map holds %d codes and the registry %d; one of them was built from the other and drifted",
+			len(probeCodeByValue), len(probeCodeRegistry))
+	}
+
+	// Values that reach a reported error field today without being codes
+	// (cyprob-ee#461, and the inventory in probe_error_fields_test.go). Each one
+	// is what the gate exists to catch, and one of them -- "description
+	// unreadable" -- is prose whose embedded bucket name is not its bucket.
+	notCodes := []string{
+		"", "feat_failed", "syst_failed", "identify_failed", "enum_failed",
+		"no_candidate", "dial_error", "invalid_port", "empty_body", "request_error",
+		"status_404", "redirect_budget_exceeded", "print_port_write_blocked",
+		"description unreadable", "reset", "short_read", "nbss_rejected",
+		"unknown_signature", "TIMEOUT", " timeout", "timeout ",
+	}
+	for _, value := range notCodes {
+		if code, ok := ParseProbeCode(value); ok {
+			t.Errorf("ParseProbeCode(%q) returned %q; it is not a registered code, and a gate that accepts it is not a gate",
+				value, code)
+		}
+	}
+}
+
+// The three EE spellings above are worth their own statement, because two of
+// them were CE's own observations under a different name until cyprob#343 and
+// one still is. If a future change makes CE produce "reset" or "short_read",
+// this test is where the collision is noticed rather than in a dashboard.
+func TestParseProbeCode_TheEESpellingsAreStillNotCECodes(t *testing.T) {
+	t.Parallel()
+
+	for _, pair := range []struct{ ee, ce string }{
+		{ee: "reset", ce: "connection_reset"},
+		{ee: "short_read", ce: "short_response"},
+		{ee: "nbss_rejected", ce: "netbios_session_rejected"},
+		{ee: "unknown_signature", ce: "unknown_smb_signature"},
+	} {
+		if _, ok := ParseProbeCode(pair.ee); ok {
+			t.Errorf("%q parses as a CE code; CE spells this %q, and two spellings of one observation is the collision this vocabulary exists to prevent",
+				pair.ee, pair.ce)
+		}
+		if _, ok := ParseProbeCode(pair.ce); !ok {
+			t.Errorf("%q is not a registered code, so the EE spelling above has nothing to be converted into", pair.ce)
+		}
+	}
+}
