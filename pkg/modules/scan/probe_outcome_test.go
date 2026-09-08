@@ -262,6 +262,11 @@ func TestProbeOutcomes_EveryCodeIsPinnedThroughItsClassifier(t *testing.T) {
 		{"rdp not tpkt", classifyRDPProbeError(errors.New("unknown_rdp_response")), ProbeCodeUnknownResponse, OutcomeUnreadable},
 		{"rdp metadata residual", classifyRDPMetadataError(errors.New("write: broken pipe")), ProbeCodeMetadataFailed, ""},
 		{"ftp banner eof", classifyFTPBannerError(io.EOF), ProbeCodeBannerReadFailed, ""},
+		{"ftp feat refusal", classifyFTPFeatError(nil, ftpResponse{Code: 500}), ProbeCodeFeatFailed, OutcomeRejected},
+		{"ftp syst refusal", classifyFTPSystError(nil, ftpResponse{Code: 500}), ProbeCodeSystFailed, OutcomeRejected},
+		// The other side of what used to be one code. It has to resolve to a
+		// different code than the two above or the straddle is still there.
+		{"ftp feat read failure", classifyFTPFeatError(io.EOF, ftpResponse{}), ProbeCodeBannerReadFailed, ""},
 		{"ftp auth tls verdict", classifyFTPTLSError(errors.New("auth_tls_failed: 500 unknown command")), ProbeCodeAuthTLSFailed, OutcomeRejected},
 		{"postgres parser", classifyPostgresError(errors.New("protocol_mismatch: unexpected first byte 0x48")), ProbeCodeProtocolMismatch, OutcomeUnreadable},
 		{"snmp decode", classifySNMPProbeError(errSNMPDecode), ProbeCodeDecodeError, OutcomeUnreadable},
@@ -475,14 +480,15 @@ func TestProbeOutcomes_TheExportedBucketListMatchesTheSet(t *testing.T) {
 // returns them.
 //
 // This is a smaller exemption than it looks, and a temporary one: cyprob#360 is
-// about routing these three through classifiers, which would delete this map.
-// Until then the entries make the gap countable rather than invisible, and the
-// test above fails if one of them starts coming from a classifier after all --
-// an exemption from a check that would pass hides the next failure.
+// about routing these through classifiers, which would delete this map. Until
+// then the entries make the gap countable rather than invisible, and the test
+// above fails if one of them starts coming from a classifier after all -- an
+// exemption from a check that would pass hides the next failure.
+//
+// feat_failed and syst_failed left this map with the FTP half of cyprob#360:
+// classifyFTPFeatError and classifyFTPSystError produce them now, and the cases
+// above drive both. identify_failed is the WinRM half and is still to come.
 var codesProducedOutsideAClassifier = map[ProbeCode]string{
-	ProbeCodeFeatFailed: "ftp_native_probe.go:601,779 assign it directly; the FEAT step knows its own " +
-		"answer and never calls a classifier - cyprob#360",
-	ProbeCodeSystFailed:     "ftp_native_probe.go:626,804, the SYST twin - cyprob#360",
 	ProbeCodeIdentifyFailed: "winrm_native_probe.go:342,349,353, assigned straight into ProbeError - cyprob#360",
 }
 

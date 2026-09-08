@@ -7,7 +7,7 @@ import "sort"
 // A probe result carries a code (probe_error_codes.go) saying what went wrong.
 // cyprob-ee#461 needs a second, much smaller answer alongside it: is there a
 // service here at all? The codes cannot answer that on their own -- there are
-// 49 of them, several mean more than one thing, and nothing outside this
+// 54 of them, several mean more than one thing, and nothing outside this
 // package can be expected to know which. So the mapping lives here, next to the
 // registry, and EE imports it rather than restating it. A copy on the EE side
 // would be a second source of truth that compiles.
@@ -20,7 +20,7 @@ import "sort"
 //	unreadable  -- bytes arrived and our parser refused them
 //	""          -- this code does not support any of those claims
 //
-// The empty answer is the load-bearing one. 15 of the 49 codes carry it, and
+// The empty answer is the load-bearing one. 15 of the 54 codes carry it, and
 // they are not an oversight: they are the catch-all default arms, the codes
 // whose live emitters straddle the line between "nothing arrived" and "bytes
 // arrived", the two that describe our own abort rather than the target, and one
@@ -133,12 +133,12 @@ var probeCodeOutcomes = map[ProbeCode]outcomeEntry{
 		note:    "the Certificate message arrived and our x509 parser refused it; the arm sits above the tls: arm for exactly this reason",
 	},
 	ProbeCodeFeatFailed: {
-		reason: noClaimStraddle,
-		note:   "runFTPCommand is a write then a read, so this covers a reply that parsed and carried a code other than 211 -- a peer verdict, rejected -- and also a write or read failure that says nothing about whether bytes arrived. One condition at the emit site splits it: featErr == nil (cyprob#360)",
+		outcome: OutcomeRejected,
+		note:    "classifyFTPCommandError is the only producer and returns it only when the reply parsed and carried a code other than 211: the server read FEAT and refused it. A write or read that did not complete goes to classifyFTPBannerError instead, which is what ended the straddle (cyprob#360). Not ok, unlike enum_not_supported -- there the enumeration step had no subject, here it had one and we did not get it",
 	},
 	ProbeCodeSystFailed: {
-		reason: noClaimStraddle,
-		note:   "the SYST twin of feat_failed, 215 instead of 211, with the same one-line split",
+		outcome: OutcomeRejected,
+		note:    "the SYST twin of feat_failed, 215 instead of 211, through the same classifier",
 	},
 	ProbeCodeIdentifyFailed: {
 		outcome: OutcomeUnreadable,
