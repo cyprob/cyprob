@@ -18,7 +18,13 @@ import (
 // It finds nothing today, and it is worth recording how hard that was looked
 // for: 322 probes here (161 banners x 2 hints), and 11,130 in the review
 // sweep (161 banners x 7 hints x 10 ports), producing 250 probes with more
-// than one candidate and zero ties in either. The emptiness is structural
+// than one candidate and zero ties in either.
+//
+// Re-measured 2026-09-08 (cyprob#235): this test alone now runs 338 probes and
+// only 11 of them reach the comparison. The 250 belonged to the wider sweep,
+// not to this loop, and the difference matters -- eleven is thin enough that
+// the count is worth asserting rather than assumed, which is what the check at
+// the end does. The emptiness is structural
 // rather than a sampling accident -- no shipped rule can exceed the ceiling,
 // so a tie needs equal pattern_strength, equal bonus eligibility, and a banner
 // matching both, and the corpus holds no such banner. One exists in reality:
@@ -27,6 +33,7 @@ import (
 func TestRulePrecedence_NoTieDecidesAMatchInTheShippedCorpus(t *testing.T) {
 	resolver := NewRuleBasedResolver(loadBuiltinRules())
 
+	compared := 0
 	for _, sample := range loadValidationCorpus(t) {
 		for _, protocol := range []string{sample.Protocol, ""} {
 			candidates := resolver.rankedCandidates(Input{
@@ -35,6 +42,7 @@ func TestRulePrecedence_NoTieDecidesAMatchInTheShippedCorpus(t *testing.T) {
 			if len(candidates) < 2 {
 				continue
 			}
+			compared++
 
 			winner, runnerUp := candidates[0], candidates[1]
 			require.NotEqual(t, runnerUp.score, winner.score,
@@ -45,6 +53,15 @@ func TestRulePrecedence_NoTieDecidesAMatchInTheShippedCorpus(t *testing.T) {
 				winner.rule.ID, runnerUp.rule.ID, winner.score)
 		}
 	}
+
+	// A probe with one candidate compares nothing, so this test's whole value
+	// is the number of probes that reached the comparison at all. It is 11 of
+	// 338 today, and it has been as low as that without anyone noticing: the
+	// assertion above is skipped by a `continue`, so a corpus that stopped
+	// matching two rules anywhere would leave this test green while checking
+	// nothing. That is the failure this file exists to prevent, one level up.
+	require.Positive(t, compared,
+		"no probe produced two candidates, so no tie was compared and this test asserted nothing")
 }
 
 // The clamp belongs on the number reported to a reader, not on the comparison.
