@@ -41,41 +41,41 @@ type WINRMProbeOptions struct {
 }
 
 type WINRMProbeAttempt struct {
-	Strategy      string `json:"strategy"`
-	Transport     string `json:"transport"`
-	Success       bool   `json:"success"`
-	DurationMS    int64  `json:"duration_ms"`
-	StatusCode    int    `json:"status_code,omitempty"`
-	Error         string `json:"error,omitempty"`
-	TLSVersion    string `json:"tls_version,omitempty"`
-	CipherSuite   string `json:"cipher_suite,omitempty"`
+	Strategy    string `json:"strategy"`
+	Transport   string `json:"transport"`
+	Success     bool   `json:"success"`
+	DurationMS  int64  `json:"duration_ms"`
+	StatusCode  int    `json:"status_code,omitempty"`
+	Error       string `json:"error,omitempty"`
+	TLSVersion  string `json:"tls_version,omitempty"`
+	CipherSuite string `json:"cipher_suite,omitempty"`
 }
 
 type WINRMServiceInfo struct {
-	Target               string               `json:"target"`
-	Port                 int                  `json:"port"`
-	WINRMProbe           bool                 `json:"winrm_probe"`
-	WINRMTransport       string               `json:"winrm_transport,omitempty"`
-	EndpointPath         string               `json:"endpoint_path,omitempty"`
-	HTTPStatusCode       int                  `json:"http_status_code,omitempty"`
-	ServerHeader         string               `json:"server_header,omitempty"`
-	ContentType          string               `json:"content_type,omitempty"`
-	AuthSchemes          []string             `json:"auth_schemes,omitempty"`
-	AuthRequired         bool                 `json:"auth_required"`
-	IdentifySupported    bool                 `json:"identify_supported"`
-	ServiceHint          string               `json:"service_hint,omitempty"`
-	WSMANProtocolVersion string               `json:"wsman_protocol_version,omitempty"`
-	ProductVendor        string               `json:"product_vendor,omitempty"`
-	ProductVersion       string               `json:"product_version,omitempty"`
-	TLSEnabled           bool                 `json:"tls_enabled"`
-	TLSVersion           string               `json:"tls_version,omitempty"`
-	TLSCipherSuite       string               `json:"tls_cipher_suite,omitempty"`
-	CertSubjectCN        string               `json:"cert_subject_cn,omitempty"`
-	CertIssuer           string               `json:"cert_issuer,omitempty"`
-	CertNotAfter         time.Time            `json:"cert_not_after,omitempty"`
-	CertIsSelfSigned     bool                 `json:"cert_is_self_signed"`
-	ProbeError           string               `json:"probe_error,omitempty"`
-	Attempts             []WINRMProbeAttempt  `json:"attempts,omitempty"`
+	Target               string              `json:"target"`
+	Port                 int                 `json:"port"`
+	WINRMProbe           bool                `json:"winrm_probe"`
+	WINRMTransport       string              `json:"winrm_transport,omitempty"`
+	EndpointPath         string              `json:"endpoint_path,omitempty"`
+	HTTPStatusCode       int                 `json:"http_status_code,omitempty"`
+	ServerHeader         string              `json:"server_header,omitempty"`
+	ContentType          string              `json:"content_type,omitempty"`
+	AuthSchemes          []string            `json:"auth_schemes,omitempty"`
+	AuthRequired         bool                `json:"auth_required"`
+	IdentifySupported    bool                `json:"identify_supported"`
+	ServiceHint          string              `json:"service_hint,omitempty"`
+	WSMANProtocolVersion string              `json:"wsman_protocol_version,omitempty"`
+	ProductVendor        string              `json:"product_vendor,omitempty"`
+	ProductVersion       string              `json:"product_version,omitempty"`
+	TLSEnabled           bool                `json:"tls_enabled"`
+	TLSVersion           string              `json:"tls_version,omitempty"`
+	TLSCipherSuite       string              `json:"tls_cipher_suite,omitempty"`
+	CertSubjectCN        string              `json:"cert_subject_cn,omitempty"`
+	CertIssuer           string              `json:"cert_issuer,omitempty"`
+	CertNotAfter         time.Time           `json:"cert_not_after,omitempty"`
+	CertIsSelfSigned     bool                `json:"cert_is_self_signed"`
+	ProbeError           string              `json:"probe_error,omitempty"`
+	Attempts             []WINRMProbeAttempt `json:"attempts,omitempty"`
 }
 
 type winrmNativeProbeModule struct {
