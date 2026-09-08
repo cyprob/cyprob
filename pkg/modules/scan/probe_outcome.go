@@ -1,5 +1,7 @@
 package scan
 
+import "sort"
+
 // Outcome buckets, derived from the probe error codes
 //
 // A probe result carries a code (probe_error_codes.go) saying what went wrong.
@@ -46,6 +48,26 @@ var outcomeBuckets = []Outcome{
 	OutcomeRejected,
 	OutcomeUnreachable,
 	OutcomeUnreadable,
+}
+
+// Outcomes lists the buckets, so a consumer can render the set rather than
+// retype it.
+//
+// EE's migration constrains its outcome column to exactly these values. It
+// could name them one by one -- the constants are exported, and a change to a
+// constant's VALUE would travel through them -- but nothing would carry a fifth
+// bucket across: EE's CHECK would keep listing four, and a row holding the new
+// value would be refused at insert, in production, in a place nobody would
+// think to look. The same gap ProbeCodesProducedOnlyByEE closes, one bucket
+// over.
+//
+// The slice is a sorted copy, and outcomeBuckets stays unexported: the caller
+// gets a list it can read, not a set it can add a bucket to.
+func Outcomes() []Outcome {
+	buckets := make([]Outcome, len(outcomeBuckets))
+	copy(buckets, outcomeBuckets)
+	sort.Slice(buckets, func(i, j int) bool { return buckets[i] < buckets[j] })
+	return buckets
 }
 
 // noClaim is why a code carries no bucket. An entry that leaves outcome empty
