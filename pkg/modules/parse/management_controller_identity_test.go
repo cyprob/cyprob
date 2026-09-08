@@ -23,6 +23,13 @@ func TestManagementControllerTags_ProductStringsSeenInTheField(t *testing.T) {
 		{"long Dell form", "Integrated Dell Remote Access Controller", "", []string{TagBMC, TagIDRAC}},
 		{"vendor field alone carries it", "", "Lenovo XClarity Controller", []string{TagBMC}},
 		{"generic self-description", "Baseboard Management Controller", "", []string{TagBMC}},
+
+		// The three below have no instance on any estate measured so far, which
+		// is exactly why they need a case here: without one, emptying a marker's
+		// tags leaves the whole suite green. Verified by doing it — the mutation
+		// survived until these three were added.
+		{"Cisco UCS controller", "UCS CIMC", "", []string{TagBMC}},
+		{"AMI firmware on a white-box controller", "MegaRAC SP-X", "", []string{TagBMC}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -70,7 +77,15 @@ func TestManagementControllerTags_ShortMarkerDoesNotMatchInsideWords(t *testing.
 // bridge would run, match, and change nothing. This is the failure the bridge
 // was written to fix, one layer down.
 func TestManagementControllerTags_AllEmittedTagsAreCanonical(t *testing.T) {
+	// A loop over an empty table agrees with every rule. Pin the shape first,
+	// so this test cannot pass by examining nothing.
+	if len(managementControllerMarkers) < 8 {
+		t.Fatalf("marker table has %d entries; the test walks it and would pass vacuously if it shrank", len(managementControllerMarkers))
+	}
 	for _, marker := range managementControllerMarkers {
+		if len(marker.tags) == 0 {
+			t.Fatalf("marker %q emits no tags, so it can never route anything", marker.marker)
+		}
 		for _, tag := range marker.tags {
 			if _, ok := NormalizeTechTag(tag); !ok {
 				t.Fatalf("marker %q emits %q, which NormalizeTechTag drops", marker.marker, tag)
