@@ -43,12 +43,69 @@ type StaticRule struct {
 // RuleBasedResolver uses a preloaded list of static rules to resolve banners into metadata.
 type RuleBasedResolver struct {
 	rules     []StaticRule
+	portBonus float64
 	telemetry *TelemetryWriter
 }
 
 // NewRuleBasedResolver initializes a resolver using fingerprint rules loaded from a YAML file.
 func NewRuleBasedResolver(rules []StaticRule) *RuleBasedResolver {
-	return &RuleBasedResolver{rules: prepareRules(rules), telemetry: nil}
+	prepared := prepareRules(rules)
+	return &RuleBasedResolver{
+		rules:     prepared,
+		portBonus: derivePortBonus(prepared),
+		telemetry: nil,
+	}
+}
+
+// fallbackPortBonus applies when the database holds fewer than two distinct
+// strengths, so there is no gap to measure. It is small for the same reason the
+// derived value is: with one strength in play there is nothing but ties to break.
+const fallbackPortBonus = 0.005
+
+// derivePortBonus sizes the port bonus from the vocabulary it is added to,
+// rather than from a constant somebody chose once.
+//
+// The bonus exists to break a tie, not to cast a vote: two rules whose authors
+// wrote different strengths must keep that order at every port. A constant
+// cannot promise that, because it has no idea what the smallest deliberate step
+// is -- and the constant this replaces was 0.05, one whole step of the scale the
+// issue describes, which is why http.apache at 0.85 reached http.winrm at 0.90
+// on port 80 (cyprob#237).
+//
+// Half the smallest gap is the largest value that cannot cross any boundary,
+// even when only one of two rules is eligible.
+//
+// Measured on the shipped database while writing this: the vocabulary is not the
+// four values the issue lists. It is nine -- 0.75, 0.82, 0.85, 0.88, 0.90, 0.92,
+// 0.93, 0.94, 0.95 -- with a smallest gap of 0.01, so the derived bonus is
+// 0.005. A fixed 0.02, which is what was first proposed here against the issue's
+// four-value description, would already have been too large. That is the reason
+// this is derived: the vocabulary had moved and the constant had not.
+func derivePortBonus(rules []StaticRule) float64 {
+	seen := make(map[float64]struct{}, len(rules))
+	for _, rule := range rules {
+		seen[rule.PatternStrength] = struct{}{}
+	}
+	if len(seen) < 2 {
+		return fallbackPortBonus
+	}
+
+	strengths := make([]float64, 0, len(seen))
+	for strength := range seen {
+		strengths = append(strengths, strength)
+	}
+	sort.Float64s(strengths)
+
+	smallestGap := strengths[len(strengths)-1] - strengths[0]
+	for i := 1; i < len(strengths); i++ {
+		if gap := strengths[i] - strengths[i-1]; gap < smallestGap {
+			smallestGap = gap
+		}
+	}
+	if smallestGap <= 0 {
+		return fallbackPortBonus
+	}
+	return smallestGap / 2
 }
 
 // SetTelemetry configures telemetry writer for the resolver.
@@ -157,7 +214,7 @@ func (r *RuleBasedResolver) rankedCandidatesWithDropped(in Input) ([]ruleCandida
 		// Port bonus
 		portBonus := 0.0
 		if in.Port > 0 && containsPort(rule.PortBonuses, in.Port) {
-			portBonus = 0.05
+			portBonus = r.portBonus
 		}
 		// Base strength defaulted in prepareRules()
 		base := rule.PatternStrength
