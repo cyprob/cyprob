@@ -16,30 +16,65 @@ const (
 	deviceTypeIoT         = "iot"
 )
 
+// Signal strength for a device-class decision, strongest first. The ranks exist
+// because the alternative is the alphabet: every writer of ServiceTypes goes
+// through appendUniqueSorted, so "the first service that matches" meant "the
+// alphabetically first", and a printer that also does AirPlay was a media device
+// because "_airplay" sorts before "_ipp" (cyprob#231).
+const (
+	// mdnsRankDedicated is a service only that kind of device offers. A host
+	// advertising IPP is a printer; nothing else publishes it.
+	mdnsRankDedicated = iota
+	// mdnsRankModel is a stated hardware identifier. More specific than any
+	// capability and less specific than a dedicated service, which is why the
+	// model check sits between the two rather than after all of them.
+	mdnsRankModel
+	// mdnsRankCapability is a service a general-purpose computer also offers.
+	// A Mac, an iPhone, a television and a speaker all advertise AirPlay, and a
+	// Mac with file sharing on advertises SMB.
+	mdnsRankCapability
+	// mdnsRankAmbient is the weakest: a home-automation bridge says what
+	// protocol it speaks and nothing about what it is.
+	mdnsRankAmbient
+)
+
+type mdnsServiceSignal struct {
+	deviceType string
+	rank       int
+}
+
 // mdnsServiceDeviceTypes maps an advertised DNS-SD service type to the device
-// class it implies. Service types are unambiguous, so they are the strongest
-// signal available before looking at any model string.
-var mdnsServiceDeviceTypes = map[string]string{
-	"_ipp._tcp":            deviceTypePrinter,
-	"_ipps._tcp":           deviceTypePrinter,
-	"_printer._tcp":        deviceTypePrinter,
-	"_pdl-datastream._tcp": deviceTypePrinter,
-	"_scanner._tcp":        deviceTypePrinter,
-	"_airplay._tcp":        deviceTypeMediaDevice,
+// class it implies and to how strongly it implies it.
+//
+// The storage services are deliberately capabilities rather than dedicated:
+// _smb, _afpovertcp, _nfs and _adisk are what a Mac with file sharing enabled
+// publishes, so reading them as "this is a NAS" is the same mistake AirPlay
+// was. A NAS advertising only those is still classified storage, because
+// nothing stronger competes.
+var mdnsServiceDeviceTypes = map[string]mdnsServiceSignal{
+	"_ipp._tcp":            {deviceTypePrinter, mdnsRankDedicated},
+	"_ipps._tcp":           {deviceTypePrinter, mdnsRankDedicated},
+	"_printer._tcp":        {deviceTypePrinter, mdnsRankDedicated},
+	"_pdl-datastream._tcp": {deviceTypePrinter, mdnsRankDedicated},
+	"_scanner._tcp":        {deviceTypePrinter, mdnsRankDedicated},
 	// Android TV exposes its remote-control service even when the cast service
 	// only answers multicast, so it is often the one signal a unicast probe gets.
-	"_androidtvremote2._tcp": deviceTypeMediaDevice,
-	"_androidtvremote._tcp":  deviceTypeMediaDevice,
-	"_raop._tcp":             deviceTypeMediaDevice,
-	"_googlecast._tcp":       deviceTypeMediaDevice,
-	"_spotify-connect._tcp":  deviceTypeMediaDevice,
-	"_hap._tcp":              deviceTypeIoT,
-	"_matter._tcp":           deviceTypeIoT,
-	"_matterc._udp":          deviceTypeIoT,
-	"_afpovertcp._tcp":       deviceTypeStorage,
-	"_smb._tcp":              deviceTypeStorage,
-	"_nfs._tcp":              deviceTypeStorage,
-	"_adisk._tcp":            deviceTypeStorage,
+	// Both are dedicated: no general-purpose computer publishes them.
+	"_androidtvremote2._tcp": {deviceTypeMediaDevice, mdnsRankDedicated},
+	"_androidtvremote._tcp":  {deviceTypeMediaDevice, mdnsRankDedicated},
+	"_googlecast._tcp":       {deviceTypeMediaDevice, mdnsRankDedicated},
+
+	"_airplay._tcp":         {deviceTypeMediaDevice, mdnsRankCapability},
+	"_raop._tcp":            {deviceTypeMediaDevice, mdnsRankCapability},
+	"_spotify-connect._tcp": {deviceTypeMediaDevice, mdnsRankCapability},
+	"_afpovertcp._tcp":      {deviceTypeStorage, mdnsRankCapability},
+	"_smb._tcp":             {deviceTypeStorage, mdnsRankCapability},
+	"_nfs._tcp":             {deviceTypeStorage, mdnsRankCapability},
+	"_adisk._tcp":           {deviceTypeStorage, mdnsRankCapability},
+
+	"_hap._tcp":     {deviceTypeIoT, mdnsRankAmbient},
+	"_matter._tcp":  {deviceTypeIoT, mdnsRankAmbient},
+	"_matterc._udp": {deviceTypeIoT, mdnsRankAmbient},
 }
 
 // appleOnlyServiceTypes are DNS-SD services published only by Apple's own
@@ -144,29 +179,30 @@ func deriveMDNSIdentity(result *MDNSServiceInfo) {
 
 // deriveMDNSDeviceType prefers the advertised service types (unambiguous) and
 // falls back to the model identifier family.
+// deriveMDNSDeviceType picks the strongest signal rather than the first one it
+// meets. Ties inside a rank keep the order of the slice, which is sorted -- that
+// residue is left deliberately, because the conflicts it would decide (a printer
+// that also casts) are not things anyone has seen, and inventing a rule for them
+// would be the same guess this function exists to stop making.
 func deriveMDNSDeviceType(result *MDNSServiceInfo) string {
-	// Service types win: a host advertising _ipp is a printer regardless of how
-	// its model string reads.
+	best := ""
+	bestRank := mdnsRankAmbient + 1
+
 	for _, service := range result.ServiceTypes {
-		key := normalizeMDNSServiceType(service)
-		if deviceType, ok := mdnsServiceDeviceTypes[key]; ok && deviceType != deviceTypeIoT {
-			return deviceType
+		signal, ok := mdnsServiceDeviceTypes[normalizeMDNSServiceType(service)]
+		if !ok || signal.rank >= bestRank {
+			continue
 		}
+		best, bestRank = signal.deviceType, signal.rank
 	}
 
-	if deviceType := appleModelDeviceType(result.Model); deviceType != "" {
-		return deviceType
+	// The model is one signal among them rather than a fallback consulted after
+	// all of them: it beats a capability and loses to a dedicated service.
+	if deviceType := appleModelDeviceType(result.Model); deviceType != "" && mdnsRankModel < bestRank {
+		best, bestRank = deviceType, mdnsRankModel
 	}
 
-	// IoT is the weakest of the service signals, so it only applies when
-	// nothing more specific matched.
-	for _, service := range result.ServiceTypes {
-		key := normalizeMDNSServiceType(service)
-		if deviceType, ok := mdnsServiceDeviceTypes[key]; ok {
-			return deviceType
-		}
-	}
-	return ""
+	return best
 }
 
 func advertisesAppleOnlyService(serviceTypes []string) bool {
