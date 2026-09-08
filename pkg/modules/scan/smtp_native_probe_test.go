@@ -130,6 +130,10 @@ func TestProbeSMTPDetails_PlainEHLOAndSTARTTLS(t *testing.T) {
 	if result.CertSubjectCN != "smtp.test" {
 		t.Fatalf("expected cert subject cn smtp.test, got %q", result.CertSubjectCN)
 	}
+	// cyprob#303: the same certificate carries a serial.
+	if result.CertSerial != testCertSerialFormatted {
+		t.Fatalf("expected cert serial %s, got %q", testCertSerialFormatted, result.CertSerial)
+	}
 	if result.SoftwareHint != "SmarterMail" || result.VendorHint != "SmarterTools" || result.VersionHint != "17.1" {
 		t.Fatalf("unexpected software hints: %q %q %q", result.SoftwareHint, result.VendorHint, result.VersionHint)
 	}

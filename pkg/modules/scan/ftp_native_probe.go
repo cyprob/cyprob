@@ -62,6 +62,7 @@ type FTPServiceInfo struct {
 	TLSCipherSuite   string            `json:"tls_cipher_suite,omitempty"`
 	CertSubjectCN    string            `json:"cert_subject_cn,omitempty"`
 	CertIssuer       string            `json:"cert_issuer,omitempty"`
+	CertSerial       string            `json:"cert_serial,omitempty"`
 	CertNotAfter     time.Time         `json:"cert_not_after,omitzero"`
 	CertIsSelfSigned bool              `json:"cert_is_self_signed"`
 	SystemHint       string            `json:"system_hint,omitempty"`
@@ -102,6 +103,7 @@ type ftpProbeOutcome struct {
 	tlsCipherSuite   string
 	certSubjectCN    string
 	certIssuer       string
+	certSerial       string
 	certNotAfter     time.Time
 	certIsSelfSigned bool
 	systemHint       string
@@ -861,6 +863,9 @@ func applyFTPOutcome(result *FTPServiceInfo, outcome ftpProbeOutcome) {
 	if strings.TrimSpace(outcome.certIssuer) != "" {
 		result.CertIssuer = strings.TrimSpace(outcome.certIssuer)
 	}
+	if strings.TrimSpace(outcome.certSerial) != "" {
+		result.CertSerial = strings.TrimSpace(outcome.certSerial)
+	}
 	if !outcome.certNotAfter.IsZero() {
 		result.CertNotAfter = outcome.certNotAfter
 	}
@@ -908,6 +913,7 @@ func buildFTPOutcome(protocol string, greeting ftpResponse, feat ftpResponse, sy
 	outcome.tlsCipherSuite = strings.TrimSpace(tlsObs.CipherSuite)
 	outcome.certSubjectCN = strings.TrimSpace(tlsObs.PeerCommonName)
 	outcome.certIssuer = strings.TrimSpace(tlsObs.Issuer)
+	outcome.certSerial = tlsObs.CertSerial
 	outcome.certNotAfter = tlsObs.NotAfter
 	outcome.certIsSelfSigned = tlsObs.IsSelfSigned
 	outcome.weakTLSProtocol = isWeakTLSVersion(outcome.tlsVersion)

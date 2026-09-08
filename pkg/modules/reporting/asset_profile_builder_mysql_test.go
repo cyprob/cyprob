@@ -42,6 +42,7 @@ func TestAssetProfileBuilder_Execute_EmitMySQLDetails(t *testing.T) {
 				TLSVersion:      "TLS1.3",
 				TLSCipherSuite:  "TLS_AES_128_GCM_SHA256",
 				CertSubjectCN:   "mysql.example.test",
+				CertSerial:      "0B:50:1E:00:7F",
 				CertIssuer:      "CN=mysql.example.test",
 				CertNotAfter:    notAfter,
 				ProductHint:     "MySQL",
@@ -104,6 +105,9 @@ func TestAssetProfileBuilder_Execute_EmitMySQLDetails(t *testing.T) {
 		}
 		if port.Service.ParsedAttributes["mysql_cert_subject_cn"] != "mysql.example.test" {
 			t.Fatalf("expected mysql_cert_subject_cn, got %v", port.Service.ParsedAttributes["mysql_cert_subject_cn"])
+		}
+		if port.Service.ParsedAttributes["mysql_cert_serial"] != "0B:50:1E:00:7F" {
+			t.Fatalf("expected mysql_cert_serial, got %v", port.Service.ParsedAttributes["mysql_cert_serial"])
 		}
 	case <-time.After(time.Second):
 		t.Fatal("no output emitted")

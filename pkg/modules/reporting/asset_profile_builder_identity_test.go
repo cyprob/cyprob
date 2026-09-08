@@ -126,6 +126,7 @@ func TestAssetProfileBuilder_MapsRDPDetailsToParsedAttributes(t *testing.T) {
 				RestrictedAdminCapable: &restrictedAdmin,
 				RestrictedAuthCapable:  &restrictedAuth,
 				CertSubjectCN:          "Prod2022",
+				CertSerial:             "0B:50:1E:00:7F",
 				CertIssuer:             "CN=Prod2022",
 				CertDNSNames:           []string{"Prod2022"},
 				CertNotAfter:           notAfter,
@@ -188,6 +189,9 @@ func TestAssetProfileBuilder_MapsRDPDetailsToParsedAttributes(t *testing.T) {
 	}
 	if attrs["rdp_cert_subject_cn"] != "Prod2022" {
 		t.Fatalf("expected rdp_cert_subject_cn=Prod2022, got %v", attrs["rdp_cert_subject_cn"])
+	}
+	if attrs["rdp_cert_serial"] != "0B:50:1E:00:7F" {
+		t.Fatalf("expected rdp_cert_serial, got %v", attrs["rdp_cert_serial"])
 	}
 	if attrs["rdp_cert_issuer"] != "CN=Prod2022" {
 		t.Fatalf("expected rdp_cert_issuer=CN=Prod2022, got %v", attrs["rdp_cert_issuer"])
@@ -311,6 +315,7 @@ func TestAssetProfileBuilder_MapsSMTPNativeDetailsToParsedAttributes(t *testing.
 				TLSVersion:          "TLS1.2",
 				TLSCipherSuite:      "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384",
 				CertSubjectCN:       "mail.example.test",
+				CertSerial:          "0B:50:1E:00:7F",
 				CertIssuer:          "CN=example-ca",
 				CertNotAfter:        notAfter,
 				CertIsSelfSigned:    false,
@@ -368,6 +373,9 @@ func TestAssetProfileBuilder_MapsSMTPNativeDetailsToParsedAttributes(t *testing.
 	}
 	if service.ParsedAttributes["smtp_cert_subject_cn"] != "mail.example.test" {
 		t.Fatalf("expected smtp_cert_subject_cn, got %v", service.ParsedAttributes["smtp_cert_subject_cn"])
+	}
+	if service.ParsedAttributes["smtp_cert_serial"] != "0B:50:1E:00:7F" {
+		t.Fatalf("expected smtp_cert_serial, got %v", service.ParsedAttributes["smtp_cert_serial"])
 	}
 }
 
