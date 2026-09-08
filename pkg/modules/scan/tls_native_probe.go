@@ -127,7 +127,24 @@ type tlsProbeStrategy struct {
 	// which dials on wider terms than anything that carries traffic. See
 	// tls_observation_channel.go.
 	observation bool
+	// offerALPN advertises the application protocols below. It is per-strategy
+	// rather than global because offering ALPN can cost a handshake: a server
+	// that configures ALPN and shares none of our protocols answers alert 120
+	// instead of completing (measured, cyprob#306). The observation channel
+	// therefore never offers it -- that channel exists to read services nothing
+	// else can, and a question that loses the answer has no place in it.
+	offerALPN bool
 }
+
+// tlsProbeALPNProtocols is what the probe advertises. Deliberately the pair
+// that answers one question -- is this TLS carrying HTTP -- rather than a long
+// list, because every entry is a protocol we claim to speak and then do not.
+//
+// Note which way the risk runs, since it is the opposite of what it looks like:
+// a LONGER list is *safer* against alert 120, not riskier, because the alert
+// comes from having no protocol in common. Widening this is therefore a
+// question about what we are willing to claim, not about losing handshakes.
+var tlsProbeALPNProtocols = []string{"h2", "http/1.1"}
 
 type tlsProbeOutcome struct {
 	tlsVersion       string
@@ -404,11 +421,11 @@ func buildTLSProbeStrategies(hostname string) []tlsProbeStrategy {
 	hostname = strings.TrimSpace(hostname)
 	strategies := make([]tlsProbeStrategy, 0, 3)
 	if hostname != "" && net.ParseIP(hostname) == nil {
-		strategies = append(strategies, tlsProbeStrategy{name: "tls-sni", useSNI: true})
+		strategies = append(strategies, tlsProbeStrategy{name: "tls-sni", useSNI: true, offerALPN: true})
 	}
 	strategies = append(strategies,
-		tlsProbeStrategy{name: "tls-no-sni"},
-		tlsProbeStrategy{name: "tls12-ceiling", forceTLS12: true},
+		tlsProbeStrategy{name: "tls-no-sni", offerALPN: true},
+		tlsProbeStrategy{name: "tls12-ceiling", forceTLS12: true, offerALPN: true},
 	)
 	return strategies
 }
@@ -457,7 +474,8 @@ func probeTLSDetails(ctx context.Context, target, hostname string, port int, opt
 		Strs("strategies", tlsStrategyNames(strategies)).
 		Msg("Prepared TLS probe strategies")
 
-	runStrategy := func(strategy tlsProbeStrategy, retry int) {
+	var runStrategy func(strategy tlsProbeStrategy, retry int)
+	runStrategy = func(strategy tlsProbeStrategy, retry int) {
 		log.Debug().
 			Str("module", tlsNativeProbeModuleName).
 			Str("target", target).
@@ -496,6 +514,18 @@ func probeTLSDetails(ctx context.Context, target, hostname string, port int, opt
 				attempt.CertParseError = certParseReason(err)
 			}
 			result.Attempts = append(result.Attempts, attempt)
+			// Asking cost the answer, so un-ask it. A server that configures
+			// ALPN and shares none of our protocols answers alert 120 rather
+			// than completing, and without this the probe would lose a service
+			// it reads today purely because we started offering ALPN. One extra
+			// dial, only for that population, and both attempts stay in the
+			// record so the cost is visible rather than hidden inside one.
+			if strategy.offerALPN && isALPNRefusal(err) {
+				retryStrategy := strategy
+				retryStrategy.offerALPN = false
+				retryStrategy.name = strategy.name + "-no-alpn"
+				runStrategy(retryStrategy, retry)
+			}
 			return
 		}
 
@@ -618,6 +648,9 @@ func probeSingleTLSStrategy(
 	}
 	if strategy.observation {
 		applyTLSObservationConfig(tlsConfig)
+	}
+	if strategy.offerALPN {
+		tlsConfig.NextProtos = append([]string(nil), tlsProbeALPNProtocols...)
 	}
 
 	tlsDialer := &tls.Dialer{
@@ -770,6 +803,23 @@ func firstCertParseReason(attempts []TLSProbeAttempt) string {
 		}
 	}
 	return ""
+}
+
+// isALPNRefusal reports the one handshake failure that this probe causes by
+// asking: RFC 7301 lets a server that shares no application protocol with the
+// client abort with no_application_protocol rather than negotiate nothing.
+// Measured against a real listener: a server configured with an unrelated
+// protocol completes the handshake for a client that offers none, and refuses
+// the same client the moment it offers h2 and http/1.1 (cyprob#306).
+//
+// Matched on the message rather than on the alert byte because crypto/tls
+// surfaces it as a *tls.AlertError only on some paths and as a plain
+// "remote error: tls: no application protocol" here.
+func isALPNRefusal(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "no application protocol")
 }
 
 func classifyTLSProbeError(err error) string {
