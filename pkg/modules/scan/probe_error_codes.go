@@ -52,6 +52,7 @@ const (
 	ProbeCodeMetadataFailed         ProbeCode = "metadata_failed"
 	ProbeCodeMgmtFailed             ProbeCode = "mgmt_failed"
 	ProbeCodeNoBanner               ProbeCode = "no_banner"
+	ProbeCodeNotWINRM               ProbeCode = "not_winrm"
 	ProbeCodeNoResponse             ProbeCode = "no_response"
 	ProbeCodeNoRoute                ProbeCode = "no_route"
 	ProbeCodeNotTLS                 ProbeCode = "not_tls"
@@ -112,6 +113,7 @@ var probeCodeRegistry = []ProbeCode{
 	ProbeCodeMetadataFailed,
 	ProbeCodeMgmtFailed,
 	ProbeCodeNoBanner,
+	ProbeCodeNotWINRM,
 	ProbeCodeNoResponse,
 	ProbeCodeNoRoute,
 	ProbeCodeNotTLS,

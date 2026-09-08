@@ -196,6 +196,46 @@ func TestProbeWINRMDetails_Weak401IsFailure(t *testing.T) {
 	require.Equal(t, "http_response_invalid", result.Attempts[0].Error)
 }
 
+// cyprob#371. The probe already worked out that this is not WinRM --
+// isConfirmedWINRM401 tests four things and a foreign Server header fails the
+// second -- and then reported it as a reading failure. A Lenovo IMM on 5985 is
+// the measured instance: 2 of 117 records on 10.20.29.252.
+//
+// The pairing with TestProbeWINRMDetails_Weak401IsFailure above is the point.
+// That one is a Microsoft-HTTPAPI host whose 401 could not be confirmed, and it
+// still answers http_response_invalid; this one is a different service
+// answering, and only it is not_winrm. Losing that distinction would be a worse
+// claim than the one being fixed.
+func TestProbeWINRMDetails_ADifferentServiceAnsweringIsNotWinRM(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Server", "Lenovo IMM2 Web Server")
+		w.Header().Add("WWW-Authenticate", "Basic realm=\"IMM\"")
+		w.Header().Set("Content-Type", "text/html")
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = io.WriteString(w, "<html><body>Lenovo Integrated Management Module</body></html>")
+	}))
+	defer server.Close()
+
+	host, port := httpTestTarget(t, server.URL)
+	result := probeWINRMDetails(context.Background(), host, "imm.test", port, WINRMProbeOptions{
+		TotalTimeout:   2500 * time.Millisecond,
+		ConnectTimeout: 800 * time.Millisecond,
+		IOTimeout:      800 * time.Millisecond,
+	})
+
+	require.Equal(t, "not_winrm", result.ProbeError,
+		"the probe knew this was not WinRM and reported a reading failure instead")
+	require.Len(t, result.Attempts, 1)
+	require.Equal(t, "not_winrm", result.Attempts[0].Error)
+	require.False(t, result.WINRMProbe)
+	require.False(t, result.IdentifySupported)
+
+	// The evidence for the claim is on the record, which is what makes the code
+	// checkable rather than a verdict the reader has to take on trust.
+	require.Equal(t, "Lenovo IMM2 Web Server", result.ServerHeader)
+	require.Equal(t, http.StatusUnauthorized, result.HTTPStatusCode)
+}
+
 func TestProbeWINRMDetails_InvalidHTTPResponse(t *testing.T) {
 	ln := mustListenTCP(t, "127.0.0.1:0")
 	done := make(chan struct{})

@@ -220,6 +220,13 @@ var probeCodeOutcomes = map[ProbeCode]outcomeEntry{
 		outcome: OutcomeRejected,
 		note:    "same structure as lookup_failed: only after validateRPCBindAck passed and the anonymous bind was recorded",
 	},
+	ProbeCodeNotWINRM: {
+		outcome: OutcomeOK,
+		note: "the probe asked and got a complete answer: an HTTP service is here and it is not WinRM. ok, not unreadable -- " +
+			"nothing refused to parse, and the shape is enum_not_supported's: the step had no subject left. " +
+			"Emitted only on positive evidence of another service (a Server header that is not Microsoft-HTTPAPI), " +
+			"never on the mere absence of a WinRM signal (cyprob#371)",
+	},
 	ProbeCodeNoBanner: {
 		reason: noClaimStraddle,
 		note:   "returned on io.EOF while hunting an SSH- line and after 20 complete non-SSH lines; the emit site holds the line and throws it away",

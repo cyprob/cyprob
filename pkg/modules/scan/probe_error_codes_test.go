@@ -242,7 +242,7 @@ func probeCodeIdent(code ProbeCode) string {
 	initialisms := map[string]string{
 		"tls": "TLS", "smb2": "SMB2", "http": "HTTP", "dns": "DNS",
 		"ntlm": "NTLM", "rpc": "RPC", "eof": "EOF", "kex": "KEX",
-		"smb": "SMB", "netbios": "NetBIOS",
+		"smb": "SMB", "netbios": "NetBIOS", "winrm": "WINRM",
 	}
 	name := "ProbeCode"
 	for _, part := range strings.Split(string(code), "_") {
