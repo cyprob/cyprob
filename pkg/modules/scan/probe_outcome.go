@@ -202,6 +202,10 @@ var probeCodeOutcomes = map[ProbeCode]outcomeEntry{
 		outcome: OutcomeUnreadable,
 		note:    "returned only at records==1: five bytes arrived and the header is SSLv2, an unknown content type or an impossible version",
 	},
+	ProbeCodeNetBIOSSessionRejected: {
+		outcome: OutcomeRejected,
+		note:    "a NetBIOS NEGATIVE SESSION RESPONSE, 0x83: the far end read our called name and refused it. Only 0x83 -- any other first byte stays in probe_failed, because a retarget is not a refusal and garbage is not a verdict",
+	},
 	ProbeCodeNTLMChallengeNotFound: {
 		outcome: OutcomeUnreadable,
 		note:    "a bytes.Index over the raw frame; the call sites interpolate an NTSTATUS but branch on nothing, and smb2StatusCode returns 0 for any short frame",
@@ -277,6 +281,10 @@ var probeCodeOutcomes = map[ProbeCode]outcomeEntry{
 	ProbeCodeUnknownResponse: {
 		outcome: OutcomeUnreadable,
 		note:    ">=7 bytes read and the first two are not a TPKT frame header",
+	},
+	ProbeCodeUnknownSMBSignature: {
+		outcome: OutcomeUnreadable,
+		note:    "a frame of at least 76 bytes arrived and its four-byte signature is neither \\xFFSMB nor \\xFESMB; our parser refusing bytes we received",
 	},
 	ProbeCodeWriteFailed: {
 		outcome: OutcomeUnreachable,
