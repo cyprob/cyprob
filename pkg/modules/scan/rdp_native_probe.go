@@ -683,11 +683,11 @@ func pickTopRDPProbeError(codes []string) string {
 	}
 
 	priority := map[string]int{
-		"timeout":          5,
-		"refused":          4,
-		"short_response":   3,
-		"unknown_response": 2,
-		"probe_failed":     1,
+		string(ProbeCodeTimeout):         5,
+		string(ProbeCodeRefused):         4,
+		string(ProbeCodeShortResponse):   3,
+		string(ProbeCodeUnknownResponse): 2,
+		string(ProbeCodeProbeFailed):     1,
 	}
 
 	best := ""

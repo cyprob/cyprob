@@ -39,10 +39,12 @@ const (
 	ProbeCodeDecodeError            ProbeCode = "decode_error"
 	ProbeCodeEnumNotSupported       ProbeCode = "enum_not_supported"
 	ProbeCodeEOFBeforeRecord        ProbeCode = "eof_before_record"
+	ProbeCodeFeatFailed             ProbeCode = "feat_failed"
 	ProbeCodeEOFMidRecord           ProbeCode = "eof_mid_record"
 	ProbeCodeHandshakeFailed        ProbeCode = "handshake_failed"
 	ProbeCodeHTTPRequestFailed      ProbeCode = "http_request_failed"
 	ProbeCodeHTTPResponseInvalid    ProbeCode = "http_response_invalid"
+	ProbeCodeIdentifyFailed         ProbeCode = "identify_failed"
 	ProbeCodeInvalidSMB2Dialect     ProbeCode = "invalid_smb2_dialect"
 	ProbeCodeKEXParseFailed         ProbeCode = "kex_parse_failed"
 	ProbeCodeLookupFailed           ProbeCode = "lookup_failed"
@@ -67,6 +69,7 @@ const (
 	ProbeCodeShortResponse          ProbeCode = "short_response"
 	ProbeCodeSMB2NegotiateFailed    ProbeCode = "smb2_negotiate_failed"
 	ProbeCodeStarttlsFailed         ProbeCode = "starttls_failed"
+	ProbeCodeSystFailed             ProbeCode = "syst_failed"
 	ProbeCodeTimeout                ProbeCode = "timeout"
 	ProbeCodeTLSError               ProbeCode = "tls_error"
 	ProbeCodeTLSFailed              ProbeCode = "tls_failed"
@@ -96,10 +99,12 @@ var probeCodeRegistry = []ProbeCode{
 	ProbeCodeDecodeError,
 	ProbeCodeEnumNotSupported,
 	ProbeCodeEOFBeforeRecord,
+	ProbeCodeFeatFailed,
 	ProbeCodeEOFMidRecord,
 	ProbeCodeHandshakeFailed,
 	ProbeCodeHTTPRequestFailed,
 	ProbeCodeHTTPResponseInvalid,
+	ProbeCodeIdentifyFailed,
 	ProbeCodeInvalidSMB2Dialect,
 	ProbeCodeKEXParseFailed,
 	ProbeCodeLookupFailed,
@@ -124,6 +129,7 @@ var probeCodeRegistry = []ProbeCode{
 	ProbeCodeShortResponse,
 	ProbeCodeSMB2NegotiateFailed,
 	ProbeCodeStarttlsFailed,
+	ProbeCodeSystFailed,
 	ProbeCodeTimeout,
 	ProbeCodeTLSError,
 	ProbeCodeTLSFailed,

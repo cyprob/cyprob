@@ -435,7 +435,7 @@ func classifyRedisError(err error) ProbeCode {
 }
 
 func pickTopRedisError(codes []string) string {
-	priority := map[string]int{"timeout": 5, "connect_failed": 4, "protocol_mismatch": 2, "probe_failed": 1}
+	priority := map[string]int{string(ProbeCodeTimeout): 5, string(ProbeCodeConnectFailed): 4, string(ProbeCodeProtocolMismatch): 2, string(ProbeCodeProbeFailed): 1}
 	best, bestP := "", -1
 	for _, code := range codes {
 		if p := priority[code]; p > bestP {

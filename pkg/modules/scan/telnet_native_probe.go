@@ -644,7 +644,7 @@ func classifyTelnetConnectError(err error) ProbeCode {
 
 func isRetryableTelnetError(code string) bool {
 	switch code {
-	case "timeout", "connect_failed", "probe_failed":
+	case string(ProbeCodeTimeout), string(ProbeCodeConnectFailed), string(ProbeCodeProbeFailed):
 		return true
 	default:
 		return false

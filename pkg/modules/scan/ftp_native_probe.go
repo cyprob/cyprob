@@ -598,9 +598,9 @@ func probeFTPPlainAndExplicitTLS(ctx context.Context, target string, hostname st
 		featStart := time.Now()
 		feat, featErr := runFTPCommand(ctx, client, opts, "FEAT\r\n")
 		if featErr != nil || feat.Code != 211 {
-			code := "feat_failed"
+			code := string(ProbeCodeFeatFailed)
 			if featErr != nil && isFTPTimeoutError(featErr) {
-				code = "timeout"
+				code = string(ProbeCodeTimeout)
 			}
 			result.Attempts = append(result.Attempts, FTPProbeAttempt{
 				Strategy:   "ftp-feat",
@@ -623,9 +623,9 @@ func probeFTPPlainAndExplicitTLS(ctx context.Context, target string, hostname st
 		systStart := time.Now()
 		syst, systErr := runFTPCommand(ctx, client, opts, "SYST\r\n")
 		if systErr != nil || syst.Code != 215 {
-			code := "syst_failed"
+			code := string(ProbeCodeSystFailed)
 			if systErr != nil && isFTPTimeoutError(systErr) {
-				code = "timeout"
+				code = string(ProbeCodeTimeout)
 			}
 			result.Attempts = append(result.Attempts, FTPProbeAttempt{
 				Strategy:   "ftp-syst",
@@ -651,7 +651,7 @@ func probeFTPPlainAndExplicitTLS(ctx context.Context, target string, hostname st
 			if authTLSErr != nil || (authTLSResp.Code != 234 && authTLSResp.Code != 334) {
 				code := "auth_tls_failed"
 				if authTLSErr != nil && isFTPTimeoutError(authTLSErr) {
-					code = "timeout"
+					code = string(ProbeCodeTimeout)
 				}
 				result.Attempts = append(result.Attempts, FTPProbeAttempt{
 					Strategy:   "ftp-auth-tls",
@@ -776,7 +776,7 @@ func probeFTPSImplicitTLS(ctx context.Context, target string, hostname string, p
 			})
 			applyFTPOutcome(&result, buildFTPOutcome(result.FTPProtocol, ftpResponse{}, feat, ftpResponse{}, nil))
 		} else {
-			code := "feat_failed"
+			code := string(ProbeCodeFeatFailed)
 			if featErr != nil {
 				code = string(classifyFTPBannerError(featErr))
 			}
@@ -801,7 +801,7 @@ func probeFTPSImplicitTLS(ctx context.Context, target string, hostname string, p
 			})
 			applyFTPOutcome(&result, buildFTPOutcome(result.FTPProtocol, ftpResponse{}, ftpResponse{}, syst, nil))
 		} else {
-			code := "syst_failed"
+			code := string(ProbeCodeSystFailed)
 			if systErr != nil {
 				code = string(classifyFTPBannerError(systErr))
 			}
@@ -1289,7 +1289,7 @@ func pickTopFTPPartialError(codes []string) string {
 	filtered := make([]string, 0, len(codes))
 	for _, code := range codes {
 		switch strings.TrimSpace(code) {
-		case "timeout", "auth_tls_failed", "tls_handshake_failed", "connect_failed", "banner_read_failed", "protocol_mismatch":
+		case string(ProbeCodeTimeout), string(ProbeCodeAuthTLSFailed), string(ProbeCodeTLSHandshakeFailed), string(ProbeCodeConnectFailed), string(ProbeCodeBannerReadFailed), string(ProbeCodeProtocolMismatch):
 			filtered = append(filtered, code)
 		}
 	}
@@ -1301,23 +1301,23 @@ func pickTopFTPPartialError(codes []string) string {
 
 func ftpProbeErrorPriority(code string) int {
 	switch code {
-	case "timeout":
+	case string(ProbeCodeTimeout):
 		return 9
-	case "connect_failed":
+	case string(ProbeCodeConnectFailed):
 		return 8
-	case "tls_handshake_failed":
+	case string(ProbeCodeTLSHandshakeFailed):
 		return 7
-	case "auth_tls_failed":
+	case string(ProbeCodeAuthTLSFailed):
 		return 6
-	case "banner_read_failed":
+	case string(ProbeCodeBannerReadFailed):
 		return 5
-	case "protocol_mismatch":
+	case string(ProbeCodeProtocolMismatch):
 		return 4
-	case "feat_failed":
+	case string(ProbeCodeFeatFailed):
 		return 3
-	case "syst_failed":
+	case string(ProbeCodeSystFailed):
 		return 2
-	case "probe_failed":
+	case string(ProbeCodeProbeFailed):
 		return 1
 	default:
 		return 0

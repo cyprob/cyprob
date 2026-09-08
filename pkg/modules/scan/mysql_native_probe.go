@@ -917,7 +917,7 @@ func pickTopMySQLPartialError(codes []string) string {
 	filtered := make([]string, 0, len(codes))
 	for _, code := range codes {
 		switch strings.TrimSpace(code) {
-		case "timeout", "tls_handshake_failed", "connect_failed", "protocol_mismatch", "probe_failed":
+		case string(ProbeCodeTimeout), string(ProbeCodeTLSHandshakeFailed), string(ProbeCodeConnectFailed), string(ProbeCodeProtocolMismatch), string(ProbeCodeProbeFailed):
 			filtered = append(filtered, code)
 		}
 	}
@@ -929,15 +929,15 @@ func pickTopMySQLPartialError(codes []string) string {
 
 func mysqlProbeErrorPriority(code string) int {
 	switch code {
-	case "timeout":
+	case string(ProbeCodeTimeout):
 		return 5
-	case "connect_failed":
+	case string(ProbeCodeConnectFailed):
 		return 4
-	case "tls_handshake_failed":
+	case string(ProbeCodeTLSHandshakeFailed):
 		return 3
-	case "protocol_mismatch":
+	case string(ProbeCodeProtocolMismatch):
 		return 2
-	case "probe_failed":
+	case string(ProbeCodeProbeFailed):
 		return 1
 	default:
 		return 0

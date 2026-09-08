@@ -41,13 +41,15 @@ var probePriorityTables = map[string][]string{
 // does not register, with why. Each is a code path living outside the registry:
 // the value is produced, reaches the table, and can win -- it simply has no
 // constant.
-var probePriorityTablesRankingUnregisteredValues = map[string]string{
-	"ftpProbeErrorPriority": "ranks feat_failed and syst_failed, produced as bare literals at " +
-		"ftp_native_probe.go:601,626,779,804 and appended to attemptErrors. Registering them or " +
-		"routing them through a classifier is a vocabulary decision, not a rename - cyprob#339",
-	"winrmProbeErrorPriority": "ranks identify_failed, produced as a bare literal in probeWINRMDetails. " +
-		"Same decision as the two FTP values - cyprob#339",
-}
+// probePriorityTablesRankingUnregisteredValues are tables that rank a value CE
+// does not register, with why.
+//
+// Empty since cyprob#339: ftpProbeErrorPriority and winrmProbeErrorPriority were
+// here for feat_failed, syst_failed and identify_failed, and those are registry
+// codes now. The map stays because the check it feeds is the one that would
+// notice the next such value, and an empty exemption list is the honest state of
+// a rule nothing currently breaks.
+var probePriorityTablesRankingUnregisteredValues = map[string]string{}
 
 func TestProbePriority_EveryProducibleCodeIsRanked(t *testing.T) {
 	t.Parallel()
@@ -90,6 +92,29 @@ func TestProbePriority_EveryProducibleCodeIsRanked(t *testing.T) {
 			t.Errorf("%s does not rank codes its classifiers can produce: %v.\n"+
 				"An unranked code loses to every ranked one, so the answer changes and nothing fails.",
 				table, missing)
+		}
+
+		// The other direction, and the one the first version of this test
+		// missed. A code removed from a classifier but left in the table is
+		// invisible to the check above: the produced set shrinks, nothing is
+		// reported missing, and the table quietly ranks something that can no
+		// longer arrive. That is the same shape as every other check tonight
+		// that went quiet when its subject disappeared.
+		//
+		// Stale entries are not harmful on their own -- a rank for a code that
+		// never arrives never fires -- but they are the record of what this
+		// protocol can say, and a wrong record is read as a right one.
+		stale := make([]string, 0)
+		for code := range ranked {
+			if !produced[code] {
+				stale = append(stale, code)
+			}
+		}
+		sort.Strings(stale)
+		if len(stale) > 0 {
+			t.Errorf("%s ranks codes its classifiers can no longer produce: %v.\n"+
+				"Either a classifier stopped emitting one, or this pairing names too few classifiers.",
+				table, stale)
 		}
 	}
 

@@ -861,17 +861,17 @@ func pickTopSSHProbeError(codes []string) string {
 
 func sshProbeErrorPriority(code string) int {
 	switch code {
-	case "timeout":
+	case string(ProbeCodeTimeout):
 		return 6
-	case "refused":
+	case string(ProbeCodeRefused):
 		return 5
-	case "no_banner":
+	case string(ProbeCodeNoBanner):
 		return 4
-	case "protocol_error":
+	case string(ProbeCodeProtocolError):
 		return 3
-	case "kex_parse_failed":
+	case string(ProbeCodeKEXParseFailed):
 		return 2
-	case "probe_failed":
+	case string(ProbeCodeProbeFailed):
 		return 1
 	default:
 		return 0

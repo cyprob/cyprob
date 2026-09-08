@@ -681,13 +681,13 @@ func classifyDNSParseError(packet []byte, err error) ProbeCode {
 
 func pickTopDNSProbeError(errorsSeen []string) string {
 	order := []string{
-		"timeout",
-		"connect_failed",
-		"no_response",
-		"decode_error",
-		"protocol_mismatch",
-		"query_failed",
-		"probe_failed",
+		string(ProbeCodeTimeout),
+		string(ProbeCodeConnectFailed),
+		string(ProbeCodeNoResponse),
+		string(ProbeCodeDecodeError),
+		string(ProbeCodeProtocolMismatch),
+		string(ProbeCodeQueryFailed),
+		string(ProbeCodeProbeFailed),
 	}
 	for _, candidate := range order {
 		for _, errValue := range errorsSeen {

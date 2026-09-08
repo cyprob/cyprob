@@ -767,7 +767,7 @@ func pickTopSNMPProbeError(errorsSeen []string) string {
 	if len(errorsSeen) == 0 {
 		return ""
 	}
-	for _, candidate := range []string{"decode_error", "timeout", "no_response", "probe_failed"} {
+	for _, candidate := range []string{string(ProbeCodeDecodeError), string(ProbeCodeTimeout), string(ProbeCodeNoResponse), string(ProbeCodeProbeFailed)} {
 		if slices.Contains(errorsSeen, candidate) {
 			return candidate
 		}
