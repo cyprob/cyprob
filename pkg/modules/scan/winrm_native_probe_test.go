@@ -2,6 +2,7 @@ package scan
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -281,6 +282,87 @@ func assertWINRMIdentifyRequest(t *testing.T, r *http.Request, expectedHost stri
 	body, err := io.ReadAll(r.Body)
 	require.NoError(t, err)
 	require.Equal(t, winrmIdentifyEnvelope, strings.TrimSpace(string(body)))
+}
+
+// Both arms of the identify step, at the level of the classifier. They answer
+// the same code today, and this says so on purpose: the two arms describe
+// different facts and the vocabulary does not separate them yet.
+func TestClassifyWINRMIdentifyError_BothWaysToHaveNoIdentity(t *testing.T) {
+	require.Equal(t, string(ProbeCodeIdentifyFailed),
+		string(classifyWINRMIdentifyError(errors.New("XML syntax error on line 1"), false)),
+		"a body that is not well-formed XML")
+	require.Equal(t, string(ProbeCodeIdentifyFailed),
+		string(classifyWINRMIdentifyError(nil, false)),
+		"well-formed XML carrying no IdentifyResponse")
+
+	// The control. Without this the two lines above would pass just as well if
+	// the function returned identify_failed unconditionally, and the success
+	// arm -- the one that lets a real WinRM host through -- would be gone.
+	require.Empty(t, string(classifyWINRMIdentifyError(nil, true)),
+		"an IdentifyResponse was found and nothing failed")
+
+	// A parse error wins over a found element, because a parser that errored
+	// did not finish and what it reported finding is not trustworthy.
+	require.Equal(t, string(ProbeCodeIdentifyFailed),
+		string(classifyWINRMIdentifyError(errors.New("unexpected EOF"), true)))
+}
+
+// The same two arms driven end to end, which is what says the code moving into
+// a classifier changed nothing a caller can see: both still answer
+// identify_failed, in ProbeError and on the attempt, and both still stop the
+// probe.
+func TestProbeWINRMDetails_A200WithNoIdentityIsIdentifyFailed(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+	}{
+		{
+			name: "the body is not well-formed XML",
+			body: `<?xml version="1.0"?><s:Envelope><s:Body><wsmid:IdentifyResponse`,
+		},
+		{
+			// A 200 that parses cleanly and is simply not an identify
+			// response. The parser refused nothing here.
+			name: "well-formed XML with no IdentifyResponse",
+			body: `<?xml version="1.0" encoding="UTF-8"?>
+<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope">
+  <s:Body><s:Fault><s:Reason><s:Text>Access is denied.</s:Text></s:Reason></s:Fault></s:Body>
+</s:Envelope>`,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/soap+xml; charset=UTF-8")
+				_, _ = io.WriteString(w, tc.body)
+			}))
+			defer server.Close()
+
+			host, port := httpTestTarget(t, server.URL)
+			result := probeWINRMDetails(context.Background(), host, "winrm.test", port, WINRMProbeOptions{
+				TotalTimeout:   2500 * time.Millisecond,
+				ConnectTimeout: 800 * time.Millisecond,
+				IOTimeout:      800 * time.Millisecond,
+				// One retry is allowed on purpose. With Retries at 0 the loop
+				// runs once whatever the branch does, and the attempt count
+				// below could not tell "stopped" from "looped again".
+				Retries: 1,
+			})
+
+			// WINRMProbe stays false: it is set only on the paths that
+			// confirm WinRM, and this is not one of them. Asserted rather
+			// than skipped, because it is the difference between "we probed
+			// and it is not WinRM" and "we never probed".
+			require.False(t, result.WINRMProbe)
+			require.Equal(t, http.StatusOK, result.HTTPStatusCode)
+			require.False(t, result.IdentifySupported)
+			require.Equal(t, "identify_failed", result.ProbeError)
+			require.Len(t, result.Attempts, 1, "the probe should stop rather than retry a 200 it cannot read")
+			require.False(t, result.Attempts[0].Success)
+			require.Equal(t, "identify_failed", result.Attempts[0].Error)
+		})
+	}
 }
 
 func TestClassifyWINRMProbeError_TLSHandshake(t *testing.T) {

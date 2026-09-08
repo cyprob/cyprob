@@ -338,34 +338,19 @@ func probeWINRMDetails(ctx context.Context, target string, hostname string, port
 		switch {
 		case httpResult.statusCode == http.StatusOK:
 			protocolVersion, productVendor, productVersion, ok, parseErr := parseWINRMIdentifyResponse(httpResult.body)
-			if parseErr != nil {
-				errorCodes = append(errorCodes, string(ProbeCodeIdentifyFailed))
+			if code := classifyWINRMIdentifyError(parseErr, ok); code != "" {
+				errorCodes = append(errorCodes, string(code))
 				attempt := WINRMProbeAttempt{
 					Strategy:   "winrm-identify",
 					Transport:  result.WINRMTransport,
 					Success:    false,
 					DurationMS: httpResult.duration.Milliseconds(),
 					StatusCode: httpResult.statusCode,
-					Error:      string(ProbeCodeIdentifyFailed),
+					Error:      string(code),
 				}
 				applyWINRMTLSObservation(&result, &attempt, httpResult.tlsObs)
 				result.Attempts = append(result.Attempts, attempt)
-				result.ProbeError = string(ProbeCodeIdentifyFailed)
-				return result
-			}
-			if !ok {
-				errorCodes = append(errorCodes, string(ProbeCodeIdentifyFailed))
-				attempt := WINRMProbeAttempt{
-					Strategy:   "winrm-identify",
-					Transport:  result.WINRMTransport,
-					Success:    false,
-					DurationMS: httpResult.duration.Milliseconds(),
-					StatusCode: httpResult.statusCode,
-					Error:      string(ProbeCodeIdentifyFailed),
-				}
-				applyWINRMTLSObservation(&result, &attempt, httpResult.tlsObs)
-				result.Attempts = append(result.Attempts, attempt)
-				result.ProbeError = string(ProbeCodeIdentifyFailed)
+				result.ProbeError = string(code)
 				return result
 			}
 
@@ -714,6 +699,35 @@ func classifyWINRMProbeError(err error) ProbeCode {
 	default:
 		return ProbeCodeHTTPRequestFailed
 	}
+}
+
+// The identify step has two ways to end with no identity, and one code for
+// both. cyprob#340 found identify_failed written straight into ProbeError at
+// three sites; this is where it comes from now, so it can be enumerated,
+// mapped and driven by a test like every other code.
+//
+// The two ways are not the same fact. parseErr != nil is a body that is not
+// well-formed XML: bytes arrived and our parser refused them, which is what
+// unreadable claims. foundIdentify == false is the other one -- the XML parsed
+// and carried no IdentifyResponse element, so the parser refused nothing and
+// what is missing is the WinRM identity rather than the readability. A 200 with
+// valid XML that is not WinRM lands there.
+//
+// Both already answered identify_failed at both sites, into the same three
+// fields, so nothing could tell them apart before this function and nothing
+// loses a distinction by moving here. Whether they deserve separate codes --
+// and whether well-formed XML that is not WinRM is really unreadable -- is a
+// question this does not answer and cyprob#360 did not ask.
+//
+// Returning the constant rather than taking it as a parameter is what lets
+// TestProbeCodes_EveryClassifierUsesTheRegistry resolve it against
+// probeCodeRegistry: it reads the identifier a classifier returns, and a
+// parameter resolves to nothing.
+func classifyWINRMIdentifyError(parseErr error, foundIdentify bool) ProbeCode {
+	if parseErr != nil || !foundIdentify {
+		return ProbeCodeIdentifyFailed
+	}
+	return ""
 }
 
 func pickTopWINRMProbeError(codes []string) string {
