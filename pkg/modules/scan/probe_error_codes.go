@@ -48,6 +48,7 @@ const (
 	ProbeCodeMetadataFailed         ProbeCode = "metadata_failed"
 	ProbeCodeMgmtFailed             ProbeCode = "mgmt_failed"
 	ProbeCodeNoBanner               ProbeCode = "no_banner"
+	ProbeCodeNoStrategyExecuted     ProbeCode = "no_strategy_executed"
 	ProbeCodeNoResponse             ProbeCode = "no_response"
 	ProbeCodeNoRoute                ProbeCode = "no_route"
 	ProbeCodeNotTLS                 ProbeCode = "not_tls"
@@ -105,6 +106,7 @@ var probeCodeRegistry = []ProbeCode{
 	ProbeCodeMetadataFailed,
 	ProbeCodeMgmtFailed,
 	ProbeCodeNoBanner,
+	ProbeCodeNoStrategyExecuted,
 	ProbeCodeNoResponse,
 	ProbeCodeNoRoute,
 	ProbeCodeNotTLS,
@@ -130,6 +132,37 @@ var probeCodeRegistry = []ProbeCode{
 	ProbeCodeUnknownResponse,
 	ProbeCodeUnknownSMBSignature,
 	ProbeCodeWriteFailed,
+}
+
+// producedOnlyByEE names the codes this package defines and does not emit.
+//
+// The registry is a vocabulary, and a vocabulary is defined in one place and
+// spoken in several. cyprob-ee runs probes of its own -- see cyprob-ee#480 --
+// and when one of them observes something no CE probe can observe, the word for
+// it still belongs here: whoever reads a stored reason has to find every value
+// in one list, or the list is not what it claims to be.
+//
+// The alternative reading, "the registry is what CE produces", was tried and
+// leads nowhere. Under it a code like this either gets a fake CE emitter to
+// satisfy the coverage test -- dead code written to please a test -- or stays
+// out of the registry, which makes the boundary gate reject a value that is
+// perfectly well understood and fires the unknown-code counter forever on a
+// known one. Both are symptoms of the definition being wrong.
+//
+// Each entry names its EE producer, because an exception nobody can check is a
+// note. Two tests read this map. CE's coverage test exempts these codes from
+// needing a CE classifier; EE's own test asserts each one really is produced
+// there. Neither proves the whole property alone -- CE proves its half, EE
+// proves the other, and this map is the shared input rather than either side's
+// private list.
+//
+// It stays small on purpose. A handful is a vocabulary with two speakers; a
+// long list is a second scanner that has drifted, and the answer to that is the
+// consolidation cyprob-ee#480 describes, not more entries here. Growth in this
+// map is the measurement that says to fold EE's probes into CE.
+var producedOnlyByEE = map[ProbeCode]string{
+	ProbeCodeNoStrategyExecuted: "cyprob-ee, internal/worker/scanner/smb_probe.go and smb_enum_probe.go: " +
+		"the branch where every SMB strategy was skipped, so there was no attempt to classify",
 }
 
 // probeCodeByValue is the registry keyed for lookup. It is built once because

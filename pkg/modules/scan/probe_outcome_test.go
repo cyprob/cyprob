@@ -302,18 +302,76 @@ func TestProbeOutcomes_EveryCodeIsPinnedThroughItsClassifier(t *testing.T) {
 		pinned[tc.want] = true
 	}
 
-	// Every code is reachable through some classifier, so this coverage claim is
-	// behavioral rather than a second copy of the registry: a code nothing here
-	// produces is a code whose bucket rests on nobody's measurement.
+	// Every code CE emits is reachable through one of its classifiers, so this
+	// coverage claim is behavioral rather than a second copy of the registry: a
+	// code nothing here produces is a code whose bucket rests on nobody's
+	// measurement.
+	//
+	// The exception is the shared half of the vocabulary. producedOnlyByEE names
+	// codes this package defines and does not emit, and no case here can drive
+	// one -- there is no CE classifier to drive. That half is proved on the EE
+	// side, by a test that walks this same map and asserts each code really is
+	// produced there. Neither test proves the property alone; together they do,
+	// and the map is the shared input rather than either side's private list.
 	missing := make([]string, 0)
 	for _, code := range probeCodeRegistry {
-		if !pinned[code] {
-			missing = append(missing, string(code))
+		if pinned[code] {
+			// A code that both a CE classifier produces and the map claims is
+			// EE-only. The exemption is then false, and it would hide a real
+			// coverage loss the day the CE arm changes.
+			if producer, exempt := producedOnlyByEE[code]; exempt {
+				t.Errorf("%q is listed in producedOnlyByEE (%s) and a CE classifier produces it here; "+
+					"an exemption from a check that would pass is an exemption that hides the next failure",
+					code, producer)
+			}
+			continue
 		}
+		if _, exempt := producedOnlyByEE[code]; exempt {
+			continue
+		}
+		missing = append(missing, string(code))
 	}
 	sort.Strings(missing)
 	if len(missing) > 0 {
 		t.Errorf("no case drives a classifier to produce: %v", missing)
 	}
-	t.Logf("%d codes pinned through %d cases", len(pinned), len(cases))
+	t.Logf("%d codes pinned through %d cases, %d defined here and produced by EE",
+		len(pinned), len(cases), len(producedOnlyByEE))
+}
+
+// producedOnlyByEE is vocabulary data rather than test plumbing -- it lives in
+// the registry file and is read by a test on each side. These are the checks
+// that keep it from becoming a place to put anything inconvenient.
+func TestProbeOutcomes_TheSharedHalfOfTheVocabularyIsDeclaredProperly(t *testing.T) {
+	t.Parallel()
+
+	registry := map[ProbeCode]bool{}
+	for _, code := range probeCodeRegistry {
+		registry[code] = true
+	}
+
+	for code, producer := range producedOnlyByEE {
+		if !registry[code] {
+			t.Errorf("producedOnlyByEE names %q, which is not a registered code; "+
+				"a word defined nowhere is not part of the vocabulary", code)
+		}
+		if strings.TrimSpace(producer) == "" {
+			t.Errorf("%q is listed with no producer named; an exemption nobody can check is a note", code)
+		}
+		if _, mapped := probeCodeOutcomes[code]; !mapped {
+			t.Errorf("%q is exempt from CE's coverage check and has no outcome entry; "+
+				"the exemption is about who emits it, not about whether anyone decided what it claims", code)
+		}
+	}
+
+	// The growth rule, enforced rather than only written down. A handful is a
+	// vocabulary with two speakers; a longer list is a second scanner that has
+	// drifted, and the answer to that is cyprob-ee#480's consolidation.
+	const enoughToMeanSomethingElse = 5
+	if len(producedOnlyByEE) > enoughToMeanSomethingElse {
+		t.Errorf("producedOnlyByEE holds %d codes. Past %d it stops being a shared vocabulary and "+
+			"starts being a second one: fold the EE probes into CE (cyprob-ee#480) rather than "+
+			"adding another entry here",
+			len(producedOnlyByEE), enoughToMeanSomethingElse)
+	}
 }
