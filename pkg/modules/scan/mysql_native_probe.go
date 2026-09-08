@@ -67,6 +67,7 @@ type MySQLServiceInfo struct {
 	TLSCipherSuite   string              `json:"tls_cipher_suite,omitempty"`
 	CertSubjectCN    string              `json:"cert_subject_cn,omitempty"`
 	CertIssuer       string              `json:"cert_issuer,omitempty"`
+	CertSerial       string              `json:"cert_serial,omitempty"`
 	CertNotAfter     time.Time           `json:"cert_not_after,omitzero"`
 	CertIsSelfSigned bool                `json:"cert_is_self_signed"`
 	ProductHint      string              `json:"product_hint,omitempty"`
@@ -545,6 +546,7 @@ func probeMySQLDetails(ctx context.Context, target string, hostname string, port
 				result.TLSCipherSuite = strings.TrimSpace(tlsObs.CipherSuite)
 				result.CertSubjectCN = strings.TrimSpace(tlsObs.PeerCommonName)
 				result.CertIssuer = strings.TrimSpace(tlsObs.Issuer)
+				result.CertSerial = tlsObs.CertSerial
 				result.CertNotAfter = tlsObs.NotAfter
 				result.CertIsSelfSigned = tlsObs.IsSelfSigned
 			}

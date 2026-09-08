@@ -348,6 +348,15 @@ func (m *FingerprintParserModule) emitTLSMetadata(tls *engine.TLSObservation, ta
 			Target:         target,
 		}
 	}
+	if tls.CertSerial != "" {
+		outputChan <- engine.ModuleOutput{
+			FromModuleName: m.meta.ID,
+			DataKey:        "tls.certificate.serial",
+			Data:           tls.CertSerial,
+			Timestamp:      timestamp,
+			Target:         target,
+		}
+	}
 	if tls.PeerCommonName != "" {
 		outputChan <- engine.ModuleOutput{
 			FromModuleName: m.meta.ID,

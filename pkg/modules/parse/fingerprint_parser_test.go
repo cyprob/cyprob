@@ -523,6 +523,7 @@ func TestFingerprintParserModule_TLSMetadataEmission(t *testing.T) {
 					PeerCommonName: "example.com",
 					PeerDNSNames:   []string{"example.com", "www.example.com"},
 					Issuer:         "CN=Let's Encrypt Authority X3",
+					CertSerial:     "0B:50:1E:00:7F",
 					NotBefore:      notBefore,
 					NotAfter:       notAfter,
 					IsExpired:      false,
@@ -577,6 +578,14 @@ func TestFingerprintParserModule_TLSMetadataEmission(t *testing.T) {
 		t.Error("Expected tls.certificate.issuer to be emitted")
 	} else if outputs["tls.certificate.issuer"][0].Data != "CN=Let's Encrypt Authority X3" {
 		t.Errorf("tls.certificate.issuer = %v, want CN=Let's Encrypt Authority X3", outputs["tls.certificate.issuer"][0].Data)
+	}
+
+	// cyprob#303: the serial is now on the observation, so it is emitted with
+	// the rest of the certificate keys rather than being the one that is not.
+	if len(outputs["tls.certificate.serial"]) == 0 {
+		t.Error("Expected tls.certificate.serial to be emitted")
+	} else if outputs["tls.certificate.serial"][0].Data != "0B:50:1E:00:7F" {
+		t.Errorf("tls.certificate.serial = %v, want 0B:50:1E:00:7F", outputs["tls.certificate.serial"][0].Data)
 	}
 
 	if len(outputs["tls.certificate.common_name"]) == 0 {
@@ -861,7 +870,8 @@ func TestFingerprintParserModule_NoTLSMetadata(t *testing.T) {
 	// Verify NO TLS keys are emitted
 	tlsKeys := []string{
 		"tls.version", "tls.cipher_suite", "tls.server_name",
-		"tls.certificate.issuer", "tls.certificate.common_name",
+		"tls.certificate.issuer", "tls.certificate.serial",
+		"tls.certificate.common_name",
 		"tls.certificate.dns_names", "tls.certificate.not_before",
 		"tls.certificate.not_after", "tls.certificate.is_expired",
 		"tls.certificate.is_self_signed",

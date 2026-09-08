@@ -74,6 +74,11 @@ func TestProbeRDPDetails_CollectsDeepMetadata(t *testing.T) {
 	if result.CertSubjectCN != "Prod2022" {
 		t.Fatalf("expected cert subject Prod2022, got %q", result.CertSubjectCN)
 	}
+	// cyprob#303: the same certificate carries a serial, and it used to be
+	// dropped on the way to the result.
+	if result.CertSerial != testCertSerialFormatted {
+		t.Fatalf("expected cert serial %s, got %q", testCertSerialFormatted, result.CertSerial)
+	}
 	if !result.CertIsSelfSigned {
 		t.Fatalf("expected self-signed cert")
 	}

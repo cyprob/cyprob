@@ -52,6 +52,16 @@ func mustNewHTTPServer(t *testing.T, handler http.HandlerFunc) *httptest.Server 
 	return srv
 }
 
+// testCertSerial is the serial every certificate minted by
+// mustSelfSignedTLSConfig carries, and it is deliberately distinctive: the
+// serial used to be 1, and an assertion on "01" would pass against almost any
+// accidental value, including a byte read from the wrong offset (cyprob#303).
+var testCertSerial = new(big.Int).SetBytes([]byte{0x5e, 0x71, 0xa1, 0x00, 0xca, 0xfe})
+
+// testCertSerialFormatted is what FormatCertificateSerial renders it as, and is
+// what every probe that reads a certificate must report.
+const testCertSerialFormatted = "5E:71:A1:00:CA:FE"
+
 func mustSelfSignedTLSConfig(t *testing.T, host string) *tls.Config {
 	t.Helper()
 
@@ -61,7 +71,7 @@ func mustSelfSignedTLSConfig(t *testing.T, host string) *tls.Config {
 	}
 
 	template := &x509.Certificate{
-		SerialNumber: big.NewInt(1),
+		SerialNumber: new(big.Int).Set(testCertSerial),
 		Subject: pkix.Name{
 			CommonName: host,
 		},

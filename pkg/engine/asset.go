@@ -38,16 +38,21 @@ type ProbeObservation struct {
 // TLSObservation captures TLS handshake metadata including certificate validity.
 // Phase 1.7: Added certificate expiry and self-signed detection for security assessment.
 type TLSObservation struct {
-	Version        string    `json:"version,omitempty" yaml:"version,omitempty"`
-	CipherSuite    string    `json:"cipher_suite,omitempty" yaml:"cipher_suite,omitempty"`
-	ServerName     string    `json:"server_name,omitempty" yaml:"server_name,omitempty"`
-	PeerCommonName string    `json:"peer_common_name,omitempty" yaml:"peer_common_name,omitempty"`
-	PeerDNSNames   []string  `json:"peer_dns_names,omitempty" yaml:"peer_dns_names,omitempty"`
-	Issuer         string    `json:"issuer,omitempty" yaml:"issuer,omitempty"`        // Phase 1.7: Certificate issuer DN
-	NotBefore      time.Time `json:"not_before,omitzero" yaml:"not_before,omitempty"` // Phase 1.7: Certificate validity start
-	NotAfter       time.Time `json:"not_after,omitzero" yaml:"not_after,omitempty"`   // Phase 1.7: Certificate validity end
-	IsExpired      bool      `json:"is_expired" yaml:"is_expired"`                    // Phase 1.7: True if cert expired
-	IsSelfSigned   bool      `json:"is_self_signed" yaml:"is_self_signed"`            // Phase 1.7: True if Subject == Issuer
+	Version        string   `json:"version,omitempty" yaml:"version,omitempty"`
+	CipherSuite    string   `json:"cipher_suite,omitempty" yaml:"cipher_suite,omitempty"`
+	ServerName     string   `json:"server_name,omitempty" yaml:"server_name,omitempty"`
+	PeerCommonName string   `json:"peer_common_name,omitempty" yaml:"peer_common_name,omitempty"`
+	PeerDNSNames   []string `json:"peer_dns_names,omitempty" yaml:"peer_dns_names,omitempty"`
+	Issuer         string   `json:"issuer,omitempty" yaml:"issuer,omitempty"` // Phase 1.7: Certificate issuer DN
+	// CertSerial is the leaf certificate serial, uppercase colon-separated hex,
+	// as scan.FormatCertificateSerial renders it. Every probe that fills a
+	// TLSObservation gets it for free; cyprob#303 is about the five that filled
+	// one and then dropped the serial on the floor.
+	CertSerial   string    `json:"cert_serial,omitempty" yaml:"cert_serial,omitempty"`
+	NotBefore    time.Time `json:"not_before,omitzero" yaml:"not_before,omitempty"` // Phase 1.7: Certificate validity start
+	NotAfter     time.Time `json:"not_after,omitzero" yaml:"not_after,omitempty"`   // Phase 1.7: Certificate validity end
+	IsExpired    bool      `json:"is_expired" yaml:"is_expired"`                    // Phase 1.7: True if cert expired
+	IsSelfSigned bool      `json:"is_self_signed" yaml:"is_self_signed"`            // Phase 1.7: True if Subject == Issuer
 }
 
 // FindingSeverity defines the severity of a finding.
