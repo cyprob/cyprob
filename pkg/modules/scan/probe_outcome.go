@@ -194,10 +194,6 @@ var probeCodeOutcomes = map[ProbeCode]outcomeEntry{
 		reason: noClaimStraddle,
 		note:   "silence in DNS, mDNS and IPMI, but a fully decoded empty-varbind GetResponse in SNMP and a malformed HTTP response in favicon",
 	},
-	ProbeCodeNoStrategyExecuted: {
-		reason: noClaimScannerSide,
-		note:   "no probe strategy ran at all, so nothing was sent and nothing was heard. Distinct from probe_failed, which means we tried: collapsing the two reports a target we never contacted as one that did not answer",
-	},
 	ProbeCodeNoRoute: {
 		outcome: OutcomeUnreachable,
 		note:    "EHOSTUNREACH from the dial",

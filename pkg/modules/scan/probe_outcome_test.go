@@ -345,6 +345,16 @@ func TestProbeOutcomes_EveryCodeIsPinnedThroughItsClassifier(t *testing.T) {
 func TestProbeOutcomes_TheSharedHalfOfTheVocabularyIsDeclaredProperly(t *testing.T) {
 	t.Parallel()
 
+	// producedOnlyByEE is empty today: the code it was built for turned out to
+	// be unreachable in EE. So most of this test is vacuous right now, and that
+	// is stated rather than left to be discovered -- a passing test over an
+	// empty set proves nothing about the checks it contains. What it does hold
+	// is the shape, for the first real case; and the mutations recorded on
+	// cyprob#348 and cyprob#350 were run against a populated map.
+	if len(producedOnlyByEE) == 0 {
+		t.Log("producedOnlyByEE is empty; every per-entry check below is vacuous")
+	}
+
 	registry := map[ProbeCode]bool{}
 	for _, code := range probeCodeRegistry {
 		registry[code] = true
