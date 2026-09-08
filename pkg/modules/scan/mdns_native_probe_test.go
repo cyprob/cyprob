@@ -141,9 +141,13 @@ func TestDeriveMDNSIdentity(t *testing.T) {
 		require.Equal(t, "HP LaserJet M404dn", info.ProductHint)
 	})
 
-	t.Run("service type outranks model family", func(t *testing.T) {
+	t.Run("a dedicated service outranks a model family", func(t *testing.T) {
+		// Built the way production builds it. The original version of this test
+		// assigned the slice directly and unsorted, so "_ipp" happened to be
+		// reached first and the assertion held against a shape production never
+		// produces (cyprob#231).
 		info := &MDNSServiceInfo{
-			ServiceTypes: []string{"_ipp._tcp.local.", "_airplay._tcp.local."},
+			ServiceTypes: mdnsServiceTypesAsProduced("_airplay._tcp.local.", "_ipp._tcp.local."),
 			TXTAttrs:     map[string]string{"model": "Mac16,7"},
 		}
 		deriveMDNSIdentity(info)
