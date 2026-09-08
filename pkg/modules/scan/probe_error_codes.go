@@ -50,7 +50,6 @@ const (
 	ProbeCodeMetadataFailed         ProbeCode = "metadata_failed"
 	ProbeCodeMgmtFailed             ProbeCode = "mgmt_failed"
 	ProbeCodeNoBanner               ProbeCode = "no_banner"
-	ProbeCodeNoStrategyExecuted     ProbeCode = "no_strategy_executed"
 	ProbeCodeNoResponse             ProbeCode = "no_response"
 	ProbeCodeNoRoute                ProbeCode = "no_route"
 	ProbeCodeNotTLS                 ProbeCode = "not_tls"
@@ -108,7 +107,6 @@ var probeCodeRegistry = []ProbeCode{
 	ProbeCodeMetadataFailed,
 	ProbeCodeMgmtFailed,
 	ProbeCodeNoBanner,
-	ProbeCodeNoStrategyExecuted,
 	ProbeCodeNoResponse,
 	ProbeCodeNoRoute,
 	ProbeCodeNotTLS,
@@ -162,10 +160,16 @@ var probeCodeRegistry = []ProbeCode{
 // long list is a second scanner that has drifted, and the answer to that is the
 // consolidation cyprob-ee#480 describes, not more entries here. Growth in this
 // map is the measurement that says to fold EE's probes into CE.
-var producedOnlyByEE = map[ProbeCode]string{
-	ProbeCodeNoStrategyExecuted: "cyprob-ee, internal/worker/scanner/smb_probe.go and smb_enum_probe.go: " +
-		"the branch where every SMB strategy was skipped, so there was no attempt to classify",
-}
+//
+// It is empty today, and that is the honest state rather than an oversight. The
+// case it was built for -- an EE-only no_strategy_executed -- turned out to be
+// unreachable in EE: both SMB probers build a non-empty strategy list
+// unconditionally and set an error on every path, so the branch that would have
+// emitted it cannot run. Registering a word nobody speaks is the same mistake as
+// writing a CE emitter to satisfy a test, one repository over. The map and the
+// two tests that read it stay because the doctrine holds on its own and the next
+// real case should find the machinery already built, not the argument reopened.
+var producedOnlyByEE = map[ProbeCode]string{}
 
 // probeCodeByValue is the registry keyed for lookup. It is built once because
 // ParseProbeCode is called per probe result, and a linear scan over 51 entries
