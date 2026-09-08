@@ -656,7 +656,7 @@ func parseSMBNegotiateResponse(frame []byte) (smbNegotiateResult, error) {
 		}, nil
 	}
 	if sig[0] != 0xFE || sig[1] != 'S' || sig[2] != 'M' || sig[3] != 'B' {
-		return smbNegotiateResult{}, fmt.Errorf("unknown_smb_signature")
+		return smbNegotiateResult{}, fmt.Errorf("%s", ProbeCodeUnknownSMBSignature)
 	}
 
 	status := binary.LittleEndian.Uint32(frame[nbss+8 : nbss+12])
@@ -1230,6 +1230,14 @@ func classifySMBProbeError(err error) ProbeCode {
 		return ProbeCodeUnexpectedSMB2Command
 	case strings.Contains(msg, "session_setup_status"):
 		return ProbeCodeSessionSetupFailed
+	// Both were produced before this and both fell to probe_failed, which is
+	// how a refusal and a parse failure ended up sharing a code with every dial
+	// error (cyprob/cyprob-ee#461). EE's own SMB prober had already split them
+	// out under its own names; this is CE catching up to the finer reading.
+	case strings.Contains(msg, string(ProbeCodeNetBIOSSessionRejected)):
+		return ProbeCodeNetBIOSSessionRejected
+	case strings.Contains(msg, string(ProbeCodeUnknownSMBSignature)):
+		return ProbeCodeUnknownSMBSignature
 	case strings.Contains(msg, "short"):
 		return ProbeCodeShortResponse
 	default:
@@ -1314,8 +1322,18 @@ func readAndValidateNetBIOSSessionResponse(conn net.Conn) error {
 	if _, err := io.ReadFull(conn, resp); err != nil {
 		return err
 	}
+	// 0x82 is POSITIVE SESSION RESPONSE. 0x83 is NEGATIVE: the far end read the
+	// called name we sent and refused it, which is a verdict and is reported as
+	// one. Everything else -- 0x84 RETARGET, or a byte that is not a NetBIOS
+	// session type at all -- is neither a refusal nor something we can read, so
+	// it keeps falling to probe_failed rather than borrowing a claim from the
+	// code beside it. The byte travels in the message so the split can be
+	// revisited from data rather than from this comment.
+	if resp[0] == 0x83 {
+		return fmt.Errorf("%s", ProbeCodeNetBIOSSessionRejected)
+	}
 	if resp[0] != 0x82 {
-		return fmt.Errorf("netbios_session_rejected")
+		return fmt.Errorf("netbios_session_unexpected_0x%02x", resp[0])
 	}
 	return nil
 }
