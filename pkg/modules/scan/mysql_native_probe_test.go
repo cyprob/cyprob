@@ -79,6 +79,7 @@ func TestProbeMySQLDetails_HandshakeAndTLS(t *testing.T) {
 	require.True(t, result.TLSSupported)
 	require.True(t, result.TLSEnabled)
 	require.Equal(t, "mysql.test", result.CertSubjectCN)
+	require.Equal(t, testCertSerialFormatted, result.CertSerial, "cyprob#303: the serial is read but never emitted")
 	require.Equal(t, "MySQL", result.ProductHint)
 	require.Equal(t, "Oracle", result.VendorHint)
 	require.Equal(t, "8.0.36", result.VersionHint)

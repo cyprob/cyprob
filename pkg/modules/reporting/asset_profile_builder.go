@@ -1034,6 +1034,9 @@ func applyFTPDetails(portProfile *engine.PortProfile, details scan.FTPServiceInf
 	if strings.TrimSpace(details.CertIssuer) != "" {
 		portProfile.Service.ParsedAttributes["ftp_cert_issuer"] = strings.TrimSpace(details.CertIssuer)
 	}
+	if strings.TrimSpace(details.CertSerial) != "" {
+		portProfile.Service.ParsedAttributes["ftp_cert_serial"] = strings.TrimSpace(details.CertSerial)
+	}
 	if !details.CertNotAfter.IsZero() {
 		portProfile.Service.ParsedAttributes["ftp_cert_not_after"] = details.CertNotAfter
 	}
@@ -1112,6 +1115,9 @@ func applyMySQLDetails(portProfile *engine.PortProfile, details scan.MySQLServic
 	}
 	if strings.TrimSpace(details.CertIssuer) != "" {
 		portProfile.Service.ParsedAttributes["mysql_cert_issuer"] = strings.TrimSpace(details.CertIssuer)
+	}
+	if strings.TrimSpace(details.CertSerial) != "" {
+		portProfile.Service.ParsedAttributes["mysql_cert_serial"] = strings.TrimSpace(details.CertSerial)
 	}
 	if !details.CertNotAfter.IsZero() {
 		portProfile.Service.ParsedAttributes["mysql_cert_not_after"] = details.CertNotAfter
@@ -1193,6 +1199,9 @@ func applySMTPDetails(portProfile *engine.PortProfile, details scan.SMTPServiceI
 	}
 	if strings.TrimSpace(details.CertIssuer) != "" {
 		portProfile.Service.ParsedAttributes["smtp_cert_issuer"] = strings.TrimSpace(details.CertIssuer)
+	}
+	if strings.TrimSpace(details.CertSerial) != "" {
+		portProfile.Service.ParsedAttributes["smtp_cert_serial"] = strings.TrimSpace(details.CertSerial)
 	}
 	if !details.CertNotAfter.IsZero() {
 		portProfile.Service.ParsedAttributes["smtp_cert_not_after"] = details.CertNotAfter
@@ -1618,6 +1627,9 @@ func applyRDPDetails(portProfile *engine.PortProfile, details scan.RDPServiceInf
 	if strings.TrimSpace(details.CertIssuer) != "" {
 		portProfile.Service.ParsedAttributes["rdp_cert_issuer"] = strings.TrimSpace(details.CertIssuer)
 	}
+	if strings.TrimSpace(details.CertSerial) != "" {
+		portProfile.Service.ParsedAttributes["rdp_cert_serial"] = strings.TrimSpace(details.CertSerial)
+	}
 	if len(details.CertDNSNames) > 0 {
 		portProfile.Service.ParsedAttributes["rdp_cert_dns_names"] = append([]string(nil), details.CertDNSNames...)
 	}
@@ -1869,6 +1881,9 @@ func applyWINRMDetails(portProfile *engine.PortProfile, details scan.WINRMServic
 	}
 	if strings.TrimSpace(details.CertIssuer) != "" {
 		portProfile.Service.ParsedAttributes["winrm_cert_issuer"] = strings.TrimSpace(details.CertIssuer)
+	}
+	if strings.TrimSpace(details.CertSerial) != "" {
+		portProfile.Service.ParsedAttributes["winrm_cert_serial"] = strings.TrimSpace(details.CertSerial)
 	}
 	if !details.CertNotAfter.IsZero() {
 		portProfile.Service.ParsedAttributes["winrm_cert_not_after"] = details.CertNotAfter

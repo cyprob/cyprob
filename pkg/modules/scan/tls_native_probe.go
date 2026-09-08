@@ -636,6 +636,7 @@ func probeSingleTLSStrategy(
 	}
 	outcome.certSubjectCN = strings.TrimSpace(tlsObs.PeerCommonName)
 	outcome.certIssuer = strings.TrimSpace(tlsObs.Issuer)
+	outcome.certSerial = tlsObs.CertSerial
 	outcome.certDNSNames = append([]string(nil), tlsObs.PeerDNSNames...)
 	outcome.certNotBefore = tlsObs.NotBefore
 	outcome.certNotAfter = tlsObs.NotAfter
@@ -648,7 +649,6 @@ func probeSingleTLSStrategy(
 	if len(state.PeerCertificates) > 0 {
 		sum := sha256.Sum256(state.PeerCertificates[0].Raw)
 		outcome.certSHA256 = hex.EncodeToString(sum[:])
-		outcome.certSerial = FormatCertificateSerial(state.PeerCertificates[0].SerialNumber)
 		if tlsConfig.ServerName != "" {
 			outcome.hostnameMismatch = state.PeerCertificates[0].VerifyHostname(tlsConfig.ServerName) != nil
 		}

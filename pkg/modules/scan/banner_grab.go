@@ -1858,6 +1858,7 @@ func extractTLSObservation(state tls.ConnectionState) *engine.TLSObservation {
 
 		// Phase 1.7: Extract certificate validity and security indicators
 		obs.Issuer = cert.Issuer.String()
+		obs.CertSerial = FormatCertificateSerial(cert.SerialNumber)
 		obs.NotBefore = cert.NotBefore
 		obs.NotAfter = cert.NotAfter
 		obs.IsExpired = time.Now().After(cert.NotAfter)

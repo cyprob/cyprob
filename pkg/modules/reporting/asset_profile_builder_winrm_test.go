@@ -43,6 +43,7 @@ func TestAssetProfileBuilder_Execute_EmitWINRMDetails(t *testing.T) {
 				TLSVersion:           "TLS1.3",
 				TLSCipherSuite:       "TLS_AES_128_GCM_SHA256",
 				CertSubjectCN:        "winrm.example.test",
+				CertSerial:           "0B:50:1E:00:7F",
 				CertIssuer:           "CN=winrm.example.test",
 				CertNotAfter:         notAfter,
 				CertIsSelfSigned:     true,
@@ -91,6 +92,12 @@ func TestAssetProfileBuilder_Execute_EmitWINRMDetails(t *testing.T) {
 		}
 		if port.Service.ParsedAttributes["winrm_transport"] != "https" {
 			t.Fatalf("expected winrm_transport=https, got %v", port.Service.ParsedAttributes["winrm_transport"])
+		}
+		if port.Service.ParsedAttributes["winrm_cert_subject_cn"] != "winrm.example.test" {
+			t.Fatalf("expected winrm_cert_subject_cn, got %v", port.Service.ParsedAttributes["winrm_cert_subject_cn"])
+		}
+		if port.Service.ParsedAttributes["winrm_cert_serial"] != "0B:50:1E:00:7F" {
+			t.Fatalf("expected winrm_cert_serial, got %v", port.Service.ParsedAttributes["winrm_cert_serial"])
 		}
 		if port.Service.ParsedAttributes["winrm_http_status_code"] != 200 {
 			t.Fatalf("expected winrm_http_status_code=200, got %v", port.Service.ParsedAttributes["winrm_http_status_code"])

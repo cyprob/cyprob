@@ -37,6 +37,7 @@ func TestAssetProfileBuilder_Execute_EmitFTPDetails(t *testing.T) {
 				TLSVersion:       "TLS1.3",
 				TLSCipherSuite:   "TLS_AES_128_GCM_SHA256",
 				CertSubjectCN:    "ftp.example.test",
+				CertSerial:       "0B:50:1E:00:7F",
 				CertIssuer:       "CN=ftp.example.test",
 				CertNotAfter:     notAfter,
 				CertIsSelfSigned: true,
@@ -95,6 +96,9 @@ func TestAssetProfileBuilder_Execute_EmitFTPDetails(t *testing.T) {
 		}
 		if port.Service.ParsedAttributes["ftp_cert_subject_cn"] != "ftp.example.test" {
 			t.Fatalf("expected ftp_cert_subject_cn, got %v", port.Service.ParsedAttributes["ftp_cert_subject_cn"])
+		}
+		if port.Service.ParsedAttributes["ftp_cert_serial"] != "0B:50:1E:00:7F" {
+			t.Fatalf("expected ftp_cert_serial, got %v", port.Service.ParsedAttributes["ftp_cert_serial"])
 		}
 		if port.Service.ParsedAttributes["ftp_system_hint"] != "UNIX Type: L8" {
 			t.Fatalf("expected ftp_system_hint, got %v", port.Service.ParsedAttributes["ftp_system_hint"])

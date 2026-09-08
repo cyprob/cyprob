@@ -60,6 +60,7 @@ type RDPServiceInfo struct {
 	NegFailureCode         string            `json:"neg_failure_code,omitempty"`
 	CertSubjectCN          string            `json:"cert_subject_cn,omitempty"`
 	CertIssuer             string            `json:"cert_issuer,omitempty"`
+	CertSerial             string            `json:"cert_serial,omitempty"`
 	CertDNSNames           []string          `json:"cert_dns_names,omitempty"`
 	CertNotBefore          time.Time         `json:"cert_not_before,omitzero"`
 	CertNotAfter           time.Time         `json:"cert_not_after,omitzero"`
@@ -1042,6 +1043,7 @@ func applyRDPDeepMetadata(result *RDPServiceInfo, metadata rdpDeepMetadata) {
 	if metadata.tlsObs != nil {
 		result.CertSubjectCN = strings.TrimSpace(metadata.tlsObs.PeerCommonName)
 		result.CertIssuer = strings.TrimSpace(metadata.tlsObs.Issuer)
+		result.CertSerial = metadata.tlsObs.CertSerial
 		if len(metadata.tlsObs.PeerDNSNames) > 0 {
 			result.CertDNSNames = append([]string(nil), metadata.tlsObs.PeerDNSNames...)
 		}

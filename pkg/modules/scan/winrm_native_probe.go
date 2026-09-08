@@ -72,6 +72,7 @@ type WINRMServiceInfo struct {
 	TLSCipherSuite       string              `json:"tls_cipher_suite,omitempty"`
 	CertSubjectCN        string              `json:"cert_subject_cn,omitempty"`
 	CertIssuer           string              `json:"cert_issuer,omitempty"`
+	CertSerial           string              `json:"cert_serial,omitempty"`
 	CertNotAfter         time.Time           `json:"cert_not_after,omitempty"`
 	CertIsSelfSigned     bool                `json:"cert_is_self_signed"`
 	ProbeError           string              `json:"probe_error,omitempty"`
@@ -680,6 +681,7 @@ func applyWINRMTLSObservation(result *WINRMServiceInfo, attempt *WINRMProbeAttem
 	result.TLSCipherSuite = strings.TrimSpace(tlsObs.CipherSuite)
 	result.CertSubjectCN = strings.TrimSpace(tlsObs.PeerCommonName)
 	result.CertIssuer = strings.TrimSpace(tlsObs.Issuer)
+	result.CertSerial = tlsObs.CertSerial
 	result.CertNotAfter = tlsObs.NotAfter
 	result.CertIsSelfSigned = tlsObs.IsSelfSigned
 	if attempt != nil {
