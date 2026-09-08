@@ -317,8 +317,7 @@ func TestParseProbeCode_AgreesWithTheRegistryAndRefusesEverythingElse(t *testing
 	// is what the gate exists to catch, and one of them -- "description
 	// unreadable" -- is prose whose embedded bucket name is not its bucket.
 	notCodes := []string{
-		"", "feat_failed", "syst_failed", "identify_failed", "enum_failed",
-		"no_candidate", "dial_error", "invalid_port", "empty_body", "request_error",
+		"", "enum_failed", "no_candidate", "dial_error", "invalid_port", "empty_body", "request_error",
 		"status_404", "redirect_budget_exceeded", "print_port_write_blocked",
 		"description unreadable", "reset", "short_read", "nbss_rejected",
 		"unknown_signature", "TIMEOUT", " timeout", "timeout ",

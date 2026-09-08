@@ -339,33 +339,33 @@ func probeWINRMDetails(ctx context.Context, target string, hostname string, port
 		case httpResult.statusCode == http.StatusOK:
 			protocolVersion, productVendor, productVersion, ok, parseErr := parseWINRMIdentifyResponse(httpResult.body)
 			if parseErr != nil {
-				errorCodes = append(errorCodes, "identify_failed")
+				errorCodes = append(errorCodes, string(ProbeCodeIdentifyFailed))
 				attempt := WINRMProbeAttempt{
 					Strategy:   "winrm-identify",
 					Transport:  result.WINRMTransport,
 					Success:    false,
 					DurationMS: httpResult.duration.Milliseconds(),
 					StatusCode: httpResult.statusCode,
-					Error:      "identify_failed",
+					Error:      string(ProbeCodeIdentifyFailed),
 				}
 				applyWINRMTLSObservation(&result, &attempt, httpResult.tlsObs)
 				result.Attempts = append(result.Attempts, attempt)
-				result.ProbeError = "identify_failed"
+				result.ProbeError = string(ProbeCodeIdentifyFailed)
 				return result
 			}
 			if !ok {
-				errorCodes = append(errorCodes, "identify_failed")
+				errorCodes = append(errorCodes, string(ProbeCodeIdentifyFailed))
 				attempt := WINRMProbeAttempt{
 					Strategy:   "winrm-identify",
 					Transport:  result.WINRMTransport,
 					Success:    false,
 					DurationMS: httpResult.duration.Milliseconds(),
 					StatusCode: httpResult.statusCode,
-					Error:      "identify_failed",
+					Error:      string(ProbeCodeIdentifyFailed),
 				}
 				applyWINRMTLSObservation(&result, &attempt, httpResult.tlsObs)
 				result.Attempts = append(result.Attempts, attempt)
-				result.ProbeError = "identify_failed"
+				result.ProbeError = string(ProbeCodeIdentifyFailed)
 				return result
 			}
 
@@ -730,19 +730,19 @@ func pickTopWINRMProbeError(codes []string) string {
 
 func winrmProbeErrorPriority(code string) int {
 	switch strings.TrimSpace(code) {
-	case "timeout":
+	case string(ProbeCodeTimeout):
 		return 7
-	case "connect_failed":
+	case string(ProbeCodeConnectFailed):
 		return 6
-	case "tls_handshake_failed":
+	case string(ProbeCodeTLSHandshakeFailed):
 		return 5
-	case "http_request_failed":
+	case string(ProbeCodeHTTPRequestFailed):
 		return 4
-	case "http_response_invalid":
+	case string(ProbeCodeHTTPResponseInvalid):
 		return 3
-	case "identify_failed":
+	case string(ProbeCodeIdentifyFailed):
 		return 2
-	case "protocol_mismatch":
+	case string(ProbeCodeProtocolMismatch):
 		return 1
 	default:
 		return 0

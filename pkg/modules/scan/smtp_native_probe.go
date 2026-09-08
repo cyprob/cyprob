@@ -1269,17 +1269,17 @@ func pickTopSMTPProbeError(codes []string) string {
 
 func smtpProbeErrorPriority(code string) int {
 	switch code {
-	case "timeout":
+	case string(ProbeCodeTimeout):
 		return 6
-	case "refused":
+	case string(ProbeCodeRefused):
 		return 5
-	case "tls_failed":
+	case string(ProbeCodeTLSFailed):
 		return 4
-	case "starttls_failed":
+	case string(ProbeCodeStarttlsFailed):
 		return 3
-	case "protocol_error":
+	case string(ProbeCodeProtocolError):
 		return 2
-	case "probe_failed":
+	case string(ProbeCodeProbeFailed):
 		return 1
 	default:
 		return 0

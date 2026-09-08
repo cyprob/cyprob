@@ -132,6 +132,18 @@ var probeCodeOutcomes = map[ProbeCode]outcomeEntry{
 		outcome: OutcomeUnreadable,
 		note:    "the Certificate message arrived and our x509 parser refused it; the arm sits above the tls: arm for exactly this reason",
 	},
+	ProbeCodeFeatFailed: {
+		reason: noClaimStraddle,
+		note:   "runFTPCommand is a write then a read, so this covers a reply that parsed and carried a code other than 211 -- a peer verdict, rejected -- and also a write or read failure that says nothing about whether bytes arrived. One condition at the emit site splits it: featErr == nil (cyprob#360)",
+	},
+	ProbeCodeSystFailed: {
+		reason: noClaimStraddle,
+		note:   "the SYST twin of feat_failed, 215 instead of 211, with the same one-line split",
+	},
+	ProbeCodeIdentifyFailed: {
+		outcome: OutcomeUnreadable,
+		note:    "HTTP 200 arrived and the body was read; parseWINRMIdentifyResponse refused it. Bytes we received and could not make a response of",
+	},
 	ProbeCodeConnectFailed: {
 		outcome: OutcomeUnreachable,
 		note:    "every emitter is a dial error, in eight probes; guarded defaults are called only with the dialer's error in hand",

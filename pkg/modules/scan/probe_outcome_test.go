@@ -184,7 +184,7 @@ func TestProbeOutcomes_AnUnknownCodeStaysUnknown(t *testing.T) {
 	// filed under the bucket whose name it happens to contain.
 	live := []string{
 		"status_404", "request_error", "empty_body", "no_candidate", "dial_error",
-		"invalid_port", "enum_failed", "identify_failed", "feat_failed", "syst_failed",
+		"invalid_port", "enum_failed",
 		"redirect_budget_exceeded", "print_port_write_blocked", "description unreadable",
 	}
 	for _, value := range live {
@@ -315,6 +315,13 @@ func TestProbeOutcomes_EveryCodeIsPinnedThroughItsClassifier(t *testing.T) {
 	// and the map is the shared input rather than either side's private list.
 	missing := make([]string, 0)
 	for _, code := range probeCodeRegistry {
+		if _, outside := codesProducedOutsideAClassifier[code]; outside {
+			if pinned[code] {
+				t.Errorf("%q is listed as produced outside a classifier and a classifier produces it here; "+
+					"the exemption is stale and hides a real coverage loss", code)
+			}
+			continue
+		}
 		if pinned[code] {
 			// A code that both a CE classifier produces and the map claims is
 			// EE-only. The exemption is then false, and it would hide a real
@@ -459,5 +466,44 @@ func TestProbeOutcomes_TheExportedBucketListMatchesTheSet(t *testing.T) {
 	// reader fails it.
 	if len(Outcomes()) < 2 {
 		t.Error("fewer than two buckets, which would make the sortedness check above prove nothing")
+	}
+}
+
+// codesProducedOutsideAClassifier are registry codes CE emits without going
+// through a classify* function -- a bare literal at the site that knows the
+// answer. They cannot be driven through a classifier here because no classifier
+// returns them.
+//
+// This is a smaller exemption than it looks, and a temporary one: cyprob#360 is
+// about routing these three through classifiers, which would delete this map.
+// Until then the entries make the gap countable rather than invisible, and the
+// test above fails if one of them starts coming from a classifier after all --
+// an exemption from a check that would pass hides the next failure.
+var codesProducedOutsideAClassifier = map[ProbeCode]string{
+	ProbeCodeFeatFailed: "ftp_native_probe.go:601,779 assign it directly; the FEAT step knows its own " +
+		"answer and never calls a classifier - cyprob#360",
+	ProbeCodeSystFailed:     "ftp_native_probe.go:626,804, the SYST twin - cyprob#360",
+	ProbeCodeIdentifyFailed: "winrm_native_probe.go:342,349,353, assigned straight into ProbeError - cyprob#360",
+}
+
+// The exemption above must not outlive the codes it excuses.
+func TestProbeOutcomes_TheOutsideAClassifierListIsCurrent(t *testing.T) {
+	t.Parallel()
+
+	registry := map[ProbeCode]bool{}
+	for _, code := range probeCodeRegistry {
+		registry[code] = true
+	}
+	for code, reason := range codesProducedOutsideAClassifier {
+		if !registry[code] {
+			t.Errorf("%q is excused and is not a registered code", code)
+		}
+		if strings.TrimSpace(reason) == "" {
+			t.Errorf("%q is excused with no reason", code)
+		}
+		if _, mapped := probeCodeOutcomes[code]; !mapped {
+			t.Errorf("%q is excused from the classifier pin and has no outcome entry; "+
+				"the exemption is about who emits it, not about whether anyone decided what it claims", code)
+		}
 	}
 }
