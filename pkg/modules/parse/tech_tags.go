@@ -37,6 +37,22 @@ const (
 	TagWinRM         = "winrm"
 	TagWSMAN         = "wsman"
 	TagWindowsHint   = "windows_hint"
+
+	// Server management controllers. These are routing keys, not descriptions:
+	// they exist because shipped plugin content already asks for them. Measured
+	// on the appliance at 10.20.30.252 on 2026-09-08:
+	//
+	//	select t, count(*) filter (where p.is_enabled)
+	//	  from plugins p, jsonb_array_elements_text(p.tech_tags) t
+	//	 where t in ('bmc','idrac','ilo','imm') group by 1;
+	//	bmc 8 | idrac 5 | ilo 2 | imm 1
+	//
+	// So a controller carries the generic tag the largest group of content asks
+	// for, plus its vendor-specific one where such content exists.
+	TagBMC   = "bmc"
+	TagILO   = "ilo"
+	TagIDRAC = "idrac"
+	TagIMM   = "imm"
 )
 
 var canonicalTechTagSet = map[string]struct{}{
@@ -46,6 +62,7 @@ var canonicalTechTagSet = map[string]struct{}{
 	"apache":         {},
 	"asp_net":        {},
 	"backbonejs":     {},
+	TagBMC:           {},
 	"bootstrap":      {},
 	"cache":          {},
 	"caddy":          {},
@@ -73,6 +90,9 @@ var canonicalTechTagSet = map[string]struct{}{
 	"grafana":        {},
 	"hp_printer":     {},
 	"http_server":    {},
+	TagIDRAC:         {},
+	TagILO:           {},
+	TagIMM:           {},
 	"imperva":        {},
 	"java":           {},
 	"jenkins":        {},

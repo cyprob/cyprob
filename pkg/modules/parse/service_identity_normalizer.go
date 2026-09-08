@@ -1419,6 +1419,16 @@ func (m *serviceIdentityNormalizerModule) applyHeuristics(entries map[string]*Se
 		if entry.Product == "" && (entry.Port == 445 || entry.Port == 139 || hasTag(entry.TechTags, "smb")) {
 			setIdentityField(entry, "product", "smb", sourceHeuristic, 0.35)
 		}
+		// cyprob/agent-desk#44: a product read correctly never became a routing
+		// key, so shipped controller plugins could not be selected on a device
+		// whose product field named it exactly. The bridge runs here, over the
+		// product every ingest pass has finished writing, rather than inside any
+		// one of them: the product arrives from a certificate on port 443, from
+		// a fingerprint on 5985, and from an SNMP description elsewhere, and the
+		// tag should not depend on which one answered.
+		if tags := managementControllerTags(entry.Product, entry.Vendor); len(tags) > 0 {
+			entry.TechTags = NormalizeTechTags(append(entry.TechTags, tags...))
+		}
 	}
 }
 
