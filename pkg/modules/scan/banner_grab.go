@@ -139,6 +139,11 @@ func newBannerGrabModuleWithSpec(moduleID string, moduleName string, description
 				"concurrency":       {Description: "Number of concurrent banner grabbing operations.", Type: "int", Required: false, Default: defaultConfig.Concurrency},
 				"send_probes":       {Description: "Whether to send protocol-specific probes after passive banner capture.", Type: "bool", Required: false, Default: defaultConfig.SendProbes},
 				"max_redirect_hops": {Description: "Maximum number of same-host HTTP redirects to follow for banner capture.", Type: "int", Required: false, Default: defaultConfig.MaxRedirectHops},
+				// Read in Init since Phase 1.6 and never declared. It decides
+				// whether the banner grabber verifies a server certificate at
+				// all, so a schema that omits it hides the one option here with
+				// a security meaning (cyprob#316).
+				"tls_insecure_skip_verify": {Description: "Skip TLS certificate verification when capturing a banner over TLS. On by default: a scanner reaches services whose certificates no client would accept, and refusing them would hide the service rather than the defect.", Type: "bool", Required: false, Default: defaultConfig.TLSInsecureSkipVerify},
 			},
 			EstimatedCost: 2,
 		},
@@ -193,7 +198,10 @@ func (m *BannerGrabModule) Init(instanceID string, configMap map[string]any) err
 	if maxRedirectHopsVal, ok := configMap["max_redirect_hops"]; ok {
 		cfg.MaxRedirectHops = cast.ToInt(maxRedirectHopsVal)
 	}
-	if tlsInsecureSkipVerify, ok := configMap["tls_insecure_skip_verify"].(bool); ok {
+	// cast.ToBool, not a bool type assertion: node configuration arrives as
+	// JSON and YAML, where this can be the string "false", and an assertion
+	// would drop it silently and leave verification off.
+	if tlsInsecureSkipVerify, ok := configMap["tls_insecure_skip_verify"]; ok {
 		cfg.TLSInsecureSkipVerify = cast.ToBool(tlsInsecureSkipVerify)
 	}
 
