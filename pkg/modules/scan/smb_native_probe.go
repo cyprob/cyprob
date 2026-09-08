@@ -103,6 +103,25 @@ func newSMBNativeProbeModuleWithSpec(moduleID string, moduleName string, descrip
 			timeoutDefault:        "2s",
 			connectTimeoutDefault: "1s",
 			ioTimeoutDefault:      "1s",
+			// Both of these are read in Init and drive real behavior, and
+			// neither was declared: a caller could set them, a reader of the
+			// schema could not know they existed. Anything that works from the
+			// schema -- a validator, a planner, a UI -- was blind to two live
+			// options.
+			extraConfigParameters: map[string]engine.ParameterDefinition{
+				"include_enum": {
+					Description: "Enumerate shares and pipes after negotiation. On by default; turning it off leaves negotiation and host identity intact.",
+					Type:        "bool",
+					Required:    false,
+					Default:     true,
+				},
+				"fallback_to_netbios": {
+					Description: "Try the NetBIOS session service on 139 when the direct SMB strategy on 445 finds nothing. On by default.",
+					Type:        "bool",
+					Required:    false,
+					Default:     true,
+				},
+			},
 		}),
 		options: defaultSMBProbeOptions(),
 	}
