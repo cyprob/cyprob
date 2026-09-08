@@ -1329,6 +1329,22 @@ func pickTopFTPPartialError(codes []string) string {
 	return pickTopFTPProbeError(filtered)
 }
 
+// ftpProbeErrorPriority ranks the codes that can actually reach it, and only
+// those.
+//
+// It used to rank three more. feat_failed, syst_failed and probe_failed were
+// ranked and could never arrive (cyprob#362): the two FEAT/SYST codes enter
+// attemptErrors alone, and pickTopFTPPartialError keeps six codes and neither of
+// them; probe_failed enters neither list and reaches ProbeError only through the
+// literal fallback below, which runs when this table returned nothing. So three
+// of nine rows described a decision this function never made.
+//
+// The codes are not lost: they are still emitted, still registered, still carry
+// the rejected bucket cyprob#360 gave them, and still appear on the attempt.
+// What is not answerable anywhere is which step inside a probe failed -- the
+// coverage ledger keeps one row per probe, so a FEAT refusal is not in it either.
+// That gap is left open deliberately rather than papered over by promoting a
+// sub-step failure to the service headline; it is cyprob-ee#513.
 func ftpProbeErrorPriority(code string) int {
 	switch code {
 	case string(ProbeCodeTimeout):
@@ -1343,12 +1359,6 @@ func ftpProbeErrorPriority(code string) int {
 		return 5
 	case string(ProbeCodeProtocolMismatch):
 		return 4
-	case string(ProbeCodeFeatFailed):
-		return 3
-	case string(ProbeCodeSystFailed):
-		return 2
-	case string(ProbeCodeProbeFailed):
-		return 1
 	default:
 		return 0
 	}
