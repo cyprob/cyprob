@@ -2,6 +2,7 @@ package fingerprint
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"sort"
@@ -57,6 +58,13 @@ type GapReport struct {
 	Observations int
 	// Unmatched is how many of those no rule recognized.
 	Unmatched int
+	// DroppedByThreshold is how many were recognized by at least one rule and
+	// then removed by the confidence floor. They are counted in Unmatched too,
+	// because they produced no identification -- but they are a different
+	// problem with a different remedy. An unmatched banner needs a rule written;
+	// one of these has a rule already, and its score was pushed under 0.50 by
+	// soft-exclude penalties (cyprob#239).
+	DroppedByThreshold int
 	// Gaps are the clusters, most frequent first.
 	Gaps []Gap
 }
@@ -113,14 +121,18 @@ func analyzeGapsWithRules(observations []Observation, rules []StaticRule) GapRep
 		}
 		report.Observations++
 
-		if _, err := resolver.Resolve(ctx, Input{
+		_, err := resolver.Resolve(ctx, Input{
 			Protocol: obs.Protocol,
 			Banner:   obs.Banner,
 			Port:     obs.Port,
-		}); err == nil {
+		})
+		if err == nil {
 			continue
 		}
 		report.Unmatched++
+		if errors.Is(err, ErrAllCandidatesBelowThreshold) {
+			report.DroppedByThreshold++
+		}
 
 		// The target comes from the corpus, and a corpus can arrive from a
 		// customer, a partner or CI rather than from a local scan, so it is not
