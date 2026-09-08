@@ -684,6 +684,7 @@ func probeFTPPlainAndExplicitTLS(ctx context.Context, target string, hostname st
 		if len(attemptErrors) > 0 && strings.TrimSpace(result.ProbeError) == "" {
 			result.ProbeError = pickTopFTPPartialError(attemptErrors)
 		}
+		finalizeFTPProbeFlag(&result)
 		return result
 	}
 
@@ -803,6 +804,7 @@ func probeFTPSImplicitTLS(ctx context.Context, target string, hostname string, p
 		if len(attemptErrors) > 0 && strings.TrimSpace(result.ProbeError) == "" {
 			result.ProbeError = pickTopFTPPartialError(attemptErrors)
 		}
+		finalizeFTPProbeFlag(&result)
 		return result
 	}
 
@@ -1300,6 +1302,27 @@ func classifyFTPTLSError(err error) ProbeCode {
 		return ProbeCodeTLSHandshakeFailed
 	default:
 		return ProbeCodeTLSHandshakeFailed
+	}
+}
+
+// finalizeFTPProbeFlag makes ftp_probe mean what the other fourteen native
+// probes' flags mean.
+//
+// Fourteen of CE's sixteen <proto>_probe fields answer "did the probe succeed":
+// ssh and tls set theirs to false on the failing path by hand, telnet, mdns and
+// smtp clear ProbeError on the succeeding one. FTP was one of two exceptions --
+// it set the flag as soon as the 220 greeting arrived, so ftp_probe could be
+// true while probe_error was filled, and ftp_probe meant something its own
+// name-family did not (cyprob#365). nbns is the other and is left alone: its
+// probe leaves no payload at all on 10.20.29.252, so changing its behavior
+// would be changing something nobody can measure (cyprob#367).
+//
+// The greeting is still what proves this is FTP -- that reading did not go
+// away, it moved to the field that carries it. asset_profile_builder names the
+// service from Banner as well as this flag for exactly that reason.
+func finalizeFTPProbeFlag(result *FTPServiceInfo) {
+	if strings.TrimSpace(result.ProbeError) != "" {
+		result.FTPProbe = false
 	}
 }
 

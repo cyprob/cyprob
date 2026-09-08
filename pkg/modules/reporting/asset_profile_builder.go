@@ -985,7 +985,12 @@ func applyFTPDetails(portProfile *engine.PortProfile, details scan.FTPServiceInf
 		portProfile.Service.ParsedAttributes = make(map[string]any)
 	}
 
-	if details.FTPProbe && strings.TrimSpace(portProfile.Service.Name) == "" {
+	// FTPProbe answers "did the probe succeed" since cyprob#365, and the question
+	// here is "is this FTP" -- a server that greeted and then failed is still FTP.
+	// The banner is what proves it and survives the failure, so it is read here
+	// beside the flag rather than the flag being read for something it stopped
+	// meaning.
+	if (details.FTPProbe || strings.TrimSpace(details.Banner) != "") && strings.TrimSpace(portProfile.Service.Name) == "" {
 		if strings.EqualFold(strings.TrimSpace(details.FTPProtocol), "ftps") {
 			portProfile.Service.Name = "ftps"
 		} else {

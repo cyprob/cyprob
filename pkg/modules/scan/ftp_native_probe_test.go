@@ -219,7 +219,9 @@ func TestProbeFTPDetails_ImplicitFTPS_FEATTimeoutSetsPartialError(t *testing.T) 
 		IOTimeout:      250 * time.Millisecond,
 	})
 
-	require.True(t, result.FTPProbe)
+	require.False(t, result.FTPProbe,
+		"ftp_probe answers whether the probe succeeded, and this one reported timeout (cyprob#365)")
+	require.NotEmpty(t, result.Banner, "the greeting still proves this is FTP; that reading moved to the banner")
 	require.True(t, result.TLSEnabled)
 	require.Equal(t, "timeout", result.ProbeError)
 	require.Len(t, result.Attempts, 3)
@@ -238,7 +240,9 @@ func TestProbeFTPDetails_ImplicitFTPS_SYSTFailureSetsPartialError(t *testing.T) 
 		IOTimeout:      800 * time.Millisecond,
 	})
 
-	require.True(t, result.FTPProbe)
+	require.False(t, result.FTPProbe,
+		"ftp_probe answers whether the probe succeeded, and this one reported banner_read_failed (cyprob#365)")
+	require.NotEmpty(t, result.Banner)
 	require.True(t, result.TLSEnabled)
 	require.Equal(t, "banner_read_failed", result.ProbeError)
 	require.Len(t, result.Attempts, 3)
@@ -303,7 +307,8 @@ func TestProbeFTPDetails_Plain_AFEATReadFailureReachesTheServiceError(t *testing
 		IOTimeout:      800 * time.Millisecond,
 	})
 
-	require.True(t, result.FTPProbe)
+	require.False(t, result.FTPProbe,
+		"ftp_probe answers whether the probe succeeded, and this one reported an error (cyprob#365)")
 	require.Equal(t, 220, result.GreetingCode, "the greeting has to succeed or this is testing the connect path instead")
 	require.Equal(t, "banner_read_failed", result.ProbeError,
 		"a FEAT read that died used to produce feat_failed, which pickTopFTPPartialError drops; the service then reported nothing")
