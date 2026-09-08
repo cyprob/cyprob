@@ -160,7 +160,7 @@ func TestClassifyRPCProbeError(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := classifyRPCProbeError(tt.err); got != tt.want {
+			if got := classifyRPCProbeError(tt.err); string(got) != tt.want {
 				t.Fatalf("classifyRPCProbeError() = %q, want %q", got, tt.want)
 			}
 		})

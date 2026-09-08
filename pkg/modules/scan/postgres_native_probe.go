@@ -308,8 +308,8 @@ func probePostgresDetails(ctx context.Context, target string, port int, opts Pos
 		start := time.Now()
 		if err := runPostgresStartup(probeCtx, target, port, opts, &result); err != nil {
 			code := classifyPostgresError(err)
-			errorCodes = append(errorCodes, code)
-			result.Attempts = append(result.Attempts, PostgresProbeAttempt{Strategy: "postgres-startup", Transport: "tcp", Success: false, DurationMS: time.Since(start).Milliseconds(), Error: code})
+			errorCodes = append(errorCodes, string(code))
+			result.Attempts = append(result.Attempts, PostgresProbeAttempt{Strategy: "postgres-startup", Transport: "tcp", Success: false, DurationMS: time.Since(start).Milliseconds(), Error: string(code)})
 			continue
 		}
 		result.Attempts = append(result.Attempts, PostgresProbeAttempt{Strategy: "postgres-startup", Transport: "tcp", Success: true, DurationMS: time.Since(start).Milliseconds()})
@@ -473,22 +473,22 @@ func extractPostgresCoreVersion(value string) string {
 	return ""
 }
 
-func classifyPostgresError(err error) string {
+func classifyPostgresError(err error) ProbeCode {
 	if err == nil {
 		return ""
 	}
 	msg := strings.ToLower(err.Error())
 	switch {
 	case strings.Contains(msg, "timeout") || strings.Contains(msg, "deadline exceeded") || strings.Contains(msg, "i/o timeout"):
-		return "timeout"
+		return ProbeCodeTimeout
 	case strings.Contains(msg, "protocol_mismatch"):
-		return "protocol_mismatch"
+		return ProbeCodeProtocolMismatch
 	case errors.Is(err, io.EOF) || strings.Contains(msg, "eof"):
-		return "probe_failed"
+		return ProbeCodeProbeFailed
 	case strings.Contains(msg, "refused"):
-		return "connect_failed"
+		return ProbeCodeConnectFailed
 	default:
-		return "probe_failed"
+		return ProbeCodeProbeFailed
 	}
 }
 

@@ -58,7 +58,7 @@ func dialRawTLSForServerHello(
 	dialer := &net.Dialer{Timeout: connectTimeout}
 	conn, err := dialer.DialContext(ctx, "tcp", net.JoinHostPort(target, strconv.Itoa(port)))
 	if err != nil {
-		return rawDialOutcome{Transport: classifyRawTransportError(err, "connect"), Err: err}
+		return rawDialOutcome{Transport: string(classifyRawTransportError(err, "connect")), Err: err}
 	}
 	defer func() { _ = conn.Close() }()
 
@@ -70,12 +70,12 @@ func dialRawTLSForServerHello(
 		return rawDialOutcome{Transport: "deadline_failed", Err: err}
 	}
 	if _, err := conn.Write(hello); err != nil {
-		return rawDialOutcome{Transport: classifyRawTransportError(err, "write"), Err: err}
+		return rawDialOutcome{Transport: string(classifyRawTransportError(err, "write")), Err: err}
 	}
 
 	flight, err := readRawServerFlight(&rawDeadlineReader{conn: conn, absolute: absolute})
 	if err != nil {
-		return rawDialOutcome{Flight: flight, Transport: classifyRawTransportError(err, "read"), Err: err}
+		return rawDialOutcome{Flight: flight, Transport: string(classifyRawTransportError(err, "read")), Err: err}
 	}
 	return rawDialOutcome{Flight: flight}
 }
@@ -108,35 +108,44 @@ func (r *rawDeadlineReader) Read(p []byte) (int, error) {
 // vocabulary a later reader needs to tell "the server ran out of suites" from
 // "the server stopped talking to us", which are indistinguishable in the
 // verdict alone.
-func classifyRawTransportError(err error, stage string) string {
+func classifyRawTransportError(err error, stage string) ProbeCode {
 	switch {
 	case err == nil:
 		return ""
 	case errors.Is(err, errRawNotTLS):
-		return "not_tls"
+		return ProbeCodeNotTLS
 	case errors.Is(err, errRawMalformed), errors.Is(err, errRawDuplicateExtension):
-		return "malformed"
+		return ProbeCodeMalformed
 	case errors.Is(err, errRawTooManyRecords), errors.Is(err, errRawTooManyBytes),
 		errors.Is(err, errRawNonAdvancingPeer), errors.Is(err, errRawTooManyExtensions):
-		return "peer_exceeded_budget"
+		return ProbeCodePeerExceededBudget
 	case errors.Is(err, io.EOF):
 		// A clean close at a record boundary. The server declined to answer,
 		// which is not the same as declining our suites.
-		return "eof_before_record"
+		return ProbeCodeEOFBeforeRecord
 	case errors.Is(err, io.ErrUnexpectedEOF):
-		return "eof_mid_record"
+		return ProbeCodeEOFMidRecord
 	case errors.Is(err, context.DeadlineExceeded):
-		return "read_deadline"
+		return ProbeCodeReadDeadline
 	}
 	var netErr net.Error
 	if errors.As(err, &netErr) && netErr.Timeout() {
 		if stage == "connect" {
-			return "connect_timeout"
+			return ProbeCodeConnectTimeout
 		}
-		return "read_deadline"
+		return ProbeCodeReadDeadline
 	}
-	if stage == "connect" {
-		return "connect_failed"
+	switch stage {
+	case "connect":
+		return ProbeCodeConnectFailed
+	case "write":
+		return ProbeCodeWriteFailed
+	case "read":
+		return ProbeCodeReadFailed
 	}
-	return stage + "_failed"
+	// A stage nobody named. Returning a code built by concatenation is what
+	// this replaces: it produced write_failed and read_failed, which no
+	// inventory of this package could see, because a synthesized code is
+	// invisible to any walk over literals or constants (cyprob-ee#461).
+	return ProbeCodeProbeFailed
 }

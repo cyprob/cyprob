@@ -545,13 +545,13 @@ func probeFTPPlainAndExplicitTLS(ctx context.Context, target string, hostname st
 		client, err := dialFTPPlain(ctx, target, port, opts)
 		if err != nil {
 			code := classifyFTPConnectError(err)
-			errorCodes = append(errorCodes, code)
+			errorCodes = append(errorCodes, string(code))
 			result.Attempts = append(result.Attempts, FTPProbeAttempt{
 				Strategy:   "ftp-connect",
 				Transport:  "tcp",
 				Success:    false,
 				DurationMS: 0,
-				Error:      code,
+				Error:      string(code),
 			})
 			continue
 		}
@@ -562,13 +562,13 @@ func probeFTPPlainAndExplicitTLS(ctx context.Context, target string, hostname st
 		if err != nil {
 			_ = client.close()
 			code := classifyFTPBannerError(err)
-			errorCodes = append(errorCodes, code)
+			errorCodes = append(errorCodes, string(code))
 			result.Attempts = append(result.Attempts, FTPProbeAttempt{
 				Strategy:   "ftp-greeting",
 				Transport:  "tcp",
 				Success:    false,
 				DurationMS: time.Since(greetingStart).Milliseconds(),
-				Error:      code,
+				Error:      string(code),
 			})
 			continue
 		}
@@ -670,9 +670,9 @@ func probeFTPPlainAndExplicitTLS(ctx context.Context, target string, hostname st
 						Transport:  "tcp+tls",
 						Success:    false,
 						DurationMS: time.Since(tlsStart).Milliseconds(),
-						Error:      code,
+						Error:      string(code),
 					})
-					attemptErrors = append(attemptErrors, code)
+					attemptErrors = append(attemptErrors, string(code))
 				} else {
 					result.Attempts = append(result.Attempts, FTPProbeAttempt{
 						Strategy:    "ftp-auth-tls",
@@ -710,13 +710,13 @@ func probeFTPSImplicitTLS(ctx context.Context, target string, hostname string, p
 		client, tlsObs, err := dialFTPTLS(ctx, target, hostname, port, opts)
 		if err != nil {
 			code := classifyFTPTLSError(err)
-			errorCodes = append(errorCodes, code)
+			errorCodes = append(errorCodes, string(code))
 			result.Attempts = append(result.Attempts, FTPProbeAttempt{
 				Strategy:   "ftps-implicit-tls",
 				Transport:  "tls",
 				Success:    false,
 				DurationMS: time.Since(start).Milliseconds(),
-				Error:      code,
+				Error:      string(code),
 			})
 			continue
 		}
@@ -725,13 +725,13 @@ func probeFTPSImplicitTLS(ctx context.Context, target string, hostname string, p
 		if err != nil {
 			_ = client.close()
 			code := classifyFTPBannerError(err)
-			errorCodes = append(errorCodes, code)
+			errorCodes = append(errorCodes, string(code))
 			result.Attempts = append(result.Attempts, FTPProbeAttempt{
 				Strategy:    "ftps-implicit-tls",
 				Transport:   "tls",
 				Success:     false,
 				DurationMS:  time.Since(start).Milliseconds(),
-				Error:       code,
+				Error:       string(code),
 				TLSVersion:  strings.TrimSpace(tlsObs.Version),
 				CipherSuite: strings.TrimSpace(tlsObs.CipherSuite),
 			})
@@ -778,7 +778,7 @@ func probeFTPSImplicitTLS(ctx context.Context, target string, hostname string, p
 		} else {
 			code := "feat_failed"
 			if featErr != nil {
-				code = classifyFTPBannerError(featErr)
+				code = string(classifyFTPBannerError(featErr))
 			}
 			result.Attempts = append(result.Attempts, FTPProbeAttempt{
 				Strategy:   "ftp-feat",
@@ -803,7 +803,7 @@ func probeFTPSImplicitTLS(ctx context.Context, target string, hostname string, p
 		} else {
 			code := "syst_failed"
 			if systErr != nil {
-				code = classifyFTPBannerError(systErr)
+				code = string(classifyFTPBannerError(systErr))
 			}
 			result.Attempts = append(result.Attempts, FTPProbeAttempt{
 				Strategy:   "ftp-syst",
@@ -1225,51 +1225,51 @@ func isFTPTimeoutError(err error) bool {
 	return strings.Contains(msg, "timeout") || strings.Contains(msg, "deadline exceeded") || strings.Contains(msg, "i/o timeout")
 }
 
-func classifyFTPConnectError(err error) string {
+func classifyFTPConnectError(err error) ProbeCode {
 	if err == nil {
 		return ""
 	}
 	if isFTPTimeoutError(err) {
-		return "timeout"
+		return ProbeCodeTimeout
 	}
-	return "connect_failed"
+	return ProbeCodeConnectFailed
 }
 
-func classifyFTPBannerError(err error) string {
+func classifyFTPBannerError(err error) ProbeCode {
 	if err == nil {
 		return ""
 	}
 	if isFTPTimeoutError(err) {
-		return "timeout"
+		return ProbeCodeTimeout
 	}
 	msg := strings.ToLower(err.Error())
 	switch {
 	case strings.Contains(msg, "protocol_mismatch"):
-		return "protocol_mismatch"
+		return ProbeCodeProtocolMismatch
 	case strings.Contains(msg, "banner_read_failed"), strings.Contains(msg, "eof"):
-		return "banner_read_failed"
+		return ProbeCodeBannerReadFailed
 	default:
-		return "banner_read_failed"
+		return ProbeCodeBannerReadFailed
 	}
 }
 
-func classifyFTPTLSError(err error) string {
+func classifyFTPTLSError(err error) ProbeCode {
 	if err == nil {
 		return ""
 	}
 	if isFTPTimeoutError(err) {
-		return "timeout"
+		return ProbeCodeTimeout
 	}
 	msg := strings.ToLower(err.Error())
 	switch {
 	case strings.Contains(msg, "connection refused"):
-		return "connect_failed"
+		return ProbeCodeConnectFailed
 	case strings.Contains(msg, "auth_tls_failed"):
-		return "auth_tls_failed"
+		return ProbeCodeAuthTLSFailed
 	case strings.Contains(msg, "tls"), strings.Contains(msg, "handshake"):
-		return "tls_handshake_failed"
+		return ProbeCodeTLSHandshakeFailed
 	default:
-		return "tls_handshake_failed"
+		return ProbeCodeTLSHandshakeFailed
 	}
 }
 

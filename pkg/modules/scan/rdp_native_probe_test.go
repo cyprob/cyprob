@@ -137,7 +137,7 @@ func TestClassifyRDPProbeError(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := classifyRDPProbeError(tt.err); got != tt.want {
+			if got := classifyRDPProbeError(tt.err); string(got) != tt.want {
 				t.Fatalf("classifyRDPProbeError() = %q, want %q", got, tt.want)
 			}
 		})

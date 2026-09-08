@@ -285,5 +285,5 @@ func assertWINRMIdentifyRequest(t *testing.T, r *http.Request, expectedHost stri
 
 func TestClassifyWINRMProbeError_TLSHandshake(t *testing.T) {
 	err := &net.OpError{Err: errorString("tls: handshake failure")}
-	require.Equal(t, "tls_handshake_failed", classifyWINRMProbeError(err))
+	require.Equal(t, "tls_handshake_failed", string(classifyWINRMProbeError(err)))
 }

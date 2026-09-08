@@ -593,7 +593,7 @@ func (m *BannerGrabModule) runConnectTunnelOriginRetry(ctx context.Context, dial
 	conn, err := dialer.DialContext(ctx, "tcp", address)
 	if err != nil {
 		obs.Duration = time.Since(start)
-		obs.Error = classifyConnectTunnelError(err)
+		obs.Error = string(classifyConnectTunnelError(err))
 		return obs
 	}
 	defer func() { _ = conn.Close() }()
@@ -601,13 +601,13 @@ func (m *BannerGrabModule) runConnectTunnelOriginRetry(ctx context.Context, dial
 	reader := bufio.NewReader(conn)
 	if err := conn.SetWriteDeadline(time.Now().Add(m.effectiveTimeout(ctx, m.config.ConnectTimeout))); err != nil {
 		obs.Duration = time.Since(start)
-		obs.Error = classifyConnectTunnelError(err)
+		obs.Error = string(classifyConnectTunnelError(err))
 		return obs
 	}
 
 	if _, err := conn.Write([]byte(buildConnectRequest(originHost, port))); err != nil {
 		obs.Duration = time.Since(start)
-		obs.Error = classifyConnectTunnelError(err)
+		obs.Error = string(classifyConnectTunnelError(err))
 		return obs
 	}
 
@@ -617,7 +617,7 @@ func (m *BannerGrabModule) runConnectTunnelOriginRetry(ctx context.Context, dial
 			obs.Response = strings.TrimSpace(connectResp)
 		}
 		obs.Duration = time.Since(start)
-		obs.Error = classifyConnectTunnelError(err)
+		obs.Error = string(classifyConnectTunnelError(err))
 		return obs
 	}
 	if !analysis.IsHTTP {
@@ -633,7 +633,7 @@ func (m *BannerGrabModule) runConnectTunnelOriginRetry(ctx context.Context, dial
 			obs.Response = strings.TrimSpace(connectResp)
 		}
 		obs.Duration = time.Since(start)
-		obs.Error = classifyConnectTunnelStatus(analysis.StatusCode)
+		obs.Error = string(classifyConnectTunnelStatus(analysis.StatusCode))
 		return obs
 	}
 
@@ -644,12 +644,12 @@ func (m *BannerGrabModule) runConnectTunnelOriginRetry(ctx context.Context, dial
 	})
 	if err := tlsConn.SetDeadline(time.Now().Add(m.effectiveTimeout(ctx, m.config.ReadTimeout))); err != nil {
 		obs.Duration = time.Since(start)
-		obs.Error = classifyConnectTunnelError(err)
+		obs.Error = string(classifyConnectTunnelError(err))
 		return obs
 	}
 	if err := tlsConn.HandshakeContext(ctx); err != nil {
 		obs.Duration = time.Since(start)
-		obs.Error = classifyConnectTunnelError(err)
+		obs.Error = string(classifyConnectTunnelError(err))
 		return obs
 	}
 	obs.TLS = extractTLSObservation(tlsConn.ConnectionState())
@@ -657,7 +657,7 @@ func (m *BannerGrabModule) runConnectTunnelOriginRetry(ctx context.Context, dial
 
 	if _, err := tlsConn.Write([]byte(buildCanonicalGETRequest(originHost))); err != nil {
 		obs.Duration = time.Since(start)
-		obs.Error = classifyConnectTunnelError(err)
+		obs.Error = string(classifyConnectTunnelError(err))
 		return obs
 	}
 	resp, err := m.readProbeResponse(ctx, tlsConn)
@@ -666,7 +666,7 @@ func (m *BannerGrabModule) runConnectTunnelOriginRetry(ctx context.Context, dial
 		obs.Response = strings.TrimSpace(resp)
 	}
 	if err != nil && err != io.EOF {
-		obs.Error = classifyConnectTunnelError(err)
+		obs.Error = string(classifyConnectTunnelError(err))
 		return obs
 	}
 	if obs.Response == "" {
@@ -1351,27 +1351,27 @@ func buildConnectRequest(host string, port int) string {
 	}, "\r\n")
 }
 
-func classifyConnectTunnelError(err error) string {
+func classifyConnectTunnelError(err error) ProbeCode {
 	if err == nil {
 		return ""
 	}
 	msg := strings.ToLower(err.Error())
 	switch {
 	case strings.Contains(msg, "timeout"), strings.Contains(msg, "deadline exceeded"):
-		return "connect_timeout"
+		return ProbeCodeConnectTimeout
 	case strings.Contains(msg, "connection refused"):
-		return "connect_refused"
+		return ProbeCodeConnectRefused
 	default:
-		return "connect_tunnel_failed"
+		return ProbeCodeConnectTunnelFailed
 	}
 }
 
-func classifyConnectTunnelStatus(statusCode int) string {
+func classifyConnectTunnelStatus(statusCode int) ProbeCode {
 	switch statusCode {
 	case http.StatusForbidden, http.StatusMethodNotAllowed, http.StatusProxyAuthRequired:
-		return "connect_refused"
+		return ProbeCodeConnectRefused
 	default:
-		return "connect_tunnel_failed"
+		return ProbeCodeConnectTunnelFailed
 	}
 }
 

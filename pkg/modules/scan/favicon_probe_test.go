@@ -176,13 +176,13 @@ func TestProbeFavicon_RetriesOnceOnTransportFailure(t *testing.T) {
 // operator needs is which failure it was.
 func TestClassifyFaviconError(t *testing.T) {
 	require.Empty(t, classifyFaviconError(nil))
-	require.Equal(t, "timeout", classifyFaviconError(context.DeadlineExceeded))
-	require.Equal(t, "canceled", classifyFaviconError(context.Canceled))
-	require.Equal(t, "connection_refused", classifyFaviconError(errors.New("dial tcp 192.0.2.1:80: connect: connection refused")))
-	require.Equal(t, "connection_reset", classifyFaviconError(errors.New("read tcp: connection reset by peer")))
-	require.Equal(t, "no_route", classifyFaviconError(errors.New("dial tcp: no route to host")))
-	require.Equal(t, "tls_error", classifyFaviconError(errors.New("remote error: tls: handshake failure")))
-	require.Equal(t, "no_response", classifyFaviconError(errors.New("something else entirely")))
+	require.Equal(t, "timeout", string(classifyFaviconError(context.DeadlineExceeded)))
+	require.Equal(t, "canceled", string(classifyFaviconError(context.Canceled)))
+	require.Equal(t, "connection_refused", string(classifyFaviconError(errors.New("dial tcp 192.0.2.1:80: connect: connection refused"))))
+	require.Equal(t, "connection_reset", string(classifyFaviconError(errors.New("read tcp: connection reset by peer"))))
+	require.Equal(t, "no_route", string(classifyFaviconError(errors.New("dial tcp: no route to host"))))
+	require.Equal(t, "tls_error", string(classifyFaviconError(errors.New("remote error: tls: handshake failure"))))
+	require.Equal(t, "no_response", string(classifyFaviconError(errors.New("something else entirely"))))
 }
 
 // A successful first attempt must not pay the retry delay.

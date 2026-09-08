@@ -373,7 +373,7 @@ func probeTelnetAttempt(ctx context.Context, target string, port int, opts Telne
 	dialer := net.Dialer{Timeout: opts.ConnectTimeout}
 	conn, err := dialer.DialContext(ctx, "tcp", net.JoinHostPort(target, strconv.Itoa(port)))
 	if err != nil {
-		attempt.Error = classifyTelnetConnectError(err)
+		attempt.Error = string(classifyTelnetConnectError(err))
 		return attempt, nil, attempt.Error
 	}
 	defer conn.Close()
@@ -384,7 +384,7 @@ func probeTelnetAttempt(ctx context.Context, target string, port int, opts Telne
 
 	payload, readErr := readTelnetPayload(conn, telnetTranscriptMaxBytes)
 	if len(payload) == 0 && readErr != nil {
-		attempt.Error = classifyTelnetReadError(readErr)
+		attempt.Error = string(classifyTelnetReadError(readErr))
 		return attempt, nil, attempt.Error
 	}
 
@@ -619,27 +619,27 @@ func telnetOptionName(option byte) string {
 	}
 }
 
-func classifyTelnetReadError(err error) string {
+func classifyTelnetReadError(err error) ProbeCode {
 	if err == nil {
 		return ""
 	}
 	if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-		return "timeout"
+		return ProbeCodeTimeout
 	}
 	if errors.Is(err, io.EOF) {
-		return "protocol_mismatch"
+		return ProbeCodeProtocolMismatch
 	}
-	return "probe_failed"
+	return ProbeCodeProbeFailed
 }
 
-func classifyTelnetConnectError(err error) string {
+func classifyTelnetConnectError(err error) ProbeCode {
 	if err == nil {
 		return ""
 	}
 	if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-		return "timeout"
+		return ProbeCodeTimeout
 	}
-	return "connect_failed"
+	return ProbeCodeConnectFailed
 }
 
 func isRetryableTelnetError(code string) bool {

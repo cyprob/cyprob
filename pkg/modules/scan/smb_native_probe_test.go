@@ -75,7 +75,7 @@ func TestClassifySMBProbeError(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := classifySMBProbeError(tt.err); got != tt.want {
+			if got := classifySMBProbeError(tt.err); string(got) != tt.want {
 				t.Fatalf("classifySMBProbeError() = %q, want %q", got, tt.want)
 			}
 		})

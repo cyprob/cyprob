@@ -508,13 +508,13 @@ func probeRPCFollowupDetails(ctx context.Context, target string, port int, deriv
 		dur := time.Since(start)
 		if err != nil {
 			code := classifyRPCProbeError(err)
-			allErrors = append(allErrors, code)
+			allErrors = append(allErrors, string(code))
 			result.Attempts = append(result.Attempts, RPCProbeAttempt{
 				Strategy:   "rpc-mgmt-bind",
 				Transport:  strconv.Itoa(port),
 				Success:    false,
 				DurationMS: dur.Milliseconds(),
-				Error:      code,
+				Error:      string(code),
 			})
 			continue
 		}

@@ -384,13 +384,13 @@ func probeSSHDetails(ctx context.Context, target string, port int, opts SSHProbe
 		outcome, err := probeSSHBanner(probeCtx, target, port, opts)
 		if err != nil {
 			code := classifySSHProbeError(err)
-			bannerErrors = append(bannerErrors, code)
+			bannerErrors = append(bannerErrors, string(code))
 			result.Attempts = append(result.Attempts, SSHProbeAttempt{
 				Strategy:   "banner-read",
 				Transport:  strconv.Itoa(port),
 				Success:    false,
 				DurationMS: outcome.duration.Milliseconds(),
-				Error:      code,
+				Error:      string(code),
 			})
 			continue
 		}
@@ -428,13 +428,13 @@ func probeSSHDetails(ctx context.Context, target string, port int, opts SSHProbe
 		outcome, err := probeSSHKEXInit(probeCtx, target, port, opts)
 		if err != nil {
 			code := classifySSHProbeError(err)
-			kexErrors = append(kexErrors, code)
+			kexErrors = append(kexErrors, string(code))
 			result.Attempts = append(result.Attempts, SSHProbeAttempt{
 				Strategy:   "kexinit-capture",
 				Transport:  strconv.Itoa(port),
 				Success:    false,
 				DurationMS: outcome.duration.Milliseconds(),
-				Error:      code,
+				Error:      string(code),
 			})
 			continue
 		}
@@ -824,7 +824,7 @@ func mergeSSHNameLists(primary, secondary []string) []string {
 	return merged
 }
 
-func classifySSHProbeError(err error) string {
+func classifySSHProbeError(err error) ProbeCode {
 	if err == nil {
 		return ""
 	}
@@ -832,17 +832,17 @@ func classifySSHProbeError(err error) string {
 	msg := strings.ToLower(err.Error())
 	switch {
 	case strings.Contains(msg, "timeout"), strings.Contains(msg, "deadline exceeded"), strings.Contains(msg, "i/o timeout"):
-		return "timeout"
+		return ProbeCodeTimeout
 	case strings.Contains(msg, "connection refused"):
-		return "refused"
+		return ProbeCodeRefused
 	case strings.Contains(msg, "no_banner"):
-		return "no_banner"
+		return ProbeCodeNoBanner
 	case strings.Contains(msg, "kex_parse_failed"):
-		return "kex_parse_failed"
+		return ProbeCodeKEXParseFailed
 	case strings.Contains(msg, "protocol_error"):
-		return "protocol_error"
+		return ProbeCodeProtocolError
 	default:
-		return "probe_failed"
+		return ProbeCodeProbeFailed
 	}
 }
 

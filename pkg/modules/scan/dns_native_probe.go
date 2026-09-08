@@ -38,12 +38,12 @@ type DNSProbeOptions struct {
 }
 
 type DNSProbeAttempt struct {
-	Strategy    string `json:"strategy"`
-	Transport   string `json:"transport"`
-	Success     bool   `json:"success"`
-	DurationMS  int64  `json:"duration_ms"`
+	Strategy     string `json:"strategy"`
+	Transport    string `json:"transport"`
+	Success      bool   `json:"success"`
+	DurationMS   int64  `json:"duration_ms"`
 	ResponseCode string `json:"response_code,omitempty"`
-	Error       string `json:"error,omitempty"`
+	Error        string `json:"error,omitempty"`
 }
 
 type DNSServiceInfo struct {
@@ -93,11 +93,11 @@ type dnsQueryResponse struct {
 }
 
 type dnsAttemptPlan struct {
-	strategy   string
-	name       string
-	qtype      dnsmessage.Type
-	class      dnsmessage.Class
-	recursion  bool
+	strategy  string
+	name      string
+	qtype     dnsmessage.Type
+	class     dnsmessage.Class
+	recursion bool
 }
 
 var (
@@ -396,14 +396,14 @@ func executeDNSAttempt(
 	}
 	if err != nil {
 		attempt.DurationMS = time.Since(start).Milliseconds()
-		attempt.Error = classifyDNSAttemptError(err, transport)
+		attempt.Error = string(classifyDNSAttemptError(err, transport))
 		return dnsQueryResponse{}, attempt, err
 	}
 
 	response, err := parseDNSResponse(responsePacket, queryID, plan)
 	attempt.DurationMS = time.Since(start).Milliseconds()
 	if err != nil {
-		attempt.Error = classifyDNSParseError(responsePacket, err)
+		attempt.Error = string(classifyDNSParseError(responsePacket, err))
 		return dnsQueryResponse{}, attempt, err
 	}
 
@@ -642,40 +642,40 @@ func selectDNSPrimaryResponse(versionResponse, nsResponse, firstValid *dnsQueryR
 	return firstValid
 }
 
-func classifyDNSAttemptError(err error, transport string) string {
+func classifyDNSAttemptError(err error, transport string) ProbeCode {
 	switch {
 	case err == nil:
 		return ""
 	case errors.Is(err, errDNSNoResponse):
-		return "no_response"
+		return ProbeCodeNoResponse
 	case errors.Is(err, context.DeadlineExceeded):
-		return "timeout"
+		return ProbeCodeTimeout
 	case isTimeoutError(err):
 		if transport == dnsTransportUDP {
-			return "no_response"
+			return ProbeCodeNoResponse
 		}
-		return "timeout"
+		return ProbeCodeTimeout
 	case errors.Is(err, errDNSMismatch):
-		return "protocol_mismatch"
+		return ProbeCodeProtocolMismatch
 	case strings.Contains(strings.ToLower(err.Error()), "connect:"):
-		return "connect_failed"
+		return ProbeCodeConnectFailed
 	case strings.Contains(strings.ToLower(err.Error()), "connection refused"):
-		return "connect_failed"
+		return ProbeCodeConnectFailed
 	default:
-		return "query_failed"
+		return ProbeCodeQueryFailed
 	}
 }
 
-func classifyDNSParseError(packet []byte, err error) string {
+func classifyDNSParseError(packet []byte, err error) ProbeCode {
 	switch {
 	case err == nil:
 		return ""
 	case errors.Is(err, errDNSMismatch):
-		return "protocol_mismatch"
+		return ProbeCodeProtocolMismatch
 	case len(packet) < 12:
-		return "protocol_mismatch"
+		return ProbeCodeProtocolMismatch
 	default:
-		return "decode_error"
+		return ProbeCodeDecodeError
 	}
 }
 

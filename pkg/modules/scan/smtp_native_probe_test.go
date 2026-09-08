@@ -212,7 +212,7 @@ func TestClassifySMTPProbeError(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := classifySMTPProbeError(tt.err); got != tt.want {
+			if got := classifySMTPProbeError(tt.err); string(got) != tt.want {
 				t.Fatalf("classifySMTPProbeError() = %q, want %q", got, tt.want)
 			}
 		})

@@ -217,7 +217,7 @@ func TestClassifyTLSProbeError(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := classifyTLSProbeError(tt.err); got != tt.want {
+			if got := classifyTLSProbeError(tt.err); string(got) != tt.want {
 				t.Fatalf("classifyTLSProbeError() = %q, want %q", got, tt.want)
 			}
 		})

@@ -468,13 +468,13 @@ func probeMySQLDetails(ctx context.Context, target string, hostname string, port
 		conn, err := dialMySQLPlain(probeCtx, target, port, opts)
 		if err != nil {
 			code := classifyMySQLConnectError(err)
-			errorCodes = append(errorCodes, code)
+			errorCodes = append(errorCodes, string(code))
 			result.Attempts = append(result.Attempts, MySQLProbeAttempt{
 				Strategy:   "mysql-greeting",
 				Transport:  "tcp",
 				Success:    false,
 				DurationMS: time.Since(start).Milliseconds(),
-				Error:      code,
+				Error:      string(code),
 			})
 			continue
 		}
@@ -483,13 +483,13 @@ func probeMySQLDetails(ctx context.Context, target string, hostname string, port
 		if err != nil {
 			_ = conn.Close()
 			code := classifyMySQLReadError(err)
-			errorCodes = append(errorCodes, code)
+			errorCodes = append(errorCodes, string(code))
 			result.Attempts = append(result.Attempts, MySQLProbeAttempt{
 				Strategy:   "mysql-greeting",
 				Transport:  "tcp",
 				Success:    false,
 				DurationMS: time.Since(start).Milliseconds(),
-				Error:      code,
+				Error:      string(code),
 			})
 			continue
 		}
@@ -527,9 +527,9 @@ func probeMySQLDetails(ctx context.Context, target string, hostname string, port
 						Transport:  "tcp+tls",
 						Success:    false,
 						DurationMS: time.Since(tlsStart).Milliseconds(),
-						Error:      code,
+						Error:      string(code),
 					})
-					result.ProbeError = pickTopMySQLPartialError([]string{code})
+					result.ProbeError = pickTopMySQLPartialError([]string{string(code)})
 					_ = conn.Close()
 					return result
 				}
@@ -857,40 +857,40 @@ func isMySQLPrintableText(value string) bool {
 	return true
 }
 
-func classifyMySQLConnectError(err error) string {
+func classifyMySQLConnectError(err error) ProbeCode {
 	if err == nil {
 		return ""
 	}
 	if isMySQLTimeoutError(err) {
-		return "timeout"
+		return ProbeCodeTimeout
 	}
-	return "connect_failed"
+	return ProbeCodeConnectFailed
 }
 
-func classifyMySQLReadError(err error) string {
+func classifyMySQLReadError(err error) ProbeCode {
 	if err == nil {
 		return ""
 	}
 	if isMySQLTimeoutError(err) {
-		return "timeout"
+		return ProbeCodeTimeout
 	}
 	if errors.Is(err, io.EOF) {
-		return "probe_failed"
+		return ProbeCodeProbeFailed
 	}
 	if strings.Contains(strings.ToLower(err.Error()), "protocol_mismatch") {
-		return "protocol_mismatch"
+		return ProbeCodeProtocolMismatch
 	}
-	return "probe_failed"
+	return ProbeCodeProbeFailed
 }
 
-func classifyMySQLTLSError(err error) string {
+func classifyMySQLTLSError(err error) ProbeCode {
 	if err == nil {
 		return ""
 	}
 	if isMySQLTimeoutError(err) {
-		return "timeout"
+		return ProbeCodeTimeout
 	}
-	return "tls_handshake_failed"
+	return ProbeCodeTLSHandshakeFailed
 }
 
 func isMySQLTimeoutError(err error) bool {

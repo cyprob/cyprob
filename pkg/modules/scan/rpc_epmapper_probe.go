@@ -284,13 +284,13 @@ func probeRPCEpmapperDetails(ctx context.Context, target string, port int, opts 
 		dur := time.Since(start)
 		if err != nil {
 			code := classifyRPCProbeError(err)
-			allErrors = append(allErrors, code)
+			allErrors = append(allErrors, string(code))
 			result.Attempts = append(result.Attempts, RPCProbeAttempt{
 				Strategy:   "epmapper-bind-lookup",
 				Transport:  strconv.Itoa(port),
 				Success:    false,
 				DurationMS: dur.Milliseconds(),
-				Error:      code,
+				Error:      string(code),
 			})
 			continue
 		}

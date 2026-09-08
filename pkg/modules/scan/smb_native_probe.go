@@ -417,13 +417,13 @@ func probeSMBDetails(ctx context.Context, target string, port int, opts SMBProbe
 			neg, enum, err := probeSingleSMBStrategy(probeCtx, target, strategy, opts)
 			if err != nil {
 				errCode := classifySMBProbeError(err)
-				attemptErrors = append(attemptErrors, errCode)
+				attemptErrors = append(attemptErrors, string(errCode))
 				result.Attempts = append(result.Attempts, SMBProbeAttempt{
 					Strategy:   strategy.name,
 					Transport:  strconv.Itoa(strategy.transport),
 					Success:    false,
 					DurationMS: neg.duration.Milliseconds(),
-					Error:      errCode,
+					Error:      string(errCode),
 				})
 				continue
 			}
@@ -465,7 +465,7 @@ func probeSMBDetails(ctx context.Context, target string, port int, opts SMBProbe
 					}
 					continue
 				}
-				result.Error = classifySMBProbeError(enum.err)
+				result.Error = string(classifySMBProbeError(enum.err))
 				continue
 			}
 
@@ -1208,32 +1208,32 @@ func dialectToProtocolVersion(dialect uint16) string {
 	}
 }
 
-func classifySMBProbeError(err error) string {
+func classifySMBProbeError(err error) ProbeCode {
 	if err == nil {
 		return ""
 	}
 	msg := strings.ToLower(err.Error())
 	switch {
 	case strings.Contains(msg, "timeout"), strings.Contains(msg, "deadline exceeded"), strings.Contains(msg, "i/o timeout"):
-		return "timeout"
+		return ProbeCodeTimeout
 	case strings.Contains(msg, "refused"):
-		return "refused"
+		return ProbeCodeRefused
 	case strings.Contains(msg, "ntlm_challenge_not_found"):
-		return "ntlm_challenge_not_found"
+		return ProbeCodeNTLMChallengeNotFound
 	case strings.Contains(msg, "enum_not_supported_for_smb1"):
-		return "enum_not_supported"
+		return ProbeCodeEnumNotSupported
 	case strings.Contains(msg, "smb2_negotiate_status"):
-		return "smb2_negotiate_failed"
+		return ProbeCodeSMB2NegotiateFailed
 	case strings.Contains(msg, "invalid_smb2_dialect"):
-		return "invalid_smb2_dialect"
+		return ProbeCodeInvalidSMB2Dialect
 	case strings.Contains(msg, "unexpected_smb2_command"):
-		return "unexpected_smb2_command"
+		return ProbeCodeUnexpectedSMB2Command
 	case strings.Contains(msg, "session_setup_status"):
-		return "session_setup_failed"
+		return ProbeCodeSessionSetupFailed
 	case strings.Contains(msg, "short"):
-		return "short_response"
+		return ProbeCodeShortResponse
 	default:
-		return "probe_failed"
+		return ProbeCodeProbeFailed
 	}
 }
 

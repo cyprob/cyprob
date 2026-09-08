@@ -249,24 +249,24 @@ func isAppleModelIdentifier(model string) bool {
 	return false
 }
 
-func classifyMDNSError(err error) string {
+func classifyMDNSError(err error) ProbeCode {
 	if err == nil {
 		return ""
 	}
 	if errors.Is(err, errMDNSNoResponse) || errors.Is(err, context.DeadlineExceeded) {
-		return "no_response"
+		return ProbeCodeNoResponse
 	}
 	var netErr net.Error
 	if errors.As(err, &netErr) && netErr.Timeout() {
-		return "no_response"
+		return ProbeCodeNoResponse
 	}
 	message := strings.ToLower(strings.TrimSpace(err.Error()))
 	switch {
 	case strings.Contains(message, "refused"):
-		return "refused"
+		return ProbeCodeRefused
 	case strings.Contains(message, "timeout"), strings.Contains(message, "no response"):
-		return "no_response"
+		return ProbeCodeNoResponse
 	default:
-		return "probe_failed"
+		return ProbeCodeProbeFailed
 	}
 }
