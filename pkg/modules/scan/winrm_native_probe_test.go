@@ -199,7 +199,9 @@ func TestProbeWINRMDetails_Weak401IsFailure(t *testing.T) {
 // cyprob#371. The probe already worked out that this is not WinRM --
 // isConfirmedWINRM401 tests four things and a foreign Server header fails the
 // second -- and then reported it as a reading failure. A Lenovo IMM on 5985 is
-// the measured instance: 2 of 117 records on 10.20.29.252.
+// the measured instance: 2 of 117 winrm blocks in task_inbox.result on the
+// appliance 10.20.30.252. See classifyWINRMNonAnswer's comment for why the
+// store is named -- the same population counts 113 and 719 in the other two.
 //
 // The pairing with TestProbeWINRMDetails_Weak401IsFailure above is the point.
 // That one is a Microsoft-HTTPAPI host whose 401 could not be confirmed, and it
