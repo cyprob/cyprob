@@ -197,6 +197,32 @@ func TestProbeNBNSDetails_ResolvesVendorFromAdapterMAC(t *testing.T) {
 	require.Empty(t, info.ProbeError)
 }
 
+// A reply that arrived and could not be read is not a success. It used to be:
+// nbns_probe was set the moment bytes came back, and EE's consumer reads that
+// flag to choose succeeded++ over failed++, so an unparseable reply was counted
+// as a probe that worked (cyprob#367, measured on 10.20.30.252).
+//
+// The pairing with TestProbeNBNSDetails_ResolvesVendorFromAdapterMAC above is
+// the point: a reply that parses still sets the flag. Only the unreadable one
+// changed.
+func TestProbeNBNSDetails_AnUnreadableReplyIsNotASuccess(t *testing.T) {
+	original := nbnsExchangeFunc
+	defer func() { nbnsExchangeFunc = original }()
+	// Bytes arrive, and they are not a node status response.
+	nbnsExchangeFunc = func(context.Context, string, int, []byte, time.Duration) ([]byte, error) {
+		return []byte{0x00, 0x01, 0x02, 0x03}, nil
+	}
+
+	info := probeNBNSDetails(context.Background(), "192.0.2.10", nbnsPort, defaultNBNSProbeOptions())
+
+	require.False(t, info.NBNSProbe,
+		"nbns_probe answers whether the probe succeeded; this reply could not be read")
+	require.NotEmpty(t, info.ProbeError, "and the reason has to survive, since nothing else does")
+	require.Empty(t, info.Names)
+	require.Empty(t, info.MACAddress)
+	require.Empty(t, info.ComputerName)
+}
+
 func TestProbeNBNSDetails_NoResponseIsNotAnIdentity(t *testing.T) {
 	info := probeNBNSDetails(context.Background(), "192.0.2.1", nbnsPort,
 		NBNSProbeOptions{TotalTimeout: 300 * time.Millisecond, IOTimeout: 200 * time.Millisecond})
