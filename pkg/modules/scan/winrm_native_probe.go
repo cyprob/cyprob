@@ -631,12 +631,21 @@ func canonicalWINRMAuthScheme(value string) string {
 // So the answer is a third code, and it is emitted narrowly. The discriminator
 // is a Server header naming something else -- positive evidence of another
 // service -- not the mere absence of a WinRM signal. That distinction is what
-// the field says to draw: on 10.20.29.252 of 117 records 115 carry
-// Microsoft-HTTPAPI/2.0 and failed isConfirmedWINRM401 on one of its other three
-// conditions, and 2 carry "Lenovo IMM2 Web Server". Only the second pair is
+// the field says to draw. Measured on the appliance 10.20.30.252, counting
+// winrm blocks in task_inbox.result -> services -> native_probe_data, which is
+// the raw scan result: of 117 blocks, 115 carry Microsoft-HTTPAPI/2.0 and failed
+// isConfirmedWINRM401 on one of its other three conditions, and 2 carry
+// "Lenovo IMM2 Web Server". Only the second pair is
 // "not WinRM"; the first 115 are a WinRM-shaped host whose 401 we could not
 // confirm, and calling those not_winrm would be a worse claim than the one being
 // fixed.
+//
+// The store is part of that count, not context for it. The same population is
+// 113 blocks in scan_findings.details.native_probe_data and 719 rows in
+// plugin_execution_results.target_metadata (one per scan x service x plugin);
+// all three describe 9 services on 8 hosts. The 117/113 gap is 4 blocks from two
+// scans whose rows were deleted -- scan_findings went with them, the raw result
+// did not. Re-measured 2026-09-09.
 func classifyWINRMNonAnswer(result winrmHTTPResult) ProbeCode {
 	if result.statusCode == http.StatusUnauthorized {
 		if server := strings.ToLower(strings.TrimSpace(result.serverHeader)); server != "" &&

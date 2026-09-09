@@ -1314,7 +1314,7 @@ func classifyFTPTLSError(err error) ProbeCode {
 // it set the flag as soon as the 220 greeting arrived, so ftp_probe could be
 // true while probe_error was filled, and ftp_probe meant something its own
 // name-family did not (cyprob#365). nbns is the other and is left alone: its
-// probe leaves no payload at all on 10.20.29.252, so changing its behavior
+// probe leaves no payload at all on 10.20.30.252, so changing its behavior
 // would be changing something nobody can measure (cyprob#367).
 //
 // The greeting is still what proves this is FTP -- that reading did not go
