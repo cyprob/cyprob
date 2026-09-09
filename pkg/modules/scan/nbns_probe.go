@@ -248,13 +248,27 @@ func probeNBNSDetails(ctx context.Context, target string, port int, opts NBNSPro
 		info.ProbeError = err.Error()
 		return info
 	}
-	info.NBNSProbe = true
-
 	names, mac, err := parseNBNSNodeStatus(response)
 	if err != nil {
+		// A reply arrived and could not be read. nbns_probe stays false, which
+		// is what the flag means in fourteen of the sixteen native probes: the
+		// probe succeeded, not "something answered" (cyprob#365).
+		//
+		// It used to be set the moment bytes came back, one line above this,
+		// and EE's consumer reads the flag to decide succeeded++ versus
+		// failed++ -- so an unparseable reply was counted as a success
+		// (cyprob#367). Nothing else survives this path: no Names, no
+		// MACAddress, no VendorHint. The flag was the only trace, and it said
+		// the opposite of what happened.
+		//
+		// The evidence is not lost with it: cyprob-ee#531 attaches ProbeError
+		// to the service entry when one exists, so "something answered on 137
+		// and we could not read it" is now carried by the reason rather than by
+		// a flag that has to lie to carry it.
 		info.ProbeError = err.Error()
 		return info
 	}
+	info.NBNSProbe = true
 	info.Names = names
 	info.MACAddress = mac
 	if mac != "" {
