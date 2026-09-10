@@ -65,6 +65,7 @@ var reportedFieldWritesOutsideTheRegistry = map[string]string{
 	"probeIPMIDetails: literal \"invalid_port\"":                                           "our own input validation; scanner-side",
 	"probeSMBDetails: literal \"enum_failed\"":                                             "the share enumeration step failed after a successful negotiate; distinct from enum_not_supported",
 	"runCommandProbe: literal \"print_port_write_blocked\"":                                "a refusal to write to a printer port, which is our policy rather than the target's behavior",
+	"probeTLSDetails: literal \"print_port_write_blocked\"":                                "the same refusal at the TLS probe's own floor; that module builds its own connections and never passes through runCommandProbe",
 	"runRedirectProbe: literal \"redirect_budget_exceeded\"":                               "our own budget; scanner-side",
 	"followHTTPRedirects: literal \"redirect_budget_exceeded\"":                            "the same budget, spelled at a second site",
 	"fetchSSDPDescription: literal \"description unreadable\"":                             "prose, not a code -- and the bucket whose name it contains is not the bucket it belongs to",
