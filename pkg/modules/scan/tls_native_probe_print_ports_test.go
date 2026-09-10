@@ -22,7 +22,7 @@ func printPortTestOptions() TLSProbeOptions {
 	}
 }
 
-// countingListener accepts and counts, and answers nothing — the behaviour of a
+// countingListener accepts and counts, and answers nothing — the behavior of a
 // raw print port, which consumes bytes and never replies.
 func countingListener(t *testing.T, port int) (*net.TCPAddr, *atomic.Int64) {
 	t.Helper()
@@ -54,7 +54,7 @@ func TestProbeTLSDetailsNeverDialsAPrintPort(t *testing.T) {
 	info := probeTLSDetails(context.Background(), "127.0.0.1", "", addr.Port, printPortTestOptions())
 
 	if got := conns.Load(); got != 0 {
-		t.Fatalf("print port %d was dialled %d time(s); the payload must not reach it", addr.Port, got)
+		t.Fatalf("print port %d was dialed %d time(s); the payload must not reach it", addr.Port, got)
 	}
 	if info.ProbeError != "print_port_write_blocked" {
 		t.Fatalf("probe_error = %q, want %q", info.ProbeError, "print_port_write_blocked")
@@ -72,7 +72,7 @@ func TestProbeTLSDetailsStillDialsAnOrdinaryPort(t *testing.T) {
 	_ = probeTLSDetails(context.Background(), "127.0.0.1", "", addr.Port, printPortTestOptions())
 
 	if conns.Load() == 0 {
-		t.Fatalf("ordinary port %d was never dialled; the test proves nothing about the print-port case", addr.Port)
+		t.Fatalf("ordinary port %d was never dialed; the test proves nothing about the print-port case", addr.Port)
 	}
 }
 
