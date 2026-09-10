@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/cyprob/cyprob/pkg/engine"
+	"github.com/cyprob/cyprob/pkg/fingerprint"
 	"github.com/cyprob/cyprob/pkg/modules/discovery"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cast"
@@ -306,9 +307,19 @@ func buildTLSCandidatePortSet(extraPorts []int) map[int]struct{} {
 		9443: {},
 	}
 	for _, port := range extraPorts {
-		if port > 0 && port <= 65535 {
-			set[port] = struct{}{}
+		if port <= 0 || port > 65535 {
+			continue
 		}
+		// extra_ports is whatever the caller scanned, not a list of ports anyone
+		// believed speak TLS: EE fills it from the scan's own port spec, so the
+		// default set already contains 515 and 9099-9103. A ClientHello on those
+		// is not a failed probe, it is a print job — the listener turns bytes
+		// into paper (cyprob-ee#590). Dropped here rather than filtered by the
+		// caller so no configuration can put them back.
+		if fingerprint.IsPrintPort(port) {
+			continue
+		}
+		set[port] = struct{}{}
 	}
 	return set
 }
@@ -439,6 +450,20 @@ func tlsStrategyNames(strategies []tlsProbeStrategy) []string {
 }
 
 func probeTLSDetails(ctx context.Context, target, hostname string, port int, opts TLSProbeOptions) TLSServiceInfo {
+	// Second floor, deliberately not the only one: candidate selection above
+	// already drops these ports. This module builds its own connections and
+	// never passes through the banner-grab funnel that carries the equivalent
+	// check, so a future caller that assembles candidates some other way would
+	// otherwise reach the dial with nothing in the way (cyprob-ee#590).
+	if fingerprint.IsPrintPort(port) {
+		return TLSServiceInfo{
+			Target:     target,
+			Port:       port,
+			ProbeError: "print_port_write_blocked",
+			Attempts:   []TLSProbeAttempt{},
+		}
+	}
+
 	if opts.TotalTimeout <= 0 {
 		opts.TotalTimeout = 2 * time.Second
 	}
