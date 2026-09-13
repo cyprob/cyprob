@@ -295,7 +295,7 @@ Server exposes REST API at `/api/v1`:
 - `GET /api/v1/version` - Version info
 - `GET /api/v1/license` - License status (Enterprise)
 
-See [REST API Documentation](/api/rest/scans) for details.
+See REST API Documentation for details.
 
 ## TLS Configuration
 
@@ -440,6 +440,6 @@ server:
 
 ## See Also
 
-- [Server Deployment](/deployment/server-mode) - Deployment guide
-- [REST API](/api/rest/scans) - API reference
-- [Configuration](/configuration/overview) - Server configuration
+- Server Deployment - Deployment guide
+- REST API - API reference
+- Configuration - Server configuration

@@ -121,7 +121,7 @@ Reference custom profile file:
 vulntor scan --targets 192.168.1.100 --profile /path/to/custom-profile.yaml
 ```
 
-See [Scan Profiles](/configuration/scan-profiles) for profile structure.
+See Scan Profiles for profile structure.
 
 ## Phase Control
 
@@ -683,7 +683,7 @@ For large scans:
 
 ## See Also
 
-- [CLI Overview](/cli/overview) - Command structure and usage patterns
-- [Scan Pipeline](/concepts/scan-pipeline) - Understanding scan stages
-- [Scan Profiles](/configuration/scan-profiles) - Creating custom profiles
-- [Network Scanning Guide](/guides/network-scanning) - Best practices
+- [CLI Overview](./overview.md) - Command structure and usage patterns
+- Scan Pipeline - Understanding scan stages
+- Scan Profiles - Creating custom profiles
+- Network Scanning Guide - Best practices
