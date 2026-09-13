@@ -8,7 +8,7 @@ import (
 
 func TestRootCommandPreparesWorkspaceAndRunsVersion(t *testing.T) {
 	tmp := t.TempDir()
-	t.Setenv("VULNTOR_WORKSPACE", tmp)
+	t.Setenv("CYPROB_WORKSPACE", tmp)
 
 	cmd := NewCommand()
 	buf := &bytes.Buffer{}

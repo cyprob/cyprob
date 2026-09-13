@@ -1,4 +1,4 @@
-// Copyright 2025 Vulntor Authors
+// Copyright 2025 Cyprob Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 
@@ -1676,7 +1676,7 @@ func TestService_List(t *testing.T) {
 						Name:     "SSH Weak Cipher",
 						Version:  "1.0.0",
 						Type:     "evaluation",
-						Author:   "vulntor",
+						Author:   "cyprob",
 						Severity: "medium",
 						Tags:     []string{"ssh", "crypto"},
 					},
@@ -1685,7 +1685,7 @@ func TestService_List(t *testing.T) {
 						Name:     "HTTP Missing Security Headers",
 						Version:  "1.0.1",
 						Type:     "evaluation",
-						Author:   "vulntor",
+						Author:   "cyprob",
 						Severity: "low",
 						Tags:     []string{"http", "web"},
 					},
@@ -1705,7 +1705,7 @@ func TestService_List(t *testing.T) {
 		require.Equal(t, "SSH Weak Cipher", plugins[0].Name)
 		require.Equal(t, "1.0.0", plugins[0].Version)
 		require.Equal(t, "evaluation", plugins[0].Type)
-		require.Equal(t, "vulntor", plugins[0].Author)
+		require.Equal(t, "cyprob", plugins[0].Author)
 		require.Equal(t, "medium", plugins[0].Severity)
 		require.Equal(t, []string{"ssh", "crypto"}, plugins[0].Tags)
 
@@ -1788,7 +1788,7 @@ func TestService_GetInfo(t *testing.T) {
 						Name:     "SSH Weak Cipher",
 						Version:  "1.0.0",
 						Type:     "evaluation",
-						Author:   "vulntor",
+						Author:   "cyprob",
 						Severity: "medium",
 						Tags:     []string{"ssh", "crypto"},
 						Path:     "/tmp/plugins/ssh-weak-cipher/1.0.0/plugin.yaml",
@@ -1807,7 +1807,7 @@ func TestService_GetInfo(t *testing.T) {
 		require.Equal(t, "SSH Weak Cipher", info.Name)
 		require.Equal(t, "1.0.0", info.Version)
 		require.Equal(t, "evaluation", info.Type)
-		require.Equal(t, "vulntor", info.Author)
+		require.Equal(t, "cyprob", info.Author)
 		require.Equal(t, "medium", info.Severity)
 		require.Equal(t, []string{"ssh", "crypto"}, info.Tags)
 		require.Equal(t, "/tmp/plugins/ssh-weak-cipher/1.0.0/plugin.yaml", info.Path)
@@ -1912,7 +1912,7 @@ func BenchmarkService_List(b *testing.B) {
 			Name:    fmt.Sprintf("Plugin %d", i),
 			Version: "1.0.0",
 			Type:    "evaluation",
-			Author:  "vulntor",
+			Author:  "cyprob",
 		}
 	}
 
@@ -1940,7 +1940,7 @@ func BenchmarkService_GetInfo(b *testing.B) {
 			Name:    fmt.Sprintf("Plugin %d", i),
 			Version: "1.0.0",
 			Type:    "evaluation",
-			Author:  "vulntor",
+			Author:  "cyprob",
 			Path:    fmt.Sprintf("/tmp/plugins/plugin-%d/1.0.0/plugin.yaml", i),
 		}
 	}
@@ -2605,7 +2605,7 @@ func TestPartialFailureSemantics(t *testing.T) {
 // This verifies defense-in-depth: service layer validates regardless of CLI/API validation.
 func TestServiceInputValidation(t *testing.T) {
 	ctx := context.Background()
-	tmpDir, err := os.MkdirTemp("", "vulntor-plugin-test-*")
+	tmpDir, err := os.MkdirTemp("", "cyprob-plugin-test-*")
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		_ = os.RemoveAll(tmpDir)

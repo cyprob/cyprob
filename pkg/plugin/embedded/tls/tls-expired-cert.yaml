@@ -2,7 +2,7 @@ id: tls-expired-certificate
 name: TLS Expired Certificate
 version: 1.0.0
 type: evaluation
-author: vulntor-security
+author: cyprob-security
 
 metadata:
   severity: high

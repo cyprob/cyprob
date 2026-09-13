@@ -1,7 +1,7 @@
 name: HTTP Weak Security Headers
 version: 1.0.0
 type: evaluation
-author: vulntor-core
+author: cyprob-core
 
 metadata:
   severity: medium

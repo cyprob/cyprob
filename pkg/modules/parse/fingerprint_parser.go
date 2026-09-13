@@ -19,7 +19,7 @@ const (
 	fingerprintParserModuleName        = "fingerprint-parser"
 	fingerprintParserModuleDescription = "Matches service banners with fingerprint catalog entries."
 	fingerprintParserModuleVersion     = "0.1.0"
-	fingerprintParserModuleAuthor      = "Vulntor Team"
+	fingerprintParserModuleAuthor      = "Cyprob Team"
 )
 
 var getResolver = fingerprint.GetFingerprintResolver

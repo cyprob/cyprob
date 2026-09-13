@@ -96,7 +96,7 @@ func TestDefaultWorkspaceRoot(t *testing.T) {
 	// is expected to win instead. A CI runner's freshly created home directory
 	// never has one, so this is the path taken in practice.
 	if !contains(root, "cyprob") && !contains(root, "Cyprob") &&
-		!contains(root, "vulntor") && !contains(root, "Vulntor") {
+		!contains(root, "cyprob") && !contains(root, "Vulntor") {
 		t.Errorf("DefaultWorkspaceRoot() contains neither name: %s", root)
 	}
 

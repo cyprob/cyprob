@@ -1,7 +1,7 @@
 name: HTTP Server Version Disclosure
 version: 1.0.0
 type: evaluation
-author: vulntor-security
+author: cyprob-security
 
 metadata:
   severity: low

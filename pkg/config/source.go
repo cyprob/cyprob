@@ -13,6 +13,8 @@ import (
 	"github.com/knadh/koanf/providers/posflag"
 	"github.com/knadh/koanf/v2"
 	"github.com/spf13/pflag"
+
+	"github.com/cyprob/cyprob/pkg/envkey"
 )
 
 // ConfigSource represents a configuration source that can load values into koanf.
@@ -22,7 +24,7 @@ import (
 // Built-in sources and their priorities:
 //   - DefaultSource (10): Hardcoded default values
 //   - FileSource (20): Config file (e.g., ~/.config/cyprob/config.yaml)
-//   - EnvSource (30): Environment variables (VULNTOR_*)
+//   - EnvSource (30): Environment variables (CYPROB_*, former VULNTOR_* as a deprecated fallback)
 //   - FlagSource (40): Command-line flags
 //
 // Custom sources can use priorities between these values to insert
@@ -87,14 +89,17 @@ func (s *FileSource) Load(k *koanf.Koanf) error {
 }
 
 // EnvSource loads configuration from environment variables.
-// Variables must have VULNTOR_ prefix. Underscores map to dots:
+// Variables carry the CYPROB_ prefix. The former VULNTOR_ prefix is read as a
+// deprecated fallback and loses to CYPROB_ when both are set. Underscores map
+// to dots:
 //
-//	VULNTOR_LOG_LEVEL -> log.level
-//	VULNTOR_SERVER_PORT -> server.port
+//	CYPROB_LOG_LEVEL -> log.level
+//	CYPROB_SERVER_PORT -> server.port
 //
 // Priority: 30
 type EnvSource struct {
-	Prefix string // Environment variable prefix (default: "VULNTOR_")
+	Prefix         string   // Primary prefix (default: envkey.Prefix)
+	LegacyPrefixes []string // Loaded before Prefix so that Prefix wins (default: envkey.LegacyPrefix)
 }
 
 func (s *EnvSource) Name() string  { return "env" }
@@ -102,10 +107,27 @@ func (s *EnvSource) Priority() int { return 30 }
 
 func (s *EnvSource) Load(k *koanf.Koanf) error {
 	prefix := s.Prefix
+	legacy := s.LegacyPrefixes
 	if prefix == "" {
-		prefix = "VULNTOR_"
+		prefix = envkey.Prefix
+		if legacy == nil {
+			legacy = []string{envkey.LegacyPrefix}
+		}
 	}
 
+	// Legacy prefixes load first; the primary prefix loads last and overrides.
+	for _, p := range legacy {
+		if err := loadEnvPrefix(k, p); err != nil {
+			return err
+		}
+		if p == envkey.LegacyPrefix {
+			envkey.WarnLegacyKeys()
+		}
+	}
+	return loadEnvPrefix(k, prefix)
+}
+
+func loadEnvPrefix(k *koanf.Koanf, prefix string) error {
 	if err := k.Load(env.Provider(prefix, ".", func(key string) string {
 		return strings.ReplaceAll(strings.ToLower(
 			strings.TrimPrefix(key, prefix)), "_", ".")
@@ -146,7 +168,7 @@ func DefaultSources(configPath string, flags *pflag.FlagSet, debug bool) []Confi
 	return []ConfigSource{
 		&DefaultSource{},
 		&FileSource{Path: configPath, Required: configPath != ""},
-		&EnvSource{Prefix: "VULNTOR_"},
+		&EnvSource{Prefix: envkey.Prefix, LegacyPrefixes: []string{envkey.LegacyPrefix}},
 		&FlagSource{Flags: flags, Debug: debug},
 	}
 }

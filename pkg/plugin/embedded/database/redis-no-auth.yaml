@@ -1,7 +1,7 @@
 name: Redis No Authentication
 version: 1.0.0
 type: evaluation
-author: vulntor-security
+author: cyprob-security
 
 metadata:
   severity: critical

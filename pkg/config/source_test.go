@@ -91,11 +91,11 @@ func TestEnvSource_Priority(t *testing.T) {
 }
 
 func TestEnvSource_Load(t *testing.T) {
-	t.Setenv("VULNTOR_LOG_LEVEL", "error")
-	t.Setenv("VULNTOR_SERVER_PORT", "8888")
+	t.Setenv("CYPROB_LOG_LEVEL", "error")
+	t.Setenv("CYPROB_SERVER_PORT", "8888")
 
 	k := koanf.New(".")
-	src := &EnvSource{Prefix: "VULNTOR_"}
+	src := &EnvSource{Prefix: "CYPROB_"}
 
 	err := src.Load(k)
 	require.NoError(t, err)
@@ -105,15 +105,40 @@ func TestEnvSource_Load(t *testing.T) {
 }
 
 func TestEnvSource_Load_DefaultPrefix(t *testing.T) {
-	t.Setenv("VULNTOR_LOG_FORMAT", "json")
+	t.Setenv("CYPROB_LOG_FORMAT", "json")
 
 	k := koanf.New(".")
-	src := &EnvSource{} // No prefix specified, should default to VULNTOR_
+	src := &EnvSource{} // No prefix specified, should default to CYPROB_
 
 	err := src.Load(k)
 	require.NoError(t, err)
 
 	assert.Equal(t, "json", k.String("log.format"))
+}
+
+func TestEnvSource_Load_LegacyPrefixFallback(t *testing.T) {
+	t.Setenv("VULNTOR_LOG_FORMAT", "json")
+
+	k := koanf.New(".")
+	src := &EnvSource{} // default: CYPROB_ primary, VULNTOR_ legacy
+
+	err := src.Load(k)
+	require.NoError(t, err)
+
+	assert.Equal(t, "json", k.String("log.format"))
+}
+
+func TestEnvSource_Load_PrimaryWinsOverLegacy(t *testing.T) {
+	t.Setenv("CYPROB_LOG_LEVEL", "error")
+	t.Setenv("VULNTOR_LOG_LEVEL", "debug")
+
+	k := koanf.New(".")
+	src := &EnvSource{}
+
+	err := src.Load(k)
+	require.NoError(t, err)
+
+	assert.Equal(t, "error", k.String("log.level"))
 }
 
 func TestFlagSource_Priority(t *testing.T) {
@@ -193,7 +218,7 @@ func TestLoadWithSources_CustomSource(t *testing.T) {
 	sources := []ConfigSource{
 		&DefaultSource{},
 		customSource,
-		&EnvSource{Prefix: "VULNTOR_"},
+		&EnvSource{Prefix: "CYPROB_"},
 	}
 
 	err := manager.LoadWithSources(sources)
@@ -201,18 +226,18 @@ func TestLoadWithSources_CustomSource(t *testing.T) {
 
 	cfg := manager.Get()
 	// ENV should override custom source if set, otherwise custom-level
-	// Since we didn't set VULNTOR_LOG_LEVEL, custom-level should remain
+	// Since we didn't set CYPROB_LOG_LEVEL, custom-level should remain
 	assert.Equal(t, "custom-level", cfg.Log.Level)
 }
 
 func TestLoadWithSources_PriorityOrdering(t *testing.T) {
 	resetGlobalConfig()
-	t.Setenv("VULNTOR_LOG_LEVEL", "from-env")
+	t.Setenv("CYPROB_LOG_LEVEL", "from-env")
 
 	manager := NewManager()
 	sources := []ConfigSource{
-		&EnvSource{Prefix: "VULNTOR_"}, // priority 30
-		&DefaultSource{},               // priority 10 - should be loaded first despite order
+		&EnvSource{Prefix: "CYPROB_"}, // priority 30
+		&DefaultSource{},              // priority 10 - should be loaded first despite order
 	}
 
 	err := manager.LoadWithSources(sources)

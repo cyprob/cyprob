@@ -116,7 +116,7 @@ func newDNSNativeProbeModule() *dnsNativeProbeModule {
 			Description: dnsNativeProbeModuleDescription,
 			Version:     "0.1.0",
 			Type:        engine.ScanModuleType,
-			Author:      "Vulntor Team",
+			Author:      "Cyprob Team",
 			Tags:        []string{"scan", "dns", "native_probe", "enrichment"},
 			Consumes: []engine.DataContractEntry{
 				{

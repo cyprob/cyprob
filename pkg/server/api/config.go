@@ -24,7 +24,7 @@ type Config struct {
 	// - Clients to control timeouts via request headers
 	//
 	// Default: 30 seconds
-	// Environment variable: VULNTOR_API_HANDLER_TIMEOUT
+	// Environment variable: CYPROB_API_HANDLER_TIMEOUT
 	HandlerTimeout time.Duration
 }
 
@@ -34,7 +34,7 @@ type Config struct {
 // - HandlerTimeout: 30s (covers most operations including plugin install/update)
 //
 // These timeouts can be overridden via:
-// 1. Environment variables (VULNTOR_API_HANDLER_TIMEOUT)
+// 1. Environment variables (CYPROB_API_HANDLER_TIMEOUT)
 // 2. Config file (api.handler_timeout)
 // 3. Request context deadline (set by middleware/client)
 func DefaultConfig() Config {
