@@ -19,6 +19,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   repositories declared it.
 - Remaining references to the former project name in README, CONTRIBUTING,
   SECURITY and CI comments now point at `cyprob`.
+- Probes send different identifying bytes to scanned hosts. The HTTP probes in
+  the probe catalog send `User-Agent: CyprobProbe/0.1` instead of
+  `VulntorProbe/0.1`, the banner grabber's canonical GET and CONNECT requests
+  send `User-Agent: cyprob-probe/1.0` instead of `vulntor-probe/1.0`, and both
+  SMTP probes greet with `EHLO cyprob.local` instead of `EHLO vulntor.local`.
+  Log filters or allow-lists that match the old strings need the new ones, and
+  a mail server that echoes the EHLO name shows the new name in banners
+  captured after the upgrade.
 
 ### Fixed
 - A favicon hash was computed and then discarded whenever the corpus did not
