@@ -1,0 +1,90 @@
+# Tell Atlas a pull request has passed verification.
+#
+# Third and last link in the chain COMMON.md describes: content judgement, then
+# verification, then merge. request-review.yml rings the first reviewer on open;
+# hand-off-review.yml rings Talos when Sonar approves; this rings Atlas when
+# Talos approves.
+#
+# WHY IT IS NEEDED, because "nobody remembered" is the wrong diagnosis and would
+# lead to the wrong fix. On the evening of 2026-09-14 Talos approved six pull
+# requests between 20:19 and 20:33 -- cyprob-ee#555, #557, #614, #623 and
+# cyprob#317, #318 -- and Atlas learned of none of them. Every webhook arrived
+# and the agent-desk worker answered 200 on all six. The pull requests carried
+# `for/talos` and nothing else, so the only address on them pointed at Talos,
+# and Talos was the author of the review. The worker does not deliver a message
+# to its own author, correctly, so the recipient list resolved empty. Nothing
+# was dropped; there was simply nobody left to tell.
+#
+# THE SWAP IS TWO WRITES AND THEY RACE. Measured 2026-09-14 with GH_DEBUG=api:
+# `gh pr edit --remove-label X --add-label Y` issues two GraphQL mutations,
+# LabelRemove and LabelAdd, in two HTTP requests started at the same instant
+# (125ns apart in the debug log). Two runs produced opposite orderings in the
+# issue timeline. So a partial failure can leave a pull request carrying both
+# labels or neither, unpredictably, and no ordering argument is available. The
+# failure branch below is the whole of the safety: it reads the labels back
+# rather than inferring them from which half failed.
+#
+# This file and hand-off-review.yml cannot fire on each other: that one triggers
+# on an approval by cyprob-sonar[bot], this one on cyprob-talos[bot], and a
+# review has one author.
+name: Hand Off Merge
+
+on:
+  pull_request_review:
+    types:
+      - submitted
+
+permissions:
+  pull-requests: write
+
+jobs:
+  label:
+    name: Label for Atlas
+    runs-on: ubuntu-latest
+    # Only an approval, and only Talos's. A `changes_requested` review sends the
+    # pull request back rather than forward, and labelling Atlas then would
+    # queue a merge decision on something about to change.
+    #
+    # `github.event.review.state` arrives lowercase on the webhook while the
+    # REST API returns it uppercase (`APPROVED`) -- confirmed against a real
+    # review. Actions string comparison is case-insensitive so either spelling
+    # matches; the lowercase form is written because it is what the event
+    # carries. A condition written against the wrong one produces a job that
+    # never runs and says nothing.
+    if: >-
+      github.event.review.state == 'approved' &&
+      github.event.review.user.login == 'cyprob-talos[bot]'
+    steps:
+      - name: Hand the label from Talos to Atlas
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          # Removing `for/talos` is what keeps `is:open label:for/talos` a queue
+          # rather than a list of everything ever verified. `for/atlas` needs no
+          # counterpart: a pull request leaves `is:open` when it merges.
+          # Removing a label that is not present is a no-op.
+          if gh pr edit "$PR" --repo "$REPO" \
+               --remove-label 'for/talos' --add-label 'for/atlas'; then
+            exit 0
+          fi
+
+          # A labelling job that fails is a silent notification: nobody is told
+          # and nothing says so unless someone opens the Actions tab. The
+          # fallback is the manual mechanism this file replaces -- an @-mention
+          # -- and the run still goes red.
+          #
+          # The comment reports the labels the pull request actually carries,
+          # read back rather than inferred, because the race above means a
+          # partial failure could have left it in either state.
+          LABELS="$(gh pr view "$PR" --repo "$REPO" \
+                      --json labels --jq '[.labels[].name] | join(", ")' \
+                    || echo '(could not be read)')"
+
+          gh pr comment "$PR" --repo "$REPO" --body \
+            "@cyprob-atlas this pull request passed verification, but the \`for/talos\` -> \`for/atlas\` label swap failed — see this run in the Actions tab. Treat this comment as the hand-off. Labels it carries now: \`${LABELS}\`. If \`for/atlas\` is absent it is in no queue and will not be found by searching for one." \
+            || echo "fallback comment also failed; this run is the only record"
+          exit 1
