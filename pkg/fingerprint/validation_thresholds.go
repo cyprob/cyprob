@@ -2,8 +2,9 @@ package fingerprint
 
 import (
 	"encoding/json"
-	"os"
 	"strconv"
+
+	"github.com/cyprob/cyprob/pkg/envkey"
 )
 
 // ValidationThresholds represents configurable validation targets.
@@ -63,7 +64,7 @@ func RelaxedThresholds() ValidationThresholds {
 // loadFloatEnv loads a float from environment variable with validation (0.0-1.0 range).
 // Returns defaultVal if env var is missing, invalid, or out of range.
 func loadFloatEnv(key string, defaultVal float64) float64 {
-	val := os.Getenv(key)
+	val := envkey.Get(key)
 	if val == "" {
 		return defaultVal
 	}
@@ -77,7 +78,7 @@ func loadFloatEnv(key string, defaultVal float64) float64 {
 // loadPositiveFloatEnv loads a positive float from environment variable.
 // Returns defaultVal if env var is missing, invalid, or not positive.
 func loadPositiveFloatEnv(key string, defaultVal float64) float64 {
-	val := os.Getenv(key)
+	val := envkey.Get(key)
 	if val == "" {
 		return defaultVal
 	}
@@ -91,7 +92,7 @@ func loadPositiveFloatEnv(key string, defaultVal float64) float64 {
 // loadPositiveIntEnv loads a positive int from environment variable.
 // Returns defaultVal if env var is missing, invalid, or not positive.
 func loadPositiveIntEnv(key string, defaultVal int) int {
-	val := os.Getenv(key)
+	val := envkey.Get(key)
 	if val == "" {
 		return defaultVal
 	}
@@ -103,26 +104,27 @@ func loadPositiveIntEnv(key string, defaultVal int) int {
 }
 
 // LoadThresholdsFromEnv loads validation thresholds from environment variables.
-// Environment variables override default values. Supported variables:
-//   - VULNTOR_VALIDATION_TARGET_FPR: False positive rate target (0.0-1.0)
-//   - VULNTOR_VALIDATION_TARGET_TPR: True positive rate target (0.0-1.0)
-//   - VULNTOR_VALIDATION_TARGET_PRECISION: Precision target (0.0-1.0)
-//   - VULNTOR_VALIDATION_TARGET_F1: F1 score target (0.0-1.0)
-//   - VULNTOR_VALIDATION_TARGET_PROTOCOLS: Protocol coverage target (int)
-//   - VULNTOR_VALIDATION_TARGET_VERSION_RATE: Version extraction rate target (0.0-1.0)
-//   - VULNTOR_VALIDATION_TARGET_PERF_MS: Performance target in milliseconds (float)
+// Environment variables override default values. Supported variables (the
+// former VULNTOR_ prefix is still read as a deprecated fallback):
+//   - CYPROB_VALIDATION_TARGET_FPR: False positive rate target (0.0-1.0)
+//   - CYPROB_VALIDATION_TARGET_TPR: True positive rate target (0.0-1.0)
+//   - CYPROB_VALIDATION_TARGET_PRECISION: Precision target (0.0-1.0)
+//   - CYPROB_VALIDATION_TARGET_F1: F1 score target (0.0-1.0)
+//   - CYPROB_VALIDATION_TARGET_PROTOCOLS: Protocol coverage target (int)
+//   - CYPROB_VALIDATION_TARGET_VERSION_RATE: Version extraction rate target (0.0-1.0)
+//   - CYPROB_VALIDATION_TARGET_PERF_MS: Performance target in milliseconds (float)
 //
 // Invalid values are silently ignored, falling back to defaults.
 func LoadThresholdsFromEnv() ValidationThresholds {
 	defaults := DefaultThresholds()
 	return ValidationThresholds{
-		TargetFPR:         loadFloatEnv("VULNTOR_VALIDATION_TARGET_FPR", defaults.TargetFPR),
-		TargetTPR:         loadFloatEnv("VULNTOR_VALIDATION_TARGET_TPR", defaults.TargetTPR),
-		TargetPrecision:   loadFloatEnv("VULNTOR_VALIDATION_TARGET_PRECISION", defaults.TargetPrecision),
-		TargetF1:          loadFloatEnv("VULNTOR_VALIDATION_TARGET_F1", defaults.TargetF1),
-		TargetProtocols:   loadPositiveIntEnv("VULNTOR_VALIDATION_TARGET_PROTOCOLS", defaults.TargetProtocols),
-		TargetVersionRate: loadFloatEnv("VULNTOR_VALIDATION_TARGET_VERSION_RATE", defaults.TargetVersionRate),
-		TargetPerfMs:      loadPositiveFloatEnv("VULNTOR_VALIDATION_TARGET_PERF_MS", defaults.TargetPerfMs),
+		TargetFPR:         loadFloatEnv("VALIDATION_TARGET_FPR", defaults.TargetFPR),
+		TargetTPR:         loadFloatEnv("VALIDATION_TARGET_TPR", defaults.TargetTPR),
+		TargetPrecision:   loadFloatEnv("VALIDATION_TARGET_PRECISION", defaults.TargetPrecision),
+		TargetF1:          loadFloatEnv("VALIDATION_TARGET_F1", defaults.TargetF1),
+		TargetProtocols:   loadPositiveIntEnv("VALIDATION_TARGET_PROTOCOLS", defaults.TargetProtocols),
+		TargetVersionRate: loadFloatEnv("VALIDATION_TARGET_VERSION_RATE", defaults.TargetVersionRate),
+		TargetPerfMs:      loadPositiveFloatEnv("VALIDATION_TARGET_PERF_MS", defaults.TargetPerfMs),
 	}
 }
 

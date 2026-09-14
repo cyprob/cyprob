@@ -1,4 +1,4 @@
-// Copyright 2025 Vulntor Authors
+// Copyright 2025 Cyprob Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 
@@ -15,6 +15,7 @@ import (
 	"github.com/cyprob/cyprob/cmd/cyprob/internal/bind"
 	"github.com/cyprob/cyprob/cmd/cyprob/internal/format"
 	"github.com/cyprob/cyprob/pkg/engine"
+	"github.com/cyprob/cyprob/pkg/envkey"
 )
 
 func newValidateCommand() *cobra.Command {
@@ -87,7 +88,7 @@ func runValidate(file string, opts bind.DAGValidateOptions) error {
 
 	// Exit with appropriate code (only in real CLI, not in tests)
 	// Tests should check for errors in output, not exit codes
-	if exitCode != 0 && os.Getenv("VULNTOR_TEST_MODE") == "" {
+	if exitCode != 0 && envkey.Get("TEST_MODE") == "" {
 		os.Exit(exitCode)
 	}
 

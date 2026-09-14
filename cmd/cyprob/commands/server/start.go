@@ -48,7 +48,7 @@ func (s *stubWorkspace) GetScan(id string) (*api.ScanDetail, error) {
 // Configuration is loaded from:
 //   - Global flags (--workspace-dir, --config, etc.)
 //   - Server-specific flags (--addr, --port, --no-ui, --no-api, --jobs-concurrency)
-//   - Environment variables (VULNTOR_*)
+//   - Environment variables (CYPROB_*)
 //   - Config file (cyprob.yaml)
 //
 // Example usage:

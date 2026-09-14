@@ -46,7 +46,7 @@ jobs:
           mkdir -p pkg/ui/dist
           cat > pkg/ui/dist/index.html << 'EOF'
           <!DOCTYPE html>
-          <html><head><title>Vulntor UI - Not Built</title></head>
+          <html><head><title>Cyprob UI - Not Built</title></head>
           <body><h1>UI not built</h1><p>Run: make generate-ui</p></body>
           </html>
           EOF

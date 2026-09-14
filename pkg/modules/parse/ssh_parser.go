@@ -21,7 +21,7 @@ const (
 	sshParserModuleName        = "ssh-parser"
 	sshParserModuleDescription = "Parses raw SSH response banners into structured data (service, product, etc.)."
 	sshParserModuleVersion     = "0.1.0"
-	sshParserModuleAuthor      = "Vulntor Team"
+	sshParserModuleAuthor      = "Cyprob Team"
 	sshParsedBannerDataKey     = "service.ssh.banner_parsed"
 )
 

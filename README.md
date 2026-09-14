@@ -11,7 +11,7 @@
 
 Cyprob is the open core (Apache-2.0) of the Cyprob vulnerability scanning platform. It is built to run on your own infrastructure: you decide what to look for, control rules are written by you in YAML, and scan data stays inside your network. The commercial edition (EE) ships as an on-premises appliance; see [cyprob.io](https://cyprob.io) for the product side.
 
-> **Naming note:** the project was renamed from its former working name to Cyprob. The Go module is `github.com/cyprob/cyprob`; the CLI binary and the `cmd/vulntor/` directory still carry the old name until the code-side rename lands.
+> **Naming note:** the project was renamed from its former working name to Cyprob. The Go module, the binary and the command tree are `cyprob`. Environment variables use the `CYPROB_` prefix; the former `VULNTOR_` prefix is still read as a deprecated fallback for one release and logs a warning when used.
 
 ## ✨ Key Features
 
@@ -60,42 +60,42 @@ make binary
 
 # Or build manually to dist/
 mkdir -p dist
-go build -o dist/vulntor ./cmd
+go build -o dist/cyprob ./cmd
 
 # Verify installation
-./dist/vulntor version
+./dist/cyprob version
 ```
 
 ### Basic Usage
 
 ```bash
 # Scan a single target with default ports (22,80,443)
-vulntor scan --targets 192.168.1.1
+cyprob scan --targets 192.168.1.1
 
 # Scan a CIDR range with custom ports
-vulntor scan --targets 192.168.1.0/24 --ports 21,22,80,443,8080
+cyprob scan --targets 192.168.1.0/24 --ports 21,22,80,443,8080
 
 # Perform discovery only (skip port scanning)
-vulntor scan --targets 192.168.1.1 --only-discover
+cyprob scan --targets 192.168.1.1 --only-discover
 
 # Enable vulnerability detection
-vulntor scan --targets 192.168.1.1 --vuln
+cyprob scan --targets 192.168.1.1 --vuln
 
 # Scan with fingerprinting enabled
-vulntor scan --targets 10.0.0.0/24 --fingerprint
+cyprob scan --targets 10.0.0.0/24 --fingerprint
 
 # List previous scan results
-vulntor storage list
+cyprob storage list
 
 # Get scan details
-vulntor storage get <scan-id>
+cyprob storage get <scan-id>
 ```
 
 ### Server Mode
 
 ```bash
 # Start the Cyprob server
-vulntor server start --addr 0.0.0.0 --port 8080
+cyprob server start --addr 0.0.0.0 --port 8080
 
 # Submit a scan via API
 curl -X POST http://localhost:8080/api/v1/scans \
@@ -103,7 +103,7 @@ curl -X POST http://localhost:8080/api/v1/scans \
   -d '{"targets": ["192.168.1.0/24"], "ports": [22,80,443]}'
 
 # Check scan status
-vulntor server status
+cyprob server status
 ```
 
 ### DAG Management
@@ -112,19 +112,19 @@ Validate and manage DAG (Directed Acyclic Graph) definitions:
 
 ```bash
 # Validate a DAG definition file
-vulntor dag validate scan-dag.yaml
+cyprob dag validate scan-dag.yaml
 
 # Export the internal scan DAG to YAML for inspection
-vulntor dag export --targets 192.168.1.0/24 --output scan.yaml
+cyprob dag export --targets 192.168.1.0/24 --output scan.yaml
 
 # Export with vulnerability evaluation enabled
-vulntor dag export --targets 10.0.0.1 --vuln --output full-scan.yaml
+cyprob dag export --targets 10.0.0.1 --vuln --output full-scan.yaml
 
 # Strict validation (treat warnings as errors)
-vulntor dag validate dag.yaml --strict
+cyprob dag validate dag.yaml --strict
 
 # Output validation results as JSON (for CI/CD)
-vulntor dag validate dag.yaml --json
+cyprob dag validate dag.yaml --json
 ```
 
 ### YAML Plugin System
@@ -133,13 +133,13 @@ vulntor dag validate dag.yaml --json
 
 ```bash
 # Load and evaluate YAML plugins
-vulntor scan --targets 192.168.1.1 --plugins ./my-plugins/
+cyprob scan --targets 192.168.1.1 --plugins ./my-plugins/
 
 # List available plugins
-vulntor plugin list
+cyprob plugin list
 
 # Validate a plugin definition
-vulntor plugin validate ssh-cve-check.yaml
+cyprob plugin validate ssh-cve-check.yaml
 ```
 
 Example YAML plugin (`ssh-vuln-check.yaml`):
@@ -201,7 +201,7 @@ See [pkg/plugin/testdata/plugins/](pkg/plugin/testdata/plugins/) and [pkg/plugin
 
 ```
 cyprob/
-├── cmd/vulntor/           # CLI entry point
+├── cmd/cyprob/           # CLI entry point
 ├── pkg/
 │   ├── api/              # REST and gRPC API servers
 │   ├── appctx/           # Application context management
@@ -255,7 +255,7 @@ Modules are self-contained units that perform specific scan phases:
 All scan results are stored using the `pkg/storage` abstraction layer:
 
 - **LocalBackend (OSS)**: File-based JSONL storage with thread-safe operations
-- OS-specific defaults: `~/Library/Application Support/Vulntor` (macOS), `~/.local/share/vulntor` (Linux)
+- OS-specific defaults: `~/Library/Application Support/Cyprob` (macOS), `~/.local/share/cyprob` (Linux); an existing workspace under the former name is still used until it is moved
 - Features: filtering, pagination, partial updates, typed errors
 - Retention policies: automatic cleanup based on age and count limits
 

@@ -210,7 +210,7 @@ func newServiceIdentityNormalizerModule() *serviceIdentityNormalizerModule {
 			Description: serviceIdentityNormalizerModuleDescription,
 			Version:     "0.1.0",
 			Type:        engine.ParseModuleType,
-			Author:      "Vulntor Team",
+			Author:      "Cyprob Team",
 			Tags:        []string{"parse", "normalizer", "identity", "canonical"},
 			Consumes: []engine.DataContractEntry{
 				{Key: "service.banner.tcp", DataTypeName: "scan.BannerGrabResult", Cardinality: engine.CardinalityList, IsOptional: true},

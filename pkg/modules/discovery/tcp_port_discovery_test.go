@@ -76,8 +76,8 @@ func TestNewTCPPortDiscoveryModule_Defaults(t *testing.T) {
 	if meta.Type != engine.DiscoveryModuleType {
 		t.Errorf("expected Type '%s', got '%s'", engine.DiscoveryModuleType, meta.Type)
 	}
-	if meta.Author != "Vulntor Team" {
-		t.Errorf("expected Author 'Vulntor Team', got '%s'", meta.Author)
+	if meta.Author != "Cyprob Team" {
+		t.Errorf("expected Author 'Cyprob Team', got '%s'", meta.Author)
 	}
 	if len(meta.Tags) == 0 {
 		t.Error("expected non-empty Tags")

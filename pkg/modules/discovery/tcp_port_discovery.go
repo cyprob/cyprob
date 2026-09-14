@@ -111,7 +111,7 @@ func newTCPPortDiscoveryModule() *TCPPortDiscoveryModule {
 			Version:     "0.1.0",
 			Description: "Discovers open TCP ports on target hosts based on a list or range.",
 			Type:        engine.DiscoveryModuleType,
-			Author:      "Vulntor Team",
+			Author:      "Cyprob Team",
 			Tags:        []string{"discovery", "port", "tcp"},
 			Consumes: []engine.DataContractEntry{
 				{

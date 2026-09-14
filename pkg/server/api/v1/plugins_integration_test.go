@@ -41,7 +41,7 @@ func init() {
 // Run with: go test -tags=integration -v ./pkg/server/api/v1
 func TestPluginAPIFullLifecycle(t *testing.T) {
 	// Create temporary plugin cache
-	tmpDir, err := os.MkdirTemp("", "vulntor-plugin-integration-*")
+	tmpDir, err := os.MkdirTemp("", "cyprob-plugin-integration-*")
 	require.NoError(t, err)
 	defer os.RemoveAll(tmpDir)
 
@@ -193,7 +193,7 @@ func TestPluginAPIFullLifecycle(t *testing.T) {
 // TestPluginAPICategoryInstall tests installing plugins by category.
 func TestPluginAPICategoryInstall(t *testing.T) {
 	// Create temporary plugin cache
-	tmpDir, err := os.MkdirTemp("", "vulntor-plugin-category-*")
+	tmpDir, err := os.MkdirTemp("", "cyprob-plugin-category-*")
 	require.NoError(t, err)
 	defer os.RemoveAll(tmpDir)
 
@@ -250,7 +250,7 @@ func TestPluginAPICategoryInstall(t *testing.T) {
 // TestPluginAPIErrorCases tests error handling in plugin API.
 func TestPluginAPIErrorCases(t *testing.T) {
 	// Create temporary plugin cache
-	tmpDir, err := os.MkdirTemp("", "vulntor-plugin-errors-*")
+	tmpDir, err := os.MkdirTemp("", "cyprob-plugin-errors-*")
 	require.NoError(t, err)
 	defer os.RemoveAll(tmpDir)
 
@@ -318,7 +318,7 @@ func TestPluginAPIErrorCases(t *testing.T) {
 // TestPluginAPIUpdateOperations tests plugin update functionality.
 func TestPluginAPIUpdateOperations(t *testing.T) {
 	// Create temporary plugin cache
-	tmpDir, err := os.MkdirTemp("", "vulntor-plugin-update-*")
+	tmpDir, err := os.MkdirTemp("", "cyprob-plugin-update-*")
 	require.NoError(t, err)
 	defer os.RemoveAll(tmpDir)
 
@@ -412,7 +412,7 @@ func startTestServer(t *testing.T, ctx context.Context, port int, pluginService 
 	cfgMgr := config.NewManager()
 
 	// Create storage backend (temporary)
-	tmpDir, err := os.MkdirTemp("", "vulntor-storage-*")
+	tmpDir, err := os.MkdirTemp("", "cyprob-storage-*")
 	require.NoError(t, err)
 	t.Cleanup(func() { os.RemoveAll(tmpDir) })
 

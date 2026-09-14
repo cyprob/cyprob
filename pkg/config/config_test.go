@@ -245,9 +245,9 @@ func TestManager_Load_EnvVarsOverrideDefaults(t *testing.T) {
 	resetGlobalConfig()
 
 	// Set environment variables
-	t.Setenv("VULNTOR_LOG_LEVEL", "warn")
-	t.Setenv("VULNTOR_LOG_FORMAT", "json")
-	t.Setenv("VULNTOR_SERVER_PORT", "9999")
+	t.Setenv("CYPROB_LOG_LEVEL", "warn")
+	t.Setenv("CYPROB_LOG_FORMAT", "json")
+	t.Setenv("CYPROB_SERVER_PORT", "9999")
 
 	manager := NewManager()
 	err := manager.Load(nil, "")
@@ -263,7 +263,7 @@ func TestManager_Load_FlagsOverrideEnvVars(t *testing.T) {
 	resetGlobalConfig()
 
 	// Set environment variable
-	t.Setenv("VULNTOR_LOG_LEVEL", "warn")
+	t.Setenv("CYPROB_LOG_LEVEL", "warn")
 
 	manager := NewManager()
 	flags := newTestFlagSet()
@@ -279,9 +279,9 @@ func TestManager_Load_FlagsOverrideEnvVars(t *testing.T) {
 func TestManager_Load_EnvVarNamingConvention(t *testing.T) {
 	resetGlobalConfig()
 
-	// Test nested key mapping: VULNTOR_SERVER_ADDR -> server.addr
-	t.Setenv("VULNTOR_SERVER_ADDR", "0.0.0.0")
-	t.Setenv("VULNTOR_SERVER_PORT", "3000")
+	// Test nested key mapping: CYPROB_SERVER_ADDR -> server.addr
+	t.Setenv("CYPROB_SERVER_ADDR", "0.0.0.0")
+	t.Setenv("CYPROB_SERVER_PORT", "3000")
 
 	manager := NewManager()
 	err := manager.Load(nil, "")

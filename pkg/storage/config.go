@@ -22,12 +22,12 @@ type RetentionConfig struct {
 	// MaxScans is the maximum number of scans to retain per organization.
 	// Oldest scans are deleted first when this limit is exceeded.
 	// 0 = no limit (default)
-	MaxScans int `yaml:"max_scans" env:"VULNTOR_RETENTION_MAX_SCANS"`
+	MaxScans int `yaml:"max_scans" env:"CYPROB_RETENTION_MAX_SCANS"`
 
 	// MaxAgeDays is the maximum age of scans in days.
 	// Scans older than this are deleted.
 	// 0 = no limit (default)
-	MaxAgeDays int `yaml:"max_age_days" env:"VULNTOR_RETENTION_MAX_AGE_DAYS"`
+	MaxAgeDays int `yaml:"max_age_days" env:"CYPROB_RETENTION_MAX_AGE_DAYS"`
 }
 
 // IsEnabled returns true if any retention policy is configured.
@@ -58,7 +58,7 @@ type Config struct {
 	//   - Linux:   ~/.local/share/cyprob
 	//   - macOS:   ~/Library/Application Support/Cyprob
 	//   - Windows: %AppData%\Cyprob
-	WorkspaceRoot string `yaml:"workspace_root" env:"VULNTOR_WORKSPACE"`
+	WorkspaceRoot string `yaml:"workspace_root" env:"CYPROB_WORKSPACE"`
 
 	// Retention policy configuration (applies to both OSS and Enterprise)
 	Retention RetentionConfig `yaml:"retention"`
@@ -67,26 +67,26 @@ type Config struct {
 
 	// DatabaseURL is the PostgreSQL connection string (Enterprise).
 	// Format: postgresql://user:password@host:port/database?sslmode=...
-	DatabaseURL string `yaml:"database_url" env:"VULNTOR_DATABASE_URL"`
+	DatabaseURL string `yaml:"database_url" env:"CYPROB_DATABASE_URL"`
 
 	// S3Endpoint is the S3-compatible storage endpoint (Enterprise).
 	// Examples: https://s3.amazonaws.com, http://minio:9000
-	S3Endpoint string `yaml:"s3_endpoint" env:"VULNTOR_S3_ENDPOINT"`
+	S3Endpoint string `yaml:"s3_endpoint" env:"CYPROB_S3_ENDPOINT"`
 
 	// S3Region is the S3 region (Enterprise).
-	S3Region string `yaml:"s3_region" env:"VULNTOR_S3_REGION"`
+	S3Region string `yaml:"s3_region" env:"CYPROB_S3_REGION"`
 
 	// S3Bucket is the S3 bucket name (Enterprise).
-	S3Bucket string `yaml:"s3_bucket" env:"VULNTOR_S3_BUCKET"`
+	S3Bucket string `yaml:"s3_bucket" env:"CYPROB_S3_BUCKET"`
 
 	// S3AccessKey is the S3 access key ID (Enterprise).
-	S3AccessKey string `yaml:"s3_access_key" env:"VULNTOR_S3_ACCESS_KEY"`
+	S3AccessKey string `yaml:"s3_access_key" env:"CYPROB_S3_ACCESS_KEY"`
 
 	// S3SecretKey is the S3 secret access key (Enterprise).
-	S3SecretKey string `yaml:"s3_secret_key" env:"VULNTOR_S3_SECRET_KEY"`
+	S3SecretKey string `yaml:"s3_secret_key" env:"CYPROB_S3_SECRET_KEY"`
 
 	// S3UsePathStyle forces path-style S3 URLs (for Minio compatibility).
-	S3UsePathStyle bool `yaml:"s3_use_path_style" env:"VULNTOR_S3_USE_PATH_STYLE"`
+	S3UsePathStyle bool `yaml:"s3_use_path_style" env:"CYPROB_S3_USE_PATH_STYLE"`
 }
 
 // Validate checks if the configuration is valid for the current edition.
@@ -140,8 +140,8 @@ func (c *Config) validateOSS() error {
 // has scan history and config under the old path keeps using it, so upgrading
 // does not make existing data look like it vanished — it only silently starts
 // a fresh, empty workspace at the new path if that fallback isn't here. Remove
-// this once users have had a release to migrate; VULNTOR_WORKSPACE (the env
-// override) is untouched and still wins over both.
+// this once users have had a release to migrate; CYPROB_WORKSPACE (the env
+// override, formerly VULNTOR_WORKSPACE) is untouched and still wins over both.
 func DefaultWorkspaceRoot() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {

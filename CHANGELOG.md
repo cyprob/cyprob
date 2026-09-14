@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Environment variables now use the `CYPROB_` prefix (`CYPROB_LOG_LEVEL`,
+  `CYPROB_SERVER_PORT`, `CYPROB_VALIDATION_TARGET_*`, `CYPROB_TEST_MODE`, ...).
+  The former `VULNTOR_` prefix is still read as a fallback when the `CYPROB_`
+  key is unset and logs one deprecation warning per key; it will be removed
+  after one release. Set both to the same value during the transition if a
+  deployment is shared between versions.
+- The unused plugin manifest field `vulntor_min_version` and the version
+  compatibility check behind it were removed; no plugin in the plugin
+  repositories declared it.
+- Remaining references to the former project name in README, CONTRIBUTING,
+  SECURITY and CI comments now point at `cyprob`.
+- Probes send different identifying bytes to scanned hosts. The HTTP probes in
+  the probe catalog send `User-Agent: CyprobProbe/0.1` instead of
+  `VulntorProbe/0.1`, the banner grabber's canonical GET and CONNECT requests
+  send `User-Agent: cyprob-probe/1.0` instead of `vulntor-probe/1.0`, and both
+  SMTP probes greet with `EHLO cyprob.local` instead of `EHLO vulntor.local`.
+  Log filters or allow-lists that match the old strings need the new ones, and
+  a mail server that echoes the EHLO name shows the new name in banners
+  captured after the upgrade.
+
 ### Fixed
 - A favicon hash was computed and then discarded whenever the corpus did not
   name it. The identity normalizer skipped any result carrying no vendor or

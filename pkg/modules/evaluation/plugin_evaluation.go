@@ -19,7 +19,7 @@ const (
 	pluginEvalModuleName        = "plugin-evaluation"
 	pluginEvalModuleDescription = "Evaluates scan results against embedded security check plugins."
 	pluginEvalModuleVersion     = "0.1.0"
-	pluginEvalModuleAuthor      = "Vulntor Team"
+	pluginEvalModuleAuthor      = "Cyprob Team"
 )
 
 // VulnerabilityResult represents a matched vulnerability from plugin evaluation.

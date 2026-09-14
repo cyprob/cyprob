@@ -109,7 +109,7 @@ func newNBNSProbeModule() *nbnsProbeModule {
 			Description: nbnsProbeModuleDescription,
 			Version:     "0.1.0",
 			Type:        engine.ScanModuleType,
-			Author:      "Vulntor Team",
+			Author:      "Cyprob Team",
 			Tags:        []string{"scan", "netbios", "nbns", "udp", "native_probe", "enrichment"},
 			Consumes: []engine.DataContractEntry{
 				{

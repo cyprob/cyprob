@@ -22,7 +22,7 @@ const (
 	techTaggerModuleName        = "tech-tagger"
 	techTaggerModuleDescription = "Enriches service profiles with technology tags using regex matches (from YAML) and fingerprint mapping."
 	techTaggerModuleVersion     = "0.1.0"
-	techTaggerModuleAuthor      = "Vulntor Team"
+	techTaggerModuleAuthor      = "Cyprob Team"
 )
 
 //go:embed tech_queries.yaml

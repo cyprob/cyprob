@@ -46,7 +46,7 @@ func newRPCEpmapperProbeModuleWithSpec(moduleID string, moduleName string, descr
 			Description: description,
 			Version:     "0.1.0",
 			Type:        engine.ScanModuleType,
-			Author:      "Vulntor Team",
+			Author:      "Cyprob Team",
 			Tags:        tags,
 			Consumes: []engine.DataContractEntry{
 				{Key: "discovery.open_tcp_ports", DataTypeName: "discovery.TCPPortDiscoveryResult", Cardinality: engine.CardinalityList, IsOptional: true},

@@ -27,7 +27,7 @@ EITHER condition (OR logic).
 The command reads retention policies from:
   1. Command flags (--max-scans, --max-age-days) - highest priority
   2. Config file (storage.retention.max_scans, storage.retention.max_age_days)
-  3. Environment variables (VULNTOR_RETENTION_MAX_SCANS, VULNTOR_RETENTION_MAX_AGE_DAYS)
+  3. Environment variables (CYPROB_RETENTION_MAX_SCANS, CYPROB_RETENTION_MAX_AGE_DAYS)
 
 Use --dry-run to preview which scans would be deleted without actually deleting them.`,
 		RunE: func(cmd *cobra.Command, args []string) error {

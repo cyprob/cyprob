@@ -1,4 +1,4 @@
-// Copyright 2025 Vulntor Authors
+// Copyright 2025 Cyprob Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 
@@ -20,7 +20,7 @@ func TestLoader_Load(t *testing.T) {
 name: Test Plugin
 version: 1.0.0
 type: evaluation
-author: vulntor-test
+author: cyprob-test
 
 metadata:
   severity: high
@@ -58,7 +58,7 @@ output:
 	require.Equal(t, "Test Plugin", plugin.Name)
 	require.Equal(t, "1.0.0", plugin.Version)
 	require.Equal(t, EvaluationType, plugin.Type)
-	require.Equal(t, "vulntor-test", plugin.Author)
+	require.Equal(t, "cyprob-test", plugin.Author)
 	require.Equal(t, HighSeverity, plugin.Metadata.Severity)
 	require.Equal(t, "CVE-2024-TEST", plugin.Metadata.CVE)
 	require.Len(t, plugin.Triggers, 1)
@@ -80,7 +80,7 @@ func TestLoader_Load_JSON(t *testing.T) {
   "name": "Test JSON Plugin",
   "version": "1.0.0",
   "type": "evaluation",
-  "author": "vulntor-test",
+  "author": "cyprob-test",
   "metadata": {
     "severity": "medium",
     "tags": ["test", "http"]

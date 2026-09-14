@@ -111,7 +111,7 @@ func newHTTPParserModuleWithSpec(moduleID string, moduleName string, description
 			Version:     "0.1.0",
 			Description: description,
 			Type:        engine.ParseModuleType,
-			Author:      "Vulntor Team",
+			Author:      "Cyprob Team",
 			Tags:        tags,
 			Consumes: []engine.DataContractEntry{
 				{

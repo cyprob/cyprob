@@ -83,7 +83,7 @@ func newFaviconProbeModule() *faviconProbeModule {
 			Description: faviconProbeModuleDescription,
 			Version:     "0.1.0",
 			Type:        engine.ScanModuleType,
-			Author:      "Vulntor Team",
+			Author:      "Cyprob Team",
 			Tags:        []string{"scan", "http", "favicon", "enrichment", "native_probe"},
 			Consumes: []engine.DataContractEntry{
 				{

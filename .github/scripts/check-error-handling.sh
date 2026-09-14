@@ -6,7 +6,7 @@
 #   check-error-handling.sh <path> <banned_pattern> <suggestion>
 #
 # Arguments:
-#   path            - Directory to scan (e.g., cmd/vulntor/commands/plugin)
+#   path            - Directory to scan (e.g., cmd/cyprob/commands/plugin)
 #   banned_pattern  - Regex pattern to detect (e.g., 'return\s+formatter\.PrintError\s*\(')
 #   suggestion      - Guidance message for developers
 #

@@ -142,7 +142,7 @@ func newSNMPNativeProbeModule() *snmpNativeProbeModule {
 			Description: snmpNativeProbeModuleDescription,
 			Version:     "0.1.0",
 			Type:        engine.ScanModuleType,
-			Author:      "Vulntor Team",
+			Author:      "Cyprob Team",
 			Tags:        []string{"scan", "snmp", "udp", "native_probe", "enrichment"},
 			Consumes: []engine.DataContractEntry{
 				{

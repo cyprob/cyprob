@@ -1,7 +1,7 @@
 name: SSH Weak Key Exchange Algorithm
 version: 1.0.0
 type: evaluation
-author: vulntor-security
+author: cyprob-security
 
 metadata:
   severity: medium

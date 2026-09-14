@@ -1,4 +1,4 @@
-// Copyright 2025 Vulntor Authors
+// Copyright 2025 Cyprob Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 
@@ -17,7 +17,7 @@ import (
 
 func init() {
 	// Set test mode to prevent os.Exit() calls during tests
-	_ = os.Setenv("VULNTOR_TEST_MODE", "1")
+	_ = os.Setenv("CYPROB_TEST_MODE", "1")
 }
 
 func TestValidateCommand_ValidDAG(t *testing.T) {

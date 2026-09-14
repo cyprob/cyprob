@@ -69,7 +69,7 @@ func newUDPPortDiscoveryModule() *UDPPortDiscoveryModule {
 			Version:     "0.1.0",
 			Description: "Discovers open UDP ports on target hosts using protocol-specific payloads.",
 			Type:        engine.DiscoveryModuleType,
-			Author:      "Vulntor Team",
+			Author:      "Cyprob Team",
 			Tags:        []string{"discovery", "port", "udp"},
 			Consumes: []engine.DataContractEntry{
 				{

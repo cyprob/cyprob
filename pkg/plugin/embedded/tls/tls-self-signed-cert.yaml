@@ -2,7 +2,7 @@ id: tls-self-signed-certificate
 name: TLS Self-Signed Certificate
 version: 1.0.0
 type: evaluation
-author: vulntor-security
+author: cyprob-security
 
 metadata:
   severity: medium

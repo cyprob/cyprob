@@ -29,14 +29,14 @@ groups:
         use_tls: false
         skip_initial_read: true
         payload: |
-          GET / HTTP/1.1\r\nHost: {HOST}\r\nConnection: close\r\nUser-Agent: VulntorProbe/0.1\r\n\r\n
+          GET / HTTP/1.1\r\nHost: {HOST}\r\nConnection: close\r\nUser-Agent: CyprobProbe/0.1\r\n\r\n
       - id: https-get
         description: HTTPS GET fallback when HTTP indicates upgrade
         protocol: https
         use_tls: true
         skip_initial_read: true
         payload: |
-          GET / HTTP/1.1\r\nHost: {HOST}\r\nConnection: close\r\nUser-Agent: VulntorProbe/0.1\r\n\r\n
+          GET / HTTP/1.1\r\nHost: {HOST}\r\nConnection: close\r\nUser-Agent: CyprobProbe/0.1\r\n\r\n
         port_include: [443, 8443, 9443]
   - id: smtp
     description: SMTP greeting and EHLO probe
@@ -46,12 +46,12 @@ groups:
       - id: smtp-ehlo
         protocol: smtp
         use_tls: false
-        payload: "EHLO vulntor.local\r\n"
+        payload: "EHLO cyprob.local\r\n"
         port_exclude: [465]
       - id: smtp-ehlo-tls
         protocol: smtp
         use_tls: true
-        payload: "EHLO vulntor.local\r\n"
+        payload: "EHLO cyprob.local\r\n"
         port_include: [465]
   - id: imap
     description: IMAP capability probe

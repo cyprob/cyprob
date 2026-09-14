@@ -50,13 +50,13 @@ func TestRelaxedThresholds(t *testing.T) {
 func TestLoadThresholdsFromEnv(t *testing.T) {
 	t.Run("default when no env vars", func(t *testing.T) {
 		// Clear all env vars
-		os.Unsetenv("VULNTOR_VALIDATION_TARGET_FPR")
-		os.Unsetenv("VULNTOR_VALIDATION_TARGET_TPR")
-		os.Unsetenv("VULNTOR_VALIDATION_TARGET_PRECISION")
-		os.Unsetenv("VULNTOR_VALIDATION_TARGET_F1")
-		os.Unsetenv("VULNTOR_VALIDATION_TARGET_PROTOCOLS")
-		os.Unsetenv("VULNTOR_VALIDATION_TARGET_VERSION_RATE")
-		os.Unsetenv("VULNTOR_VALIDATION_TARGET_PERF_MS")
+		os.Unsetenv("CYPROB_VALIDATION_TARGET_FPR")
+		os.Unsetenv("CYPROB_VALIDATION_TARGET_TPR")
+		os.Unsetenv("CYPROB_VALIDATION_TARGET_PRECISION")
+		os.Unsetenv("CYPROB_VALIDATION_TARGET_F1")
+		os.Unsetenv("CYPROB_VALIDATION_TARGET_PROTOCOLS")
+		os.Unsetenv("CYPROB_VALIDATION_TARGET_VERSION_RATE")
+		os.Unsetenv("CYPROB_VALIDATION_TARGET_PERF_MS")
 
 		thresholds := LoadThresholdsFromEnv()
 		defaults := DefaultThresholds()
@@ -66,13 +66,13 @@ func TestLoadThresholdsFromEnv(t *testing.T) {
 
 	t.Run("override individual thresholds", func(t *testing.T) {
 		// Set custom env vars
-		os.Setenv("VULNTOR_VALIDATION_TARGET_FPR", "0.05")
-		os.Setenv("VULNTOR_VALIDATION_TARGET_TPR", "0.90")
-		os.Setenv("VULNTOR_VALIDATION_TARGET_PROTOCOLS", "25")
+		os.Setenv("CYPROB_VALIDATION_TARGET_FPR", "0.05")
+		os.Setenv("CYPROB_VALIDATION_TARGET_TPR", "0.90")
+		os.Setenv("CYPROB_VALIDATION_TARGET_PROTOCOLS", "25")
 		defer func() {
-			os.Unsetenv("VULNTOR_VALIDATION_TARGET_FPR")
-			os.Unsetenv("VULNTOR_VALIDATION_TARGET_TPR")
-			os.Unsetenv("VULNTOR_VALIDATION_TARGET_PROTOCOLS")
+			os.Unsetenv("CYPROB_VALIDATION_TARGET_FPR")
+			os.Unsetenv("CYPROB_VALIDATION_TARGET_TPR")
+			os.Unsetenv("CYPROB_VALIDATION_TARGET_PROTOCOLS")
 		}()
 
 		thresholds := LoadThresholdsFromEnv()
@@ -85,15 +85,26 @@ func TestLoadThresholdsFromEnv(t *testing.T) {
 		require.Equal(t, DefaultThresholds().TargetF1, thresholds.TargetF1)
 	})
 
+	t.Run("former prefix still read, new prefix wins", func(t *testing.T) {
+		t.Setenv("VULNTOR_VALIDATION_TARGET_FPR", "0.07")
+		t.Setenv("VULNTOR_VALIDATION_TARGET_TPR", "0.91")
+		t.Setenv("CYPROB_VALIDATION_TARGET_TPR", "0.93")
+
+		thresholds := LoadThresholdsFromEnv()
+
+		require.Equal(t, 0.07, thresholds.TargetFPR, "legacy key used when the new key is unset")
+		require.Equal(t, 0.93, thresholds.TargetTPR, "new key wins when both are set")
+	})
+
 	t.Run("ignore invalid values", func(t *testing.T) {
 		// Set invalid env vars
-		os.Setenv("VULNTOR_VALIDATION_TARGET_FPR", "invalid")
-		os.Setenv("VULNTOR_VALIDATION_TARGET_TPR", "-1.5")
-		os.Setenv("VULNTOR_VALIDATION_TARGET_PROTOCOLS", "not_a_number")
+		os.Setenv("CYPROB_VALIDATION_TARGET_FPR", "invalid")
+		os.Setenv("CYPROB_VALIDATION_TARGET_TPR", "-1.5")
+		os.Setenv("CYPROB_VALIDATION_TARGET_PROTOCOLS", "not_a_number")
 		defer func() {
-			os.Unsetenv("VULNTOR_VALIDATION_TARGET_FPR")
-			os.Unsetenv("VULNTOR_VALIDATION_TARGET_TPR")
-			os.Unsetenv("VULNTOR_VALIDATION_TARGET_PROTOCOLS")
+			os.Unsetenv("CYPROB_VALIDATION_TARGET_FPR")
+			os.Unsetenv("CYPROB_VALIDATION_TARGET_TPR")
+			os.Unsetenv("CYPROB_VALIDATION_TARGET_PROTOCOLS")
 		}()
 
 		thresholds := LoadThresholdsFromEnv()
@@ -106,8 +117,8 @@ func TestLoadThresholdsFromEnv(t *testing.T) {
 
 	t.Run("validate range constraints", func(t *testing.T) {
 		// FPR > 1.0 should be ignored
-		os.Setenv("VULNTOR_VALIDATION_TARGET_FPR", "1.5")
-		defer os.Unsetenv("VULNTOR_VALIDATION_TARGET_FPR")
+		os.Setenv("CYPROB_VALIDATION_TARGET_FPR", "1.5")
+		defer os.Unsetenv("CYPROB_VALIDATION_TARGET_FPR")
 
 		thresholds := LoadThresholdsFromEnv()
 		require.Equal(t, DefaultThresholds().TargetFPR, thresholds.TargetFPR, "Should ignore out-of-range value")
@@ -259,11 +270,11 @@ func TestValidationRunnerWithCustomThresholds(t *testing.T) {
 
 	t.Run("env variables override defaults", func(t *testing.T) {
 		// Set custom thresholds via env
-		os.Setenv("VULNTOR_VALIDATION_TARGET_FPR", "0.05")
-		os.Setenv("VULNTOR_VALIDATION_TARGET_TPR", "0.90")
+		os.Setenv("CYPROB_VALIDATION_TARGET_FPR", "0.05")
+		os.Setenv("CYPROB_VALIDATION_TARGET_TPR", "0.90")
 		defer func() {
-			os.Unsetenv("VULNTOR_VALIDATION_TARGET_FPR")
-			os.Unsetenv("VULNTOR_VALIDATION_TARGET_TPR")
+			os.Unsetenv("CYPROB_VALIDATION_TARGET_FPR")
+			os.Unsetenv("CYPROB_VALIDATION_TARGET_TPR")
 		}()
 
 		rules := []StaticRule{
@@ -290,40 +301,41 @@ func TestValidationRunnerWithCustomThresholds(t *testing.T) {
 
 func TestLoadPositiveFloatEnv(t *testing.T) {
 	defaultVal := 42.5
-	const key = "TEST_LOAD_POS_FLOAT"
+	const key = "TEST_LOAD_POS_FLOAT" // suffix; the loader reads CYPROB_<key>, then VULNTOR_<key>
+	const envKey = "CYPROB_" + key
 
 	t.Run("missing env returns default", func(t *testing.T) {
-		os.Unsetenv(key)
+		os.Unsetenv(envKey)
 		require.Equal(t, defaultVal, loadPositiveFloatEnv(key, defaultVal))
 	})
 
 	t.Run("valid positive float", func(t *testing.T) {
-		os.Setenv(key, "3.14")
-		defer os.Unsetenv(key)
+		os.Setenv(envKey, "3.14")
+		defer os.Unsetenv(envKey)
 		require.Equal(t, 3.14, loadPositiveFloatEnv(key, defaultVal))
 	})
 
 	t.Run("zero returns default", func(t *testing.T) {
-		os.Setenv(key, "0")
-		defer os.Unsetenv(key)
+		os.Setenv(envKey, "0")
+		defer os.Unsetenv(envKey)
 		require.Equal(t, defaultVal, loadPositiveFloatEnv(key, defaultVal))
 	})
 
 	t.Run("negative returns default", func(t *testing.T) {
-		os.Setenv(key, "-1.23")
-		defer os.Unsetenv(key)
+		os.Setenv(envKey, "-1.23")
+		defer os.Unsetenv(envKey)
 		require.Equal(t, defaultVal, loadPositiveFloatEnv(key, defaultVal))
 	})
 
 	t.Run("invalid returns default", func(t *testing.T) {
-		os.Setenv(key, "not_a_number")
-		defer os.Unsetenv(key)
+		os.Setenv(envKey, "not_a_number")
+		defer os.Unsetenv(envKey)
 		require.Equal(t, defaultVal, loadPositiveFloatEnv(key, defaultVal))
 	})
 
 	t.Run("large positive float", func(t *testing.T) {
-		os.Setenv(key, "12345.6789")
-		defer os.Unsetenv(key)
+		os.Setenv(envKey, "12345.6789")
+		defer os.Unsetenv(envKey)
 		require.Equal(t, 12345.6789, loadPositiveFloatEnv(key, defaultVal))
 	})
 }
