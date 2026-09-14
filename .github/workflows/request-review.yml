@@ -1,0 +1,51 @@
+# Tell the reviewer a pull request is waiting.
+#
+# GitHub's own mechanisms for this are closed to us. The Reviewers field and
+# CODEOWNERS both accept only user accounts, and every persona here is a GitHub
+# App; team review assignment needs teams, which also hold only users. So a
+# pull request opened in this organisation notifies nobody, and the only thing
+# that has reached a reviewer so far is somebody remembering to @-mention them.
+# That failed on cyprob-ee#620 on 2026-09-14, which is why this exists.
+#
+# The label is the message. agent-desk's worker delivers a `for/` label as an
+# inbox row, so labelling is both the notification and a visible queue: the
+# open pull requests waiting on a reviewer are `is:open label:for/talos`.
+#
+# Deliberately fired on open rather than on checks going green. A red pull
+# request is still one the reviewer should know exists, and COMMON.md already
+# holds the rule that a verdict waits for green — that judgement belongs to the
+# reviewer, not to this file. Gating here would also couple this workflow to
+# each repository's CI workflow name, which is a thing that changes quietly.
+name: Request Review
+
+on:
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - ready_for_review
+
+permissions:
+  pull-requests: write
+
+jobs:
+  label:
+    name: Label for the reviewer
+    runs-on: ubuntu-latest
+    # A draft is not waiting on anyone. `ready_for_review` above picks it up
+    # when the author says so.
+    if: github.event.pull_request.draft == false
+    steps:
+      - name: Add for/talos
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          # Adding a label that is already present is a no-op for GitHub but
+          # emits no `labeled` event, so a reopened pull request that still
+          # carries the label will not ring again. That is the correct
+          # behaviour: the reviewer was already told.
+          gh pr edit "$PR" --repo "$REPO" --add-label 'for/talos'
