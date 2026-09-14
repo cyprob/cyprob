@@ -72,7 +72,7 @@ vulntor storage show <scan-id>    # Show scan details
 vulntor storage gc                # Garbage collection
 ```
 
-See [Storage Commands](./storage.md) for details.
+See Storage Commands for details.
 
 ### vulntor server
 
@@ -159,7 +159,7 @@ vulntor storage export <scan-id> --format json -o report.json
       </div>
       <div className="card__body">
         <p>Learn common scanning patterns and use cases</p>
-        <a href="./common-workflows" className="button button--primary">View Workflows</a>
+        <a href="./common-workflows.md" className="button button--primary">View Workflows</a>
       </div>
     </div>
   </div>
@@ -170,7 +170,7 @@ vulntor storage export <scan-id> --format json -o report.json
       </div>
       <div className="card__body">
         <p>Understand different output formats and verbosity levels</p>
-        <a href="./output-formats" className="button button--primary">Learn More</a>
+        <a href="./output-formats.md" className="button button--primary">Learn More</a>
       </div>
     </div>
   </div>
@@ -184,7 +184,7 @@ vulntor storage export <scan-id> --format json -o report.json
       </div>
       <div className="card__body">
         <p>Configure CLI using files, environment variables, and flags</p>
-        <a href="./configuration" className="button button--primary">Configure CLI</a>
+        <a href="./configuration.md" className="button button--primary">Configure CLI</a>
       </div>
     </div>
   </div>
@@ -195,7 +195,7 @@ vulntor storage export <scan-id> --format json -o report.json
       </div>
       <div className="card__body">
         <p>Integrate with CI/CD, automation tools, and scripts</p>
-        <a href="./integrations" className="button button--primary">View Examples</a>
+        <a href="./integrations.md" className="button button--primary">View Examples</a>
       </div>
     </div>
   </div>
@@ -206,6 +206,6 @@ vulntor storage export <scan-id> --format json -o report.json
 | Command                         | Description                       |
 | ------------------------------- | --------------------------------- |
 | [scan](./scan.md)               | Execute security scans            |
-| [storage](./storage.md)         | Manage scan results and storage   |
+| storage         | Manage scan results and storage   |
 | [server](./server.md)           | Control Vulntor server            |
 | [fingerprint](./fingerprint.md) | Manage fingerprint database       |

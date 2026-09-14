@@ -387,6 +387,6 @@ vulntor scan --targets 192.168.1.100
 
 ## See Also
 
-- [Fingerprinting System](/concepts/fingerprinting) - How fingerprinting works
-- [Custom Fingerprints Guide](/advanced/custom-fingerprints) - Advanced rule writing
-- [Scan Command](/cli/scan) - Using fingerprints in scans
+- Fingerprinting System - How fingerprinting works
+- Custom Fingerprints Guide - Advanced rule writing
+- [Scan Command](./scan.md) - Using fingerprints in scans
