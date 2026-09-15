@@ -584,7 +584,7 @@ func probeSingleSMBStrategy(ctx context.Context, ip string, strategy smbProbeStr
 	neg.conn = conn
 	enum := smbEnumResult{}
 	if opts.IncludeEnum && neg.protocolVersion != "smb1" {
-		enum = runSMBEnumFromExistingSession(conn, opts.IOTimeout)
+		enum = runSMBEnumFromExistingSession(conn, opts.IOTimeout, resp)
 		if enum.err != nil || scoreSMBEnumResult(enum) == 0 {
 			fallbackEnum := runSMBEnumFromStrategy(ctx, ip, strategy, opts)
 			if fallbackEnum.err == nil && (enum.err != nil || scoreSMBEnumResult(fallbackEnum) > scoreSMBEnumResult(enum)) {
@@ -801,7 +801,7 @@ func runSMBEnumSessionRequest(
 	if err != nil {
 		return smbEnumResult{}, fmt.Errorf("ntlm_challenge_not_found status=0x%08x", smb2StatusCode(sessionResp))
 	}
-	return enumResultFromChallenge(challenge, sessionResp), nil
+	return enumResultFromChallenge(challenge, sessionResp, negotiateResp), nil
 }
 
 func scoreSMBEnumResult(result smbEnumResult) int {
@@ -851,7 +851,7 @@ func buildSMB2SessionSetupRequest() ([]byte, error) {
 	return frame, nil
 }
 
-func runSMBEnumFromExistingSession(conn net.Conn, ioTimeout time.Duration) smbEnumResult {
+func runSMBEnumFromExistingSession(conn net.Conn, ioTimeout time.Duration, negotiateRaw []byte) smbEnumResult {
 	legacyReq, legacyReqErr := buildSMB2SessionSetupRequest()
 	if legacyReqErr != nil {
 		return smbEnumResult{err: legacyReqErr}
@@ -874,10 +874,15 @@ func runSMBEnumFromExistingSession(conn net.Conn, ioTimeout time.Duration) smbEn
 	if err != nil {
 		return smbEnumResult{err: fmt.Errorf("ntlm_challenge_not_found status=0x%08x", smb2StatusCode(resp))}
 	}
-	return enumResultFromChallenge(challenge, resp)
+	return enumResultFromChallenge(challenge, resp, negotiateRaw)
 }
 
-func enumResultFromChallenge(challenge *ntlmChallengeInfo, raw []byte) smbEnumResult {
+// sambaGenSecMarker is a literal Samba's SPNEGO implementation writes into the mechanism
+// list of its negotiate response; unlike the NTLM version block it is not spoofable and
+// unlike the literal "SAMBA" banner it survives even when the server string is suppressed.
+const sambaGenSecMarker = "NOT_DEFINED_IN_RFC4178"
+
+func enumResultFromChallenge(challenge *ntlmChallengeInfo, sessionRaw, negotiateRaw []byte) smbEnumResult {
 	product, productVersion := mapSMBEnumProductVersion(challenge)
 	enum := smbEnumResult{
 		product:        product,
@@ -891,7 +896,16 @@ func enumResultFromChallenge(challenge *ntlmChallengeInfo, raw []byte) smbEnumRe
 		},
 	}
 
-	if challenge.VersionPresent {
+	// Samba routinely spoofs the NTLM version block for client compatibility, so its own
+	// identification overrides that field rather than the reverse. The marker lives in
+	// whichever frame carries it: the session-setup response for a literal "SAMBA" banner,
+	// the negotiate response for the GENSEC signature Samba never suppresses.
+	if isSambaSMBResponse(sessionRaw) || isSambaSMBResponse(negotiateRaw) {
+		enum.vendor = "samba"
+		enum.product = "samba"
+		enum.productVersion = firstNonEmpty(extractSambaVersion(string(sessionRaw)), extractSambaVersion(string(negotiateRaw)))
+		enum.osHints = SMBOSHints{Family: "linux", Name: "Linux"}
+	} else if challenge.VersionPresent {
 		enum.vendor = "microsoft"
 		enum.osHints = SMBOSHints{
 			Family:  "windows",
@@ -899,20 +913,27 @@ func enumResultFromChallenge(challenge *ntlmChallengeInfo, raw []byte) smbEnumRe
 			Version: mapWindowsVersion(challenge.VersionMajor, challenge.VersionMinor, challenge.VersionBuild),
 		}
 	}
-	if strings.Contains(strings.ToUpper(string(raw)), "SAMBA") {
-		enum.vendor = "samba"
-		enum.product = "samba"
-		if enum.productVersion == "" {
-			enum.productVersion = extractSambaVersion(string(raw))
-		}
-		if enum.osHints.Family == "" {
-			enum.osHints = SMBOSHints{Family: "linux", Name: "Linux"}
-		}
-	}
 	if enum.product == "" {
 		enum.product = "smb"
 	}
 	return enum
+}
+
+func isSambaSMBResponse(raw []byte) bool {
+	if len(raw) == 0 {
+		return false
+	}
+	upper := strings.ToUpper(string(raw))
+	return strings.Contains(upper, "SAMBA") || strings.Contains(upper, sambaGenSecMarker)
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 func smb2SessionSetupNTLMNegotiateRequest() []byte {
