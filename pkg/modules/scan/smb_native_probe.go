@@ -891,22 +891,19 @@ func enumResultFromChallenge(challenge *ntlmChallengeInfo, raw []byte) smbEnumRe
 		},
 	}
 
-	if challenge.VersionPresent {
+	// Samba routinely spoofs the NTLM version block for client compatibility, so its own
+	// self-identification in the raw response overrides that field rather than the reverse.
+	if strings.Contains(strings.ToUpper(string(raw)), "SAMBA") {
+		enum.vendor = "samba"
+		enum.product = "samba"
+		enum.productVersion = extractSambaVersion(string(raw))
+		enum.osHints = SMBOSHints{Family: "linux", Name: "Linux"}
+	} else if challenge.VersionPresent {
 		enum.vendor = "microsoft"
 		enum.osHints = SMBOSHints{
 			Family:  "windows",
 			Name:    "Windows",
 			Version: mapWindowsVersion(challenge.VersionMajor, challenge.VersionMinor, challenge.VersionBuild),
-		}
-	}
-	if strings.Contains(strings.ToUpper(string(raw)), "SAMBA") {
-		enum.vendor = "samba"
-		enum.product = "samba"
-		if enum.productVersion == "" {
-			enum.productVersion = extractSambaVersion(string(raw))
-		}
-		if enum.osHints.Family == "" {
-			enum.osHints = SMBOSHints{Family: "linux", Name: "Linux"}
 		}
 	}
 	if enum.product == "" {

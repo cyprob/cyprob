@@ -147,3 +147,77 @@ func TestNetBIOSSessionResponse_OnlyANegativeResponseIsARefusal(t *testing.T) {
 		})
 	}
 }
+
+func TestEnumResultFromChallenge_SambaSpoofedVersionDoesNotClassifyAsWindows(t *testing.T) {
+	tests := []struct {
+		name           string
+		challenge      *ntlmChallengeInfo
+		raw            []byte
+		wantVendor     string
+		wantProduct    string
+		wantOSFamily   string
+		wantOSName     string
+		wantVersionSet bool
+	}{
+		{
+			name: "samba spoofing a windows 7 / server 2008 r2 version block",
+			challenge: &ntlmChallengeInfo{
+				VersionPresent: true,
+				VersionMajor:   6,
+				VersionMinor:   1,
+				VersionBuild:   7601,
+			},
+			raw:            []byte("Samba 4.15.13"),
+			wantVendor:     "samba",
+			wantProduct:    "samba",
+			wantOSFamily:   "linux",
+			wantOSName:     "Linux",
+			wantVersionSet: true,
+		},
+		{
+			name: "genuine windows challenge with no samba marker",
+			challenge: &ntlmChallengeInfo{
+				VersionPresent: true,
+				VersionMajor:   6,
+				VersionMinor:   1,
+				VersionBuild:   7601,
+			},
+			raw:          []byte("no vendor marker here"),
+			wantVendor:   "microsoft",
+			wantProduct:  "Microsoft Windows SMB",
+			wantOSFamily: "windows",
+			wantOSName:   "Windows",
+		},
+		{
+			name:         "samba with no version block at all",
+			challenge:    &ntlmChallengeInfo{},
+			raw:          []byte("Samba 4.15.13"),
+			wantVendor:   "samba",
+			wantProduct:  "samba",
+			wantOSFamily: "linux",
+			wantOSName:   "Linux",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := enumResultFromChallenge(tt.challenge, tt.raw)
+
+			if got.vendor != tt.wantVendor {
+				t.Errorf("vendor = %q, want %q", got.vendor, tt.wantVendor)
+			}
+			if got.product != tt.wantProduct {
+				t.Errorf("product = %q, want %q", got.product, tt.wantProduct)
+			}
+			if got.osHints.Family != tt.wantOSFamily {
+				t.Errorf("osHints.Family = %q, want %q", got.osHints.Family, tt.wantOSFamily)
+			}
+			if got.osHints.Name != tt.wantOSName {
+				t.Errorf("osHints.Name = %q, want %q", got.osHints.Name, tt.wantOSName)
+			}
+			if tt.wantVersionSet && got.productVersion != "4.15.13" {
+				t.Errorf("productVersion = %q, want %q", got.productVersion, "4.15.13")
+			}
+		})
+	}
+}
