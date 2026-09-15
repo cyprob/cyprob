@@ -152,37 +152,58 @@ func TestEnumResultFromChallenge_SambaSpoofedVersionDoesNotClassifyAsWindows(t *
 	tests := []struct {
 		name           string
 		challenge      *ntlmChallengeInfo
-		raw            []byte
+		sessionRaw     []byte
+		negotiateRaw   []byte
 		wantVendor     string
 		wantProduct    string
 		wantOSFamily   string
 		wantOSName     string
-		wantVersionSet bool
+		wantVersionSet string
 	}{
 		{
-			name: "samba spoofing a windows 7 / server 2008 r2 version block",
+			name: "samba banner in the session-setup response itself",
 			challenge: &ntlmChallengeInfo{
 				VersionPresent: true,
 				VersionMajor:   6,
 				VersionMinor:   1,
 				VersionBuild:   7601,
 			},
-			raw:            []byte("Samba 4.15.13"),
+			sessionRaw:     []byte("Samba 4.15.13"),
 			wantVendor:     "samba",
 			wantProduct:    "samba",
 			wantOSFamily:   "linux",
 			wantOSName:     "Linux",
-			wantVersionSet: true,
+			wantVersionSet: "4.15.13",
 		},
 		{
-			name: "genuine windows challenge with no samba marker",
+			// This is the shape Talos measured against a real Samba 4.12.2 server while
+			// reviewing #387: the session-setup response carries no vendor string at all,
+			// only the negotiate response's SPNEGO mechanism list does, via Samba's own
+			// GENSEC marker rather than its name.
+			name: "samba identified only through the negotiate response's GENSEC marker",
+			challenge: &ntlmChallengeInfo{
+				VersionPresent: true,
+				VersionMajor:   6,
+				VersionMinor:   1,
+				VersionBuild:   0,
+			},
+			sessionRaw:   []byte("no vendor marker in this frame"),
+			negotiateRaw: []byte("...not_defined_in_RFC4178@please_ignore..."),
+			wantVendor:   "samba",
+			wantProduct:  "samba",
+			wantOSFamily: "linux",
+			wantOSName:   "Linux",
+		},
+		{
+			name: "genuine windows challenge with no samba marker anywhere",
 			challenge: &ntlmChallengeInfo{
 				VersionPresent: true,
 				VersionMajor:   6,
 				VersionMinor:   1,
 				VersionBuild:   7601,
 			},
-			raw:          []byte("no vendor marker here"),
+			sessionRaw:   []byte("no vendor marker here"),
+			negotiateRaw: []byte("no vendor marker here either"),
 			wantVendor:   "microsoft",
 			wantProduct:  "Microsoft Windows SMB",
 			wantOSFamily: "windows",
@@ -191,7 +212,7 @@ func TestEnumResultFromChallenge_SambaSpoofedVersionDoesNotClassifyAsWindows(t *
 		{
 			name:         "samba with no version block at all",
 			challenge:    &ntlmChallengeInfo{},
-			raw:          []byte("Samba 4.15.13"),
+			sessionRaw:   []byte("Samba 4.15.13"),
 			wantVendor:   "samba",
 			wantProduct:  "samba",
 			wantOSFamily: "linux",
@@ -201,7 +222,7 @@ func TestEnumResultFromChallenge_SambaSpoofedVersionDoesNotClassifyAsWindows(t *
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := enumResultFromChallenge(tt.challenge, tt.raw)
+			got := enumResultFromChallenge(tt.challenge, tt.sessionRaw, tt.negotiateRaw)
 
 			if got.vendor != tt.wantVendor {
 				t.Errorf("vendor = %q, want %q", got.vendor, tt.wantVendor)
@@ -215,8 +236,8 @@ func TestEnumResultFromChallenge_SambaSpoofedVersionDoesNotClassifyAsWindows(t *
 			if got.osHints.Name != tt.wantOSName {
 				t.Errorf("osHints.Name = %q, want %q", got.osHints.Name, tt.wantOSName)
 			}
-			if tt.wantVersionSet && got.productVersion != "4.15.13" {
-				t.Errorf("productVersion = %q, want %q", got.productVersion, "4.15.13")
+			if tt.wantVersionSet != "" && got.productVersion != tt.wantVersionSet {
+				t.Errorf("productVersion = %q, want %q", got.productVersion, tt.wantVersionSet)
 			}
 		})
 	}
